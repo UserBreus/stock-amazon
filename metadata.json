@@ -1,0 +1,5 @@
+{
+  "name": "Logística Nexus",
+  "description": "Sistema de gestión logística con control de inventario operativo y gerencial, análisis de proveedores y roles de acceso diferenciados.",
+  "requestFramePermissions": ["camera"]
+}

@@ -1,0 +1,108 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+
+  /* Custom Colors - Nexus Logistics Theme */
+  --color-nexus-blue: #003366;
+  --color-nexus-light: #ffffff;
+  --color-nexus-accent: #3b82f6;
+  
+  /* Semantic Colors */
+  --color-surface: #ffffff;
+  --color-on-surface: #0f172a;
+  --color-surface-variant: #f8fafc;
+  --color-on-surface-variant: #64748b;
+  --color-surface-container-low: #f1f5f9;
+  --color-surface-container-lowest: #ffffff;
+  
+  --color-primary: #003366;
+  --color-on-primary: #ffffff;
+  --color-primary-container: #dcfce7;
+  --color-on-primary-container: #166534;
+  
+  --color-secondary-container: #f1f5f9;
+  --color-on-secondary-container: #475569;
+  
+  --color-tertiary-fixed: #fef3c7;
+  --color-on-tertiary-fixed-variant: #92400e;
+  
+  --color-primary-fixed: #dbeafe;
+  --color-on-primary-fixed-variant: #1e40af;
+  
+  --color-secondary-fixed: #f3f4f6;
+  --color-on-secondary-fixed-variant: #374151;
+  
+  --color-error: #ef4444;
+  --color-success: #10b981;
+  --color-warning: #f59e0b;
+}
+
+.dark {
+  --color-surface: #0f172a;
+  --color-on-surface: #f8fafc;
+  --color-surface-variant: #1e293b;
+  --color-on-surface-variant: #94a3b8;
+  --color-surface-container-low: #1e293b;
+  --color-surface-container-lowest: #0f172a;
+  
+  --color-primary: #3b82f6;
+  --color-on-primary: #ffffff;
+  --color-primary-container: #1e3a8a;
+  --color-on-primary-container: #dbeafe;
+  
+  --color-secondary-container: #334155;
+  --color-on-secondary-container: #cbd5e1;
+  
+  --color-tertiary-fixed: #451a03;
+  --color-on-tertiary-fixed-variant: #fef3c7;
+  
+  --color-primary-fixed: #1e3a8a;
+  --color-on-primary-fixed-variant: #dbeafe;
+  
+  --color-secondary-fixed: #1e293b;
+  --color-on-secondary-fixed-variant: #f1f5f9;
+}
+
+html {
+  @apply transition-colors duration-500;
+}
+
+@layer base {
+  body {
+    @apply bg-white text-slate-900 transition-colors duration-500 selection:bg-blue-100 selection:text-blue-900;
+  }
+  
+  .dark body, body.dark, .dark {
+    @apply bg-slate-950 text-slate-100 selection:bg-blue-900 selection:text-blue-100;
+  }
+}
+
+/* Custom Utilities */
+@utility glass {
+  @apply backdrop-blur-xl bg-white/70 dark:bg-slate-900/70 border border-white/20 dark:border-slate-800/50;
+}
+
+@utility card-nexus {
+  @apply bg-white dark:bg-slate-900/50 border border-slate-100 dark:border-slate-800/50 rounded-2xl shadow-sm hover:shadow-xl hover:scale-[1.01] transition-all duration-500;
+}
+
+@utility input-nexus {
+  @apply w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all duration-300;
+}
+
+@utility btn-primary {
+  @apply px-6 py-2.5 bg-blue-700 dark:bg-blue-600 text-white font-bold rounded-xl shadow-lg shadow-blue-900/10 hover:shadow-blue-900/20 hover:scale-[1.02] active:scale-[0.98] transition-all duration-300 disabled:opacity-50 disabled:pointer-events-none;
+}
+
+@keyframes scan {
+  0% { transform: translateY(0); opacity: 0.2; }
+  50% { transform: translateY(100%); opacity: 1; }
+  100% { transform: translateY(0); opacity: 0.2; }
+}
+
+.animate-scan {
+  animation: scan 3s ease-in-out infinite;
+}
