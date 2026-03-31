@@ -6,7 +6,7 @@ import { useAuth } from '../context/AuthContext';
 import { supabase } from '../supabase';
 
 export function Login() {
-  const { user, loading } = useAuth();
+  const { user, loading, login } = useAuth();
   const navigate = useNavigate();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -18,16 +18,6 @@ export function Login() {
     }
   }, [user, loading, navigate]);
 
-  const handleGoogleLogin = async () => {
-    try {
-      const { error } = await supabase.auth.signInWithOAuth({ provider: 'google' });
-      if (error) throw error;
-    } catch (error) {
-      console.error('Login con Google falló:', error);
-      setError('No se pudo iniciar sesión con Google.');
-    }
-  };
-
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -37,17 +27,22 @@ export function Login() {
         return;
       }
 
-      // Convertir el nombre de usuario local en un formato de mail compatible con Supabase Auth
-      let authEmail = username.trim().toLowerCase();
-      if (!authEmail.includes('@')) {
-        authEmail = `${authEmail}@nexus.com`;
-      }
+      // Consulta directa a tu tabla personalizada (Custom Auth)
+      const { data, error } = await supabase
+        .from('roles_usuario')
+        .select('*')
+        .eq('usuario', username.trim().toLowerCase())
+        .eq('password', password)
+        .single();
 
-      const { error } = await supabase.auth.signInWithPassword({ email: authEmail, password });
-      if (error) throw error;
+      if (error || !data) throw error;
+      
+      // Llamar al contexto manual para guardar sesión
+      login(username.trim().toLowerCase(), data);
+      
     } catch (error: any) {
       console.error('Login falló:', error);
-      setError('Credenciales incorrectas o usuario no encontrado.');
+      setError('Usuario o contraseña incorrectos.');
     }
   };
 
@@ -88,12 +83,12 @@ export function Login() {
 
               <form onSubmit={handleLogin} className="space-y-5">
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Usuario</label>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Usuario del Sistema</label>
                   <div className="relative group">
                     <UserIcon className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-blue-600 w-5 h-5 transition-colors" />
                     <input 
                       className="input-nexus pl-12" 
-                      placeholder="ej. user" 
+                      placeholder="Identificador o usuario..." 
                       type="text"
                       value={username}
                       onChange={(e) => setUsername(e.target.value)}
@@ -102,8 +97,7 @@ export function Login() {
                 </div>
                 <div className="space-y-2">
                   <div className="flex justify-between items-center px-1">
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Contraseña</label>
-                    <button type="button" className="text-[10px] font-black text-blue-600 uppercase tracking-widest hover:underline">Recuperar</button>
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Token de Acceso</label>
                   </div>
                   <div className="relative group">
                     <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-blue-600 w-5 h-5 transition-colors" />
@@ -117,30 +111,16 @@ export function Login() {
                   </div>
                 </div>
 
-                <button 
-                  type="submit"
-                  className="w-full btn-primary py-4 text-base flex items-center justify-center gap-3"
-                >
-                  <ArrowRight className="w-5 h-5" />
-                  <span>Entrar al Sistema</span>
-                </button>
-              </form>
-              
-              <div className="space-y-4">                
-                <div className="relative flex items-center justify-center">
-                  <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-slate-100 dark:border-slate-800"></div></div>
-                  <span className="relative px-4 bg-white dark:bg-slate-900 text-[10px] font-black text-slate-300 uppercase tracking-widest">O acceso directo</span>
+                <div className="pt-4">
+                  <button 
+                    type="submit"
+                    className="w-full btn-primary py-4 text-base flex items-center justify-center gap-3"
+                  >
+                    <ArrowRight className="w-5 h-5" />
+                    <span>Autorizar Entrada</span>
+                  </button>
                 </div>
-
-                <button 
-                  type="button"
-                  onClick={handleGoogleLogin}
-                  className="w-full btn-primary py-4 text-base bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 flex items-center justify-center gap-3 border border-transparent shadow-none hover:shadow-lg dark:hover:bg-blue-900/50"
-                >
-                  <CheckCircle className="w-5 h-5" />
-                  <span>Entrar con Google</span>
-                </button>
-              </div>
+              </form>
             </div>
           </div>
 

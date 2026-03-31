@@ -1,10 +1,14 @@
 import { createContext, useState, useEffect, useContext, ReactNode } from 'react';
 import { supabase } from '../supabase';
-import { UserProfile } from '../types';
-import { User } from '@supabase/supabase-js';
+
+export interface UserProfile {
+  id: string;
+  usuario: string;
+  rol: string;
+}
 
 interface AuthContextType {
-  user: User | null;
+  user: UserProfile | null;
   profile: UserProfile | null;
   loading: boolean;
   isAdmin: boolean;
@@ -12,14 +16,16 @@ interface AuthContextType {
   isOperarioStock: boolean;
   darkMode: boolean;
   toggleDarkMode: () => void;
+  login: (usuarioStr: string, profileData: UserProfile) => void;
+  logout: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
-  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [user, setUser] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
+  
   const [darkMode, setDarkMode] = useState(() => {
     const saved = localStorage.getItem('nexus-theme');
     if (saved) return saved === 'dark';
@@ -40,69 +46,45 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const toggleDarkMode = () => setDarkMode(!darkMode);
 
   useEffect(() => {
-    // Check active session on load
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        fetchProfile(session.user);
-      } else {
-        setLoading(false);
-      }
-    });
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event, session) => {
-        setUser(session?.user ?? null);
-        if (session?.user) {
-          fetchProfile(session.user);
-        } else {
-          setProfile(null);
-          setLoading(false);
+    // Revisar si existe sesión custom guardada
+    const checkSession = async () => {
+      const stored = localStorage.getItem('nexus_custom_user');
+      if (stored) {
+        try {
+          const parsed: UserProfile = JSON.parse(stored);
+          setUser(parsed);
+        } catch (e) {
+          console.error("Error parsing stored user", e);
+          localStorage.removeItem('nexus_custom_user');
         }
       }
-    );
-
-    return () => {
-      subscription.unsubscribe();
+      setLoading(false);
     };
+
+    checkSession();
   }, []);
 
-  const fetchProfile = async (currentUser: User) => {
-    let { data, error } = await supabase
-      .from('roles_usuario')
-      .select('*')
-      .eq('id', currentUser.id)
-      .single();
+  const login = (usuarioStr: string, profileData: UserProfile) => {
+    setUser(profileData);
+    localStorage.setItem('nexus_custom_user', JSON.stringify(profileData));
+  };
 
-    // Si no lo encuentra, esperamos un instante por si el trigger está procesando
-    if (!data) {
-      await new Promise(r => setTimeout(r, 600));
-      const retry = await supabase.from('roles_usuario').select('*').eq('id', currentUser.id).single();
-      data = retry.data;
-    }
-
-    if (data) {
-      setProfile(data as UserProfile);
-    } else {
-      // Fallback seguro en memoria si falla la BD
-      setProfile({
-        id: currentUser.id,
-        email: currentUser.email || '',
-        rol: currentUser.email === 'user@nexus.com' ? 'admin' : 'operario'
-      });
-    }
-    setLoading(false);
+  const logout = () => {
+    setUser(null);
+    localStorage.removeItem('nexus_custom_user');
   };
 
   const value = {
     user,
-    profile,
+    profile: user,
     loading,
-    isAdmin: profile?.rol === 'admin',
-    isOperario: profile?.rol === 'operario',
-    isOperarioStock: profile?.rol === 'operario_stock',
+    isAdmin: user?.rol === 'admin',
+    isOperario: user?.rol === 'operario',
+    isOperarioStock: user?.rol === 'operario_stock',
     darkMode,
     toggleDarkMode,
+    login,
+    logout,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

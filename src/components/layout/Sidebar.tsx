@@ -24,7 +24,7 @@ interface SidebarProps {
 }
 
 export function Sidebar({ isMobileMenuOpen, setIsMobileMenuOpen }: SidebarProps) {
-  const { profile } = useAuth();
+  const { profile, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
@@ -150,8 +150,8 @@ export function Sidebar({ isMobileMenuOpen, setIsMobileMenuOpen }: SidebarProps)
               {!isCollapsed && <span className="text-sm font-bold tracking-tight">Configuración</span>}
             </button>
             <button 
-              onClick={async () => {
-                await supabase.auth.signOut();
+              onClick={() => {
+                logout();
                 navigate('/login');
               }}
               className="w-full text-left text-slate-500 dark:text-slate-400 px-4 py-3 flex items-center gap-4 hover:text-red-600 transition-colors group"
