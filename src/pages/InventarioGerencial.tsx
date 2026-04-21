@@ -4,7 +4,7 @@ import {
   Plus, Scan, AlertCircle, ArchiveRestore, Printer, Search, CreditCard, Activity, 
   Box, ArrowUpRight, ChevronDown, ChevronRight, Layers, Receipt, Network, X, 
   Package, ShoppingCart, ListChecks, Tags, Camera, ArrowDownToLine, 
-  ArrowRightLeft, ArrowUpFromLine, LayoutDashboard, History, ScanBarcode 
+  ArrowRightLeft, ArrowUpFromLine, LayoutDashboard, History, ScanBarcode, ArrowLeft 
 } from 'lucide-react';
 import { executeAWSQuery } from '../lib/aws-client';
 import { cn } from '../lib/utils';
@@ -36,10 +36,9 @@ export function InventarioGerencial() {
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedRows, setExpandedRows] = useState<{ [key: string]: boolean }>({});
 
-  const [isProductModalOpen, setIsProductModalOpen] = useState(false);
-  const [isCatProductModalOpen, setIsCatProductModalOpen] = useState(false);
-  const [newProduct, setNewProduct] = useState({ sku: '', nombre: '', categoria_id: '', unidad: 'ud', costo: 0, moneda: 'USD' });
-  const [newCategory, setNewCategory] = useState({ nombre: '', sector: 'general' });
+    // Generador de Etiquetas / Cajas
+  const [isLabelModalOpen, setIsLabelModalOpen] = useState(false);
+  const [newLabel, setNewLabel] = useState({ variante_id: '', cantidad_por_etiqueta: 1, numero_etiquetas: 1, deposito_id: '' });
 
   // Hub States
   const [manualCart, setManualCart] = useState<any[]>([]);
@@ -133,34 +132,33 @@ export function InventarioGerencial() {
     }
   };
 
-  const handleAddProduct = async (e: React.FormEvent) => {
+    const handleGenerateLabels = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newProduct.categoria_id) { alert("Seleccione una categoría"); return; }
+    if(!newLabel.variante_id || !newLabel.deposito_id) return alert("Complete todos los campos.");
     try {
-      const maestroQuery = `INSERT INTO Stock_Productos_Maestros (nombre, categoria_id, unidad_base) OUTPUT INSERTED.id VALUES ('${newProduct.nombre.replace(/'/g,"''")}', ${newProduct.categoria_id}, '${newProduct.unidad}')`;
-      const maestroRes = await executeAWSQuery(maestroQuery);
-      if (maestroRes && maestroRes[0]) {
-         const mId = maestroRes[0].id;
-         const varQuery = `INSERT INTO Stock_Variantes (producto_maestro_id, nombre_variante, codigo_variante, costo, moneda) VALUES (${mId}, 'Única', '${newProduct.sku.replace(/'/g,"''")}', ${newProduct.costo}, '${newProduct.moneda}')`;
-         await executeAWSQuery(varQuery);
-         setIsProductModalOpen(false);
-         setNewProduct({ sku: '', nombre: '', categoria_id: '', unidad: 'ud', costo: 0, moneda: 'USD' });
-         fetchData();
-      }
-    } catch (e) {
-      console.error(e);
-    }
-  };
+      const vResult = await executeAWSQuery(`SELECT * FROM Stock_Variantes WHERE id = ${newLabel.variante_id}`);
+      const vObj = vResult?.[0];
+      if(!vObj) return alert("Variante no existe");
 
-  const handleAddCategory = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      await executeAWSQuery(`INSERT INTO Stock_Categorias (nombre, sector) VALUES ('${newCategory.nombre.replace(/'/g,"''")}', '${newCategory.sector}')`);
-      setIsCatProductModalOpen(false);
-      setNewCategory({nombre: '', sector: 'general'});
+      const prefix = vObj.codigo_variante || 'SKU';
+      const values = Array.from({ length: newLabel.numero_etiquetas }).map((_, i) => 
+        `('${prefix}-${Date.now().toString().slice(-4)}-${i+1}', ${vObj.id}, ${newLabel.deposito_id}, ${newLabel.cantidad_por_etiqueta}, 'activo')`
+      ).join(',');
+
+      const inserted = await executeAWSQuery(`INSERT INTO Stock_Etiquetas (codigo_barras, variante_id, deposito_id, cantidad_actual, estado) OUTPUT INSERTED.id VALUES ${values}`);
+      
+      if (inserted && inserted.length > 0) {
+        const movValues = inserted.map((row:any) => 
+          `(${row.id}, 'ingreso', ${newLabel.cantidad_por_etiqueta}, '${user?.id || 1}')`
+        ).join(',');
+        await executeAWSQuery(`INSERT INTO Stock_Movimientos (etiqueta_id, tipo_movimiento, cantidad, usuario_id) VALUES ${movValues}`);
+      }
+      setIsLabelModalOpen(false);
       fetchData();
-    } catch (e) {
-      console.error(e);
+      alert(`${newLabel.numero_etiquetas} etiqueta(s) generadas con éxito.`);
+    } catch(err) {
+      console.error(err);
+      alert("Error al generar las etiquetas. Revise la consola.");
     }
   };
 
@@ -261,10 +259,11 @@ export function InventarioGerencial() {
   }
 
   return (
-    <div className="p-8 pb-32 max-w-7xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+    <div className="p-4 md:p-6 pb-32 w-full space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 bg-slate-50 dark:bg-slate-950 min-h-screen">
       
       {/* HEADER VISUAL CON BOTONERA INCLUIDA (Restaurado a la versión "Tarjetas") */}
-      <div className="flex bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-2 rounded-2xl shadow-sm mb-10 w-full md:w-auto items-center justify-between">
+            {(activeTab !== 'panel' || panelView === 'hub') && (
+      <div className="flex bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 p-3 shadow-sm mb-8 w-full items-center justify-between sticky top-0 z-40">
           <div className="flex items-center gap-3 px-4 py-2">
              <div className="bg-slate-900 text-white p-2 rounded-xl"><Package className="w-5 h-5"/></div>
              <h1 className="text-xl font-black tracking-tighter">StockControl</h1>
@@ -274,8 +273,7 @@ export function InventarioGerencial() {
               { id: 'panel', label: 'Panel', icon: LayoutDashboard },
               { id: 'inventario', label: 'Inventario', icon: Box },
               { id: 'historial', label: 'Historial', icon: History },
-              { id: 'catalogo', label: 'Catálogo', icon: Tags },
-              { id: 'compras', label: 'Compras', icon: Receipt },
+              
             ].map((tab) => (
               <button
                 key={tab.id}
@@ -292,6 +290,7 @@ export function InventarioGerencial() {
             ))}
           </div>
       </div>
+      )}
 
       {/* PANEL HUB CON TARJETAS GIGANTES */}
       {activeTab === 'panel' && panelView === 'hub' && (
@@ -327,21 +326,47 @@ export function InventarioGerencial() {
                 </div>
             </button>
 
-            <button onClick={() => setActiveTab('catalogo')} className="bg-white dark:bg-slate-900 border-2 border-slate-100 hover:border-slate-300 dark:border-slate-800 dark:hover:border-slate-600 p-8 rounded-3xl text-left transition-all group flex flex-col items-start gap-6 hover:shadow-xl">
+            <button onClick={() => setIsLabelModalOpen(true)} className="bg-white dark:bg-slate-900 border-2 border-slate-100 hover:border-indigo-200 dark:border-slate-800 dark:hover:border-indigo-900 p-8 rounded-3xl text-left transition-all group flex flex-col items-start gap-6 hover:shadow-xl hover:shadow-indigo-500/5">
                 <div className="p-4 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-2xl group-hover:scale-110 transition-transform">
                    <ScanBarcode className="w-8 h-8" />
                 </div>
                 <div>
-                   <h3 className="text-2xl font-black text-slate-800 dark:text-white mb-2">Catálogo</h3>
-                   <p className="text-slate-500 font-medium text-sm">Catálogo maestro para impresión o reimpresión de códigos de barras sueltos.</p>
+                   <h3 className="text-2xl font-black text-slate-800 dark:text-white mb-2">Generar Etiqueta</h3>
+                   <p className="text-slate-500 font-medium text-sm">Generador súper rápido de códigos de barras con lotes físicos (cajas, bidones, paletas).</p>
                 </div>
             </button>
 
          </motion.div>
       )}
 
+      
+      {/* HEADER DINÁMICO DE RETORNO A OPERACIONES PARA SUB-MÓDULOS */}
+      {activeTab === 'panel' && panelView !== 'hub' && (
+         <div className="mb-6 flex items-center justify-between bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
+             <div className="flex items-center gap-4">
+                 <button onClick={()=>setPanelView('hub')} className="p-2.5 bg-slate-100 hover:bg-indigo-100 text-slate-600 hover:text-indigo-700 dark:bg-slate-800 dark:text-slate-300 rounded-xl transition-all shadow-sm">
+                     <ArrowLeft className="w-5 h-5" />
+                 </button>
+                 <div>
+                    <h2 className="font-black text-xl text-slate-800 dark:text-white leading-tight">
+                        {panelView === 'ingreso' && "Ingreso de Mercadería"}
+                        {panelView === 'traslado' && "Traslado Interno"}
+                        {panelView === 'retiro' && "Retiro o Consumo Libre"}
+                    </h2>
+                    <p className="text-[10px] uppercase font-black text-slate-400 tracking-[0.2em] mt-0.5">Operación en proceso</p>
+                 </div>
+             </div>
+         </div>
+      )}
+
       {activeTab === 'panel' && panelView === 'ingreso' && (
-         <div className="mt-8 relative"><button onClick={()=>setPanelView('hub')} className="absolute -top-12 z-50 text-sm font-black text-slate-500 hover:text-indigo-600 transition-colors uppercase">← Volver a Operaciones</button><RecepcionAuditoria onRecargaRequerida={fetchData} onCartChange={setManualCart} /></div>
+         <div className="mt-4"><RecepcionAuditoria onRecargaRequerida={fetchData} onCartChange={setManualCart} /></div>
+      )}
+      {activeTab === 'panel' && panelView === 'traslado' && (
+         <div className="mt-4"><DespachoEgresos initialOperationType="traslado" initialMode="lote" /></div>
+      )}
+      {activeTab === 'panel' && panelView === 'retiro' && (
+         <div className="mt-4"><DespachoEgresos initialOperationType="venta_consumo" initialMode="lote" /></div>
       )}
       {activeTab === 'panel' && panelView === 'traslado' && (
          <div className="mt-8 relative"><button onClick={()=>setPanelView('hub')} className="absolute -top-12 z-50 text-sm font-black text-slate-500 hover:text-indigo-600 transition-colors uppercase">← Volver a Operaciones</button><DespachoEgresos initialOperationType="traslado" initialMode="lote" /></div>
@@ -504,101 +529,39 @@ export function InventarioGerencial() {
       </AnimatePresence>
       )}
 
-      {activeTab === 'catalogo' && (
-      <AnimatePresence>
-      <motion.div initial={{opacity:0, y:10}} animate={{opacity:1, y:0}} exit={{opacity:0}} className="space-y-6">
-        <div className="flex gap-4">
-           <button onClick={() => setIsCatProductModalOpen(true)} className="btn-secondary flex-1 py-4 border-dashed border-2 flex flex-col items-center justify-center gap-2 bg-transparent text-slate-500 hover:border-indigo-500 hover:text-indigo-500">
-               <Plus className="w-6 h-6" /> CREAR NUEVA CATEGORÍA DE NEGOCIO
-           </button>
-           <button onClick={() => setIsProductModalOpen(true)} className="btn-secondary flex-1 py-4 border-dashed border-2 flex flex-col items-center justify-center gap-2 bg-transparent text-slate-500 hover:border-indigo-500 hover:text-indigo-500">
-               <Plus className="w-6 h-6" /> CREAR PRODUCTO MAESTRO EN CATÁLOGO
-           </button>
-        </div>
-        <div className="card-nexus p-8">
-           <h3 className="text-sm font-black uppercase text-slate-400 tracking-widest mb-4">Categorías Formadas</h3>
-           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              {tiposProducto.map(cat => (
-                 <div key={cat.id} className="p-4 rounded-xl border border-slate-100 bg-slate-50 dark:border-slate-800 dark:bg-slate-900">
-                    <p className="font-bold text-blue-950 dark:text-white uppercase">{cat.nombre}</p>
-                    <span className="text-[10px] text-slate-400 uppercase tracking-widest">ID: {cat.id} · Sector {cat.sector}</span>
-                 </div>
-              ))}
-           </div>
-        </div>
-      </motion.div>
-      </AnimatePresence>
-      )}
-
-      {activeTab === 'compras' && (
-      <AnimatePresence>
-      <motion.div initial={{opacity:0, y:10}} animate={{opacity:1, y:0}} exit={{opacity:0}}>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-           {comprasPendientes.length === 0 ? (
-             <div className="md:col-span-2 card-nexus p-12 text-center text-slate-500 font-medium">No hay compras con estado PENDIENTE esperando etiquetas.</div>
-           ) : comprasPendientes.map((compra: any) => (
-             <div key={compra.id} className="card-nexus p-6 flex flex-col justify-between">
-                <div>
-                   <h3 className="font-black text-xl mb-1 text-blue-950 dark:text-white uppercase">Orden #{compra.id}</h3>
-                   <p className="text-slate-500 text-sm mb-4">Proveedor: <span className="font-bold">{compra.proveedor_nombre || 'N/A'}</span></p>
-                </div>
-                <div className="flex gap-2 justify-between">
-                   <span className="px-3 py-1 bg-yellow-100 text-yellow-800 rounded font-bold text-[10px] uppercase tracking-widest">{compra.estado}</span>
-                   <button onClick={() => { setSelectedCompraId(compra.id); setIsLabelCompraModalOpen(true); }} className="btn-primary px-6">Generar Rótulos Físicos</button>
-                </div>
-             </div>
-           ))}
-        </div>
-      </motion.div>
-      <Modal isOpen={isLabelCompraModalOpen} onClose={() => setIsLabelCompraModalOpen(false)} title="Generar Lotes desde Compra">
-         <div className="space-y-4">
-             <p className="text-sm text-slate-500 text-center py-4">Módulo en construcción.</p>
-             <button onClick={() => setIsLabelCompraModalOpen(false)} className="w-full btn-secondary py-3">Volver</button>
-         </div>
-      </Modal>
-      </AnimatePresence>
-      )}
+      
 
 
       {/* MODALES CLAVE */}
-      <Modal isOpen={isProductModalOpen} onClose={() => setIsProductModalOpen(false)} title="Catálogo: Alta Insumo Básico">
-         <form onSubmit={handleAddProduct} className="space-y-6">
-             <div className="grid grid-cols-2 gap-4">
-                 <div className="space-y-2 col-span-2">
-                   <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Familia / Nombre Identificador</label>
-                   <input required type="text" value={newProduct.nombre} onChange={e => setNewProduct({...newProduct, nombre: e.target.value})} className="input-nexus w-full uppercase" />
-                 </div>
-                 <div className="space-y-2">
-                   <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">SKU Unico Global</label>
-                   <input required type="text" value={newProduct.sku} onChange={e => setNewProduct({...newProduct, sku: e.target.value})} className="input-nexus w-full font-mono uppercase" />
-                 </div>
-                 <div className="space-y-2">
-                   <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Categoría Raíz</label>
-                   <select required value={newProduct.categoria_id} onChange={e => setNewProduct({...newProduct, categoria_id: e.target.value})} className="input-nexus w-full bg-transparent">
-                      <option value="" disabled>Seleccione...</option>
-                      {tiposProducto.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-                   </select>
-                 </div>
-                 <div className="space-y-2">
-                   <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Unidad Métrica</label>
-                   <input required type="text" value={newProduct.unidad} onChange={e => setNewProduct({...newProduct, unidad: e.target.value})} className="input-nexus w-full" />
-                 </div>
-                 <div className="space-y-2">
-                   <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Costo Base Unitario</label>
-                   <input required type="number" min="0" step="0.01" value={newProduct.costo} onChange={e => setNewProduct({...newProduct, costo: Number(e.target.value)})} className="input-nexus w-full" />
-                 </div>
-             </div>
-             <button type="submit" className="w-full btn-primary py-4 mt-4">Forjar En Base de Datos Oficial</button>
-         </form>
-      </Modal>
-
-      <Modal isOpen={isCatProductModalOpen} onClose={() => setIsCatProductModalOpen(false)} title="Forjar Nueva Categoría de Sistema">
-         <form onSubmit={handleAddCategory} className="space-y-6">
-             <div className="space-y-2">
-               <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Nombre de la Categoria</label>
-               <input required type="text" value={newCategory.nombre} onChange={e => setNewCategory({...newCategory, nombre: e.target.value})} className="input-nexus w-full uppercase" />
-             </div>
-             <button type="submit" className="w-full btn-primary py-4">Validar Estructura</button>
+      
+      {/* MODAL ETIQUETAS */}
+      <Modal isOpen={isLabelModalOpen} onClose={() => setIsLabelModalOpen(false)} title="Generador de Rótulos / Cajas Físicas">
+         <form onSubmit={handleGenerateLabels} className="space-y-6">
+            <div className="space-y-2">
+               <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Variante a Imprimir (Seleccione de Base Existente)</label>
+               <select required value={newLabel.variante_id} onChange={e => setNewLabel({...newLabel, variante_id: e.target.value})} className="input-nexus w-full bg-slate-50 dark:bg-slate-900 border-none ring-1 ring-slate-200">
+                  <option value="" disabled>Seleccione una variante mapeada...</option>
+                  {stockConsolidado.flatMap(c => c.variantes || []).filter(Boolean).map(v => <option key={v.variante_id} value={v.variante_id}>{v.nombre_variante} ({v.sku})</option>)}
+               </select>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                 <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Volumen por Unidad/Caja</label>
+                 <input type="number" min="0.01" step="0.01" required value={newLabel.cantidad_por_etiqueta} onChange={e => setNewLabel({...newLabel, cantidad_por_etiqueta: Number(e.target.value)})} className="input-nexus w-full bg-transparent" />
+              </div>
+              <div className="space-y-2">
+                 <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Número de Códigos a Generar</label>
+                 <input type="number" min="1" required value={newLabel.numero_etiquetas} onChange={e => setNewLabel({...newLabel, numero_etiquetas: Number(e.target.value)})} className="input-nexus w-full font-black text-indigo-600 bg-transparent" />
+              </div>
+            </div>
+            <div className="space-y-2">
+                 <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Asignar a Almacén Local</label>
+                 <select required value={newLabel.deposito_id} onChange={e => setNewLabel({...newLabel, deposito_id: e.target.value})} className="input-nexus w-full bg-slate-50 dark:bg-slate-900 border-none ring-1 ring-slate-200">
+                    <option value="" disabled>Seleccione almacén de destino...</option>
+                    {depositos.map(d => <option key={d.id} value={d.id}>{d.nombre}</option>)}
+                 </select>
+            </div>
+            <button type="submit" className="w-full btn-primary py-4 uppercase tracking-widest font-black shadow-lg shadow-indigo-500/20">Imprimir Lotes y Agregar a Base de Datos</button>
          </form>
       </Modal>
 
