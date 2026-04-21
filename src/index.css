@@ -72,29 +72,29 @@ html {
 
 @layer base {
   body {
-    @apply bg-white text-slate-900 transition-colors duration-500 selection:bg-blue-100 selection:text-blue-900;
+    @apply bg-white text-slate-900 transition-colors duration-500 selection:bg-blue-100 selection:text-cyan-900;
   }
   
   .dark body, body.dark, .dark {
-    @apply bg-slate-950 text-slate-100 selection:bg-blue-900 selection:text-blue-100;
+    @apply bg-black text-slate-100 selection:bg-cyan-900 selection:text-cyan-100;
   }
 }
 
 /* Custom Utilities */
 @utility glass {
-  @apply backdrop-blur-xl bg-white/70 dark:bg-slate-900/70 border border-white/20 dark:border-slate-800/50;
+  @apply backdrop-blur-xl bg-white/70 dark:bg-black/70 border border-white/20 dark:border-cyan-800/30;
 }
 
 @utility card-nexus {
-  @apply bg-white dark:bg-slate-900/50 border border-slate-100 dark:border-slate-800/50 rounded-2xl shadow-sm hover:shadow-xl hover:scale-[1.01] transition-all duration-500;
+  @apply bg-white dark:bg-black border border-slate-100 dark:border-cyan-900/20 rounded-2xl shadow-sm hover:shadow-cyan-500/5 hover:scale-[1.01] transition-all duration-500;
 }
 
 @utility input-nexus {
-  @apply w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all duration-300;
+  @apply w-full px-4 py-2.5 bg-slate-50 dark:bg-black border border-slate-200 dark:border-cyan-900/50 rounded-xl focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-400 outline-none transition-all duration-300;
 }
 
 @utility btn-primary {
-  @apply px-6 py-2.5 bg-blue-700 dark:bg-blue-600 text-white font-bold rounded-xl shadow-lg shadow-blue-900/10 hover:shadow-blue-900/20 hover:scale-[1.02] active:scale-[0.98] transition-all duration-300 disabled:opacity-50 disabled:pointer-events-none;
+  @apply px-6 py-2.5 bg-blue-700 dark:bg-cyan-500 text-white dark:text-black font-black rounded-xl shadow-lg shadow-blue-900/10 dark:shadow-cyan-500/20 hover:shadow-blue-900/20 dark:hover:shadow-cyan-500/40 hover:scale-[1.02] active:scale-[0.98] transition-all duration-300 disabled:opacity-50 disabled:pointer-events-none border border-transparent dark:border-cyan-400;
 }
 
 @keyframes scan {
@@ -105,4 +105,20 @@ html {
 
 .animate-scan {
   animation: scan 3s ease-in-out infinite;
+}
+
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #print-root, #print-root * {
+    visibility: visible;
+  }
+  #print-root {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100vw;
+  }
+  @page { margin: 0; }
 }

@@ -1,0 +1,12 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/sql",
+      "destination": "http://3.85.26.173:5005/sql"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
+}

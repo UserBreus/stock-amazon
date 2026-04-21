@@ -1,57 +1,113 @@
-import { useEffect, useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, Scan, ScanBarcode, PackagePlus, AlertCircle, History, Package, CreditCard, Box, ArchiveRestore } from 'lucide-react';
-import { supabase, handleSupabaseError } from '../supabase';
-import { Deposito, Producto, Etiqueta } from '../types';
+import { 
+  Plus, Scan, AlertCircle, ArchiveRestore, Printer, Search, CreditCard, Activity, 
+  Box, ArrowUpRight, ChevronDown, ChevronRight, Layers, Receipt, Network, X, 
+  Package, ShoppingCart, ListChecks, Tags, Camera, ArrowDownToLine, 
+  ArrowRightLeft, ArrowUpFromLine, LayoutDashboard, History, ScanBarcode 
+} from 'lucide-react';
+import { executeAWSQuery } from '../lib/aws-client';
 import { cn } from '../lib/utils';
 import { Modal } from '../components/ui/Modal';
 import { BarcodeScanner } from '../components/ui/BarcodeScanner';
-import Select from 'react-select';
 import { useAuth } from '../context/AuthContext';
+import { DespachoEgresos } from '../components/DespachoEgresos';
+import { RecepcionAuditoria } from '../components/RecepcionAuditoria';
 
 export function InventarioGerencial() {
   const { user } = useAuth();
-  const [depositos, setDepositos] = useState<Deposito[]>([]);
-  const [productos, setProductos] = useState<Producto[]>([]);
-  const [etiquetas, setEtiquetas] = useState<Etiqueta[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'stock' | 'escaner' | 'catalogo'>('stock');
 
-  // Modals state
+  // Tabs Visuales Originales
+  const [activeTab, setActiveTab] = useState<'panel' | 'inventario' | 'historial' | 'catalogo' | 'compras'>('panel');
+  const [panelView, setPanelView] = useState<'hub' | 'ingreso' | 'traslado' | 'retiro' | 'etiquetas'>('hub');
+
+  // Stock and Filters
+  const [stockConsolidado, setStockConsolidado] = useState<any[]>([]);
+  const [capitalActivo, setCapitalActivo] = useState<any[]>([]);
+  const [depositos, setDepositos] = useState<any[]>([]);
+  const [tiposProducto, setTiposProducto] = useState<any[]>([]);
+  const [comprasPendientes, setComprasPendientes] = useState<any[]>([]);
+
+  const [warehouseFilterId, setWarehouseFilterId] = useState<string | null>(null);
+  const filterRef = useRef<string | null>(null);
+
+  const [filterMode, setFilterMode] = useState<'all' | 'activos' | 'inactivos'>('activos');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [expandedRows, setExpandedRows] = useState<{ [key: string]: boolean }>({});
+
   const [isProductModalOpen, setIsProductModalOpen] = useState(false);
-  const [isLabelModalOpen, setIsLabelModalOpen] = useState(false);
+  const [isCatProductModalOpen, setIsCatProductModalOpen] = useState(false);
+  const [newProduct, setNewProduct] = useState({ sku: '', nombre: '', categoria_id: '', unidad: 'ud', costo: 0, moneda: 'USD' });
+  const [newCategory, setNewCategory] = useState({ nombre: '', sector: 'general' });
 
-  // Forms state
-  const [newProduct, setNewProduct] = useState({ sku: '', nombre: '', categoria: 'General', unidad: 'ud', es_agrupable: false, costo: 0 });
-  const [newLabel, setNewLabel] = useState({ producto_id: '', cantidad_por_etiqueta: 1, numero_etiquetas: 1, deposito_id: '' });
-  const [scanInput, setScanInput] = useState('');
-  const [isCameraOpen, setIsCameraOpen] = useState(false);
-  
-  // Escaner State
-  const [scannedEtiqueta, setScannedEtiqueta] = useState<Etiqueta | null>(null);
-  const [extractAmount, setExtractAmount] = useState(1);
+  // Hub States
+  const [manualCart, setManualCart] = useState<any[]>([]);
 
-  useEffect(() => {
-    fetchData();
-    const sub1 = supabase.channel('wms_productos').on('postgres_changes', { event: '*', schema: 'public', table: 'productos' }, fetchData).subscribe();
-    const sub2 = supabase.channel('wms_etiquetas').on('postgres_changes', { event: '*', schema: 'public', table: 'etiquetas' }, fetchData).subscribe();
-    return () => { supabase.removeChannel(sub1); supabase.removeChannel(sub2); };
-  }, []);
+  // Modals
+  const [isLabelDrillDownOpen, setIsLabelDrillDownOpen] = useState(false);
+  const [labelCatalog, setLabelCatalog] = useState<any[]>([]);
+  const [variationChartProduct, setVariationChartProduct] = useState<any | null>(null);
+
+  const [isLabelCompraModalOpen, setIsLabelCompraModalOpen] = useState(false);
+  const [selectedCompraId, setSelectedCompraId] = useState<string | null>(null);
+
+  // Egreso auto
+  const [isEgresoModalOpen, setIsEgresoModalOpen] = useState(false);
+  const [egresoProduct, setEgresoProduct] = useState<any | null>(null);
+  const [egresoAutoMonto, setEgresoAutoMonto] = useState(0);
+  const [egresoEtiquetas, setEgresoEtiquetas] = useState<any[]>([]);
+  const [egresoAmounts, setEgresoAmounts] = useState<{ [key: string]: number }>({});
+
+  const toggleRow = (id: string) => {
+    setExpandedRows(prev => ({ ...prev, [id]: !prev[id] }));
+  };
 
   const fetchData = async () => {
     try {
-      const [depRes, prodRes, etiqRes] = await Promise.all([
-        supabase.from('depositos').select('*').eq('tipo', 'general'),
-        supabase.from('productos').select('*').order('nombre'),
-        supabase.from('etiquetas').select('*, productos(*), depositos(*)').eq('estado', 'activo')
+      const advancedQuery = `
+           SELECT 
+               pm.id as maestro_id,
+               pm.nombre as producto_nombre,
+               cat.nombre as categoria_nombre,
+               pm.unidad_base,
+               v.id as variante_id,
+               v.nombre_variante,
+               v.codigo_variante as sku,
+               ISNULL(v.costo, 0) as costo,
+               v.moneda,
+               COUNT(e.id) as variaciones_etiquetas,
+               SUM(e.cantidad_actual) as cantidad_total,
+               MAX(ProvData.proveedor_nombre) as proveedor_nombre
+           FROM Stock_Productos_Maestros pm
+           LEFT JOIN Stock_Categorias cat ON pm.categoria_id = cat.id
+           INNER JOIN Stock_Variantes v ON pm.id = v.producto_maestro_id
+           LEFT JOIN Stock_Etiquetas e ON v.id = e.variante_id AND e.estado = 'activo' ${filterRef.current ? `AND e.deposito_id = ${filterRef.current}` : ''}
+           OUTER APPLY (
+               SELECT TOP 1 prov_inner.nombre as proveedor_nombre
+               FROM Stock_Movimientos m_inner
+               LEFT JOIN Stock_Compras c_inner ON m_inner.referencia_compra_id = c_inner.id
+               LEFT JOIN Stock_Proveedores prov_inner ON c_inner.proveedor_id = prov_inner.id
+               WHERE m_inner.etiqueta_id = e.id AND m_inner.tipo_movimiento LIKE '%ingreso%'
+           ) ProvData
+           GROUP BY 
+               pm.id, pm.nombre, cat.nombre, pm.unidad_base,
+               v.id, v.nombre_variante, v.codigo_variante, v.costo, v.moneda
+           ORDER BY pm.nombre ASC
+      `;
+      const [stockRes, capRes, depRes, catRes, compRes] = await Promise.all([
+        executeAWSQuery(advancedQuery),
+        executeAWSQuery("SELECT * FROM Vista_Capital_Activo"),
+        executeAWSQuery("SELECT * FROM Stock_Depositos WHERE tipo='general'"),
+        executeAWSQuery("SELECT * FROM Stock_Categorias ORDER BY nombre"),
+        executeAWSQuery("SELECT c.*, p.nombre as proveedor_nombre FROM Stock_Compras c LEFT JOIN Stock_Proveedores p ON c.proveedor_id = p.id WHERE c.estado = 'pendiente' ORDER BY c.fecha_creacion DESC")
       ]);
-      if (depRes.data) setDepositos(depRes.data as Deposito[]);
-      if (prodRes.data) setProductos(prodRes.data as Producto[]);
-      if (etiqRes.data) {
-        // Filter out etiquetas that don't belong to general deposits
-        const actEtiquetas = (etiqRes.data as any[]).filter(e => e.depositos?.tipo === 'general');
-        setEtiquetas(actEtiquetas);
-      }
+      
+      setStockConsolidado(stockRes || []);
+      setCapitalActivo(capRes || []);
+      setDepositos(depRes || []);
+      setTiposProducto(catRes || []);
+      setComprasPendientes(compRes || []);
     } catch (error) {
       console.error(error);
     } finally {
@@ -59,399 +115,549 @@ export function InventarioGerencial() {
     }
   };
 
+  useEffect(() => {
+    fetchData();
+    const interval = setInterval(fetchData, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const openLabelDrillDown = async (prod: any) => {
+    setVariationChartProduct(prod);
+    try {
+      const q = `SELECT id, codigo_barras, cantidad_actual, deposito_id, fecha_creacion FROM Stock_Etiquetas WHERE variante_id = '${prod.variante_id}' AND estado = 'activo' AND cantidad_actual > 0 ${filterRef.current ? `AND deposito_id = ${filterRef.current}` : ''} ORDER BY fecha_creacion ASC`;
+      const res = await executeAWSQuery(q);
+      setLabelCatalog(res || []);
+      setIsLabelDrillDownOpen(true);
+    } catch(e) {
+      console.error(e);
+    }
+  };
+
   const handleAddProduct = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!newProduct.categoria_id) { alert("Seleccione una categoría"); return; }
     try {
-      const { error } = await supabase.from('productos').insert([newProduct]);
-      if (error) throw error;
-      setIsProductModalOpen(false);
-      setNewProduct({ sku: '', nombre: '', categoria: 'General', unidad: 'ud', es_agrupable: false, costo: 0 });
-    } catch (error) {
-      handleSupabaseError(error, 'Agregar Producto');
-    }
-  };
-
-  const handleGenerateLabels = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      const prod = productos.find(p => p.id === newLabel.producto_id);
-      if(!prod) return;
-
-      const prefix = prod.sku;
-      const etiquetasToInsert = Array.from({ length: newLabel.numero_etiquetas }).map((_, i) => ({
-        codigo_barras: `${prefix}-${Date.now().toString().slice(-6)}-${i+1}`,
-        producto_id: prod.id,
-        deposito_id: newLabel.deposito_id,
-        cantidad_actual: newLabel.cantidad_por_etiqueta,
-        estado: 'activo'
-      }));
-
-      const { data, error } = await supabase.from('etiquetas').insert(etiquetasToInsert).select();
-      if (error) throw error;
-      
-      // Log movimientos
-      if (data) {
-        const movs = data.map(d => ({
-          etiqueta_id: d.id,
-          tipo: 'ingreso',
-          cantidad: d.cantidad_actual,
-          deposito_destino_id: d.deposito_id,
-          usuario_id: user?.id
-        }));
-        await supabase.from('movimientos').insert(movs);
+      const maestroQuery = `INSERT INTO Stock_Productos_Maestros (nombre, categoria_id, unidad_base) OUTPUT INSERTED.id VALUES ('${newProduct.nombre.replace(/'/g,"''")}', ${newProduct.categoria_id}, '${newProduct.unidad}')`;
+      const maestroRes = await executeAWSQuery(maestroQuery);
+      if (maestroRes && maestroRes[0]) {
+         const mId = maestroRes[0].id;
+         const varQuery = `INSERT INTO Stock_Variantes (producto_maestro_id, nombre_variante, codigo_variante, costo, moneda) VALUES (${mId}, 'Única', '${newProduct.sku.replace(/'/g,"''")}', ${newProduct.costo}, '${newProduct.moneda}')`;
+         await executeAWSQuery(varQuery);
+         setIsProductModalOpen(false);
+         setNewProduct({ sku: '', nombre: '', categoria_id: '', unidad: 'ud', costo: 0, moneda: 'USD' });
+         fetchData();
       }
-
-      setIsLabelModalOpen(false);
-      alert(`${newLabel.numero_etiquetas} etiqueta(s) generadas con éxito para ${prod.nombre}`);
-    } catch (error) {
-      handleSupabaseError(error, 'Generar Etiquetas');
+    } catch (e) {
+      console.error(e);
     }
   };
 
-  const processScan = (codigo: string) => {
-    const found = etiquetas.find(et => et.codigo_barras.toUpperCase() === codigo.toUpperCase());
-    if (found) {
-      setScannedEtiqueta(found);
-      setExtractAmount(1); // Default
-    } else {
-      alert("Etiqueta no encontrada en Almacén General o ya está agotada.");
-      setScannedEtiqueta(null);
-    }
-    setScanInput('');
-  };
-
-  const handleScan = (e: React.FormEvent) => {
+  const handleAddCategory = async (e: React.FormEvent) => {
     e.preventDefault();
-    processScan(scanInput);
-  };
-
-
-  const handleExtract = async () => {
-    if (!scannedEtiqueta) return;
-    if (extractAmount <= 0 || extractAmount > scannedEtiqueta.cantidad_actual) {
-      alert("Cantidad inválida a extraer.");
-      return;
-    }
-
     try {
-      const newAmount = scannedEtiqueta.cantidad_actual - extractAmount;
-      const newState = newAmount <= 0 ? 'agotado' : 'activo';
-
-      const { error } = await supabase.from('etiquetas').update({
-        cantidad_actual: newAmount,
-        estado: newState
-      }).eq('id', scannedEtiqueta.id);
-
-      if (error) throw error;
-
-      await supabase.from('movimientos').insert([{
-        etiqueta_id: scannedEtiqueta.id,
-        tipo: 'egreso',
-        cantidad: extractAmount,
-        deposito_origen_id: scannedEtiqueta.deposito_id,
-        usuario_id: user?.id
-      }]);
-
-      setScannedEtiqueta(null);
-      alert(`Extracción de ${extractAmount} exitosa.`);
-    } catch (error) {
-      handleSupabaseError(error, 'Extraer Stock');
+      await executeAWSQuery(`INSERT INTO Stock_Categorias (nombre, sector) VALUES ('${newCategory.nombre.replace(/'/g,"''")}', '${newCategory.sector}')`);
+      setIsCatProductModalOpen(false);
+      setNewCategory({nombre: '', sector: 'general'});
+      fetchData();
+    } catch (e) {
+      console.error(e);
     }
   };
 
-  const formatCurrency = (val: number) => new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP' }).format(val);
+  const openEgresoAuto = async (prod: any) => {
+    setEgresoProduct(prod);
+    setEgresoAutoMonto(1);
+    try {
+      const etqs = await executeAWSQuery(`SELECT * FROM Stock_Etiquetas WHERE variante_id = '${prod.variante_id}' AND estado = 'activo' AND cantidad_actual > 0 ORDER BY fecha_creacion ASC`);
+      setEgresoEtiquetas(etqs || []);
+      
+      const amounts: {[key:string]:number} = {};
+      (etqs || []).forEach((e:any) => amounts[e.id] = 0);
+      setEgresoAmounts(amounts);
+      setIsEgresoModalOpen(true);
+    } catch(e) {
+      console.error(e);
+    }
+  };
 
-  // Computed data for Stock Consolidado
-  const stockConsolidado = productos.map(prod => {
-    const etqs = etiquetas.filter(e => e.producto_id === prod.id);
-    const totalCant = etqs.reduce((acc, e) => acc + Number(e.cantidad_actual), 0);
-    return { ...prod, total_cantidad: totalCant, total_valor: totalCant * prod.costo };
-  });
+  const applyAutoFIFO = () => {
+    const amounts: {[key:string]:number} = {};
+    let rem = egresoAutoMonto;
+    egresoEtiquetas.forEach(e => {
+       if (rem > 0) {
+          if (e.cantidad_actual >= rem) { amounts[e.id] = rem; rem = 0; }
+          else { amounts[e.id] = e.cantidad_actual; rem -= e.cantidad_actual; }
+       } else {
+          amounts[e.id] = 0;
+       }
+    });
+    setEgresoAmounts(amounts);
+    if (rem > 0) alert("No hay suficiente stock físico para completar la cantidad automática.");
+  };
 
-  const totalCapital = stockConsolidado.reduce((acc, p) => acc + p.total_valor, 0);
+  const confirmarEgreso = async () => {
+    const ids = Object.keys(egresoAmounts).filter(k => egresoAmounts[k] > 0);
+    if(ids.length === 0) return;
+    try {
+      for (const id of ids) {
+         const am = egresoAmounts[id];
+         const eq = egresoEtiquetas.find(e => e.id.toString() === id);
+         const n = eq.cantidad_actual - am;
+         await executeAWSQuery(`UPDATE Stock_Etiquetas SET cantidad_actual = ${n}, estado = '${n===0?'agotado':'activo'}' WHERE id = ${id}`);
+         await executeAWSQuery(`INSERT INTO Stock_Movimientos (etiqueta_id, tipo_movimiento, cantidad, usuario_id) VALUES (${id}, 'egreso_auto', ${am}, '${user?.id || 1}')`);
+      }
+      setIsEgresoModalOpen(false);
+      fetchData();
+      alert("Egreso exitoso mediante AutoFIFO distribuido.");
+    } catch(e){
+      console.error(e);
+    }
+  };
+
+  const formatCurrency = (val: number, currency: 'USD' | 'UYU' = 'USD') => {
+    if(!val) val = 0;
+    if (currency === 'UYU') return new Intl.NumberFormat('es-UY', { style: 'currency', currency: 'UYU' }).format(val).replace('UYU', '$');
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(val);
+  };
+
+  let filteredStock = stockConsolidado;
+  if (filterMode === 'activos') filteredStock = filteredStock.filter(p => p.cantidad_total > 0);
+  if (filterMode === 'inactivos') filteredStock = filteredStock.filter(p => !p.cantidad_total || p.cantidad_total === 0);
+
+  if (searchQuery) {
+    const q = searchQuery.toLowerCase();
+    filteredStock = filteredStock.filter(p => p.producto_nombre.toLowerCase().includes(q) || (p.sku && p.sku.toLowerCase().includes(q)) || p.nombre_variante?.toLowerCase().includes(q));
+  }
+
+  const groupedStock = Object.values(filteredStock.reduce((acc, curr) => {
+      if(!acc[curr.maestro_id]) {
+          acc[curr.maestro_id] = {
+              maestro_id: curr.maestro_id,
+              producto_nombre: curr.producto_nombre,
+              categoria_nombre: curr.categoria_nombre,
+              variaciones_etiquetas: 0,
+              capital_total: 0,
+              variantes: []
+          };
+      }
+      acc[curr.maestro_id].variaciones_etiquetas += curr.variaciones_etiquetas;
+      acc[curr.maestro_id].capital_total += (curr.cantidad_total * curr.costo);
+      acc[curr.maestro_id].variantes.push(curr);
+      return acc;
+  }, {} as any));
+
+  const qtyActivos = groupedStock.filter((p:any) => p.variantes.some((v:any) => v.cantidad_total > 0)).length;
+  const qtyInactivos = stockConsolidado.filter(p => !p.cantidad_total || p.cantidad_total === 0).length;
+
+  const totalUSD = capitalActivo.find(c => c.moneda === 'USD')?.capital_total || 0;
+  const totalUYU = capitalActivo.find(c => c.moneda === 'UYU')?.capital_total || 0;
+
+  if (loading) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-slate-50 dark:bg-slate-900">
+        <Activity className="w-12 h-12 text-indigo-500 animate-spin" />
+      </div>
+    );
+  }
 
   return (
-    <div className="space-y-10">
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
-        <div>
-          <h1 className="text-4xl font-black text-blue-950 dark:text-white tracking-tighter">Inventario General</h1>
-          <p className="text-slate-500 dark:text-slate-400 font-medium mt-1">Gestión WMS: Recepción y trazabilidad por etiquetas.</p>
-        </div>
-        <div className="flex items-center gap-3">
-          <button onClick={() => setIsProductModalOpen(true)} className="px-4 py-2.5 bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-400 shadow-sm flex items-center gap-2 hover:bg-slate-50 transition-all">
-            <PackagePlus className="w-4 h-4" /> Nuevo Catálogo
-          </button>
-          <button 
-            onClick={() => setIsLabelModalOpen(true)}
-            className="btn-primary flex items-center gap-2"
-          >
-            <ScanBarcode className="w-4 h-4" /> Ingreso / Generar Etiqueta
-          </button>
-        </div>
+    <div className="p-8 pb-32 max-w-7xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+      
+      {/* HEADER VISUAL CON BOTONERA INCLUIDA (Restaurado a la versión "Tarjetas") */}
+      <div className="flex bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-2 rounded-2xl shadow-sm mb-10 w-full md:w-auto items-center justify-between">
+          <div className="flex items-center gap-3 px-4 py-2">
+             <div className="bg-slate-900 text-white p-2 rounded-xl"><Package className="w-5 h-5"/></div>
+             <h1 className="text-xl font-black tracking-tighter">StockControl</h1>
+          </div>
+          <div className="flex flex-wrap bg-slate-50 dark:bg-slate-950 p-1.5 rounded-xl border border-slate-100 dark:border-slate-800">
+            {[
+              { id: 'panel', label: 'Panel', icon: LayoutDashboard },
+              { id: 'inventario', label: 'Inventario', icon: Box },
+              { id: 'historial', label: 'Historial', icon: History },
+              { id: 'catalogo', label: 'Catálogo', icon: Tags },
+              { id: 'compras', label: 'Compras', icon: Receipt },
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => { setActiveTab(tab.id as any); setPanelView('hub'); }}
+                className={cn(
+                  "px-6 py-2.5 rounded-xl text-sm font-black transition-all flex items-center gap-2",
+                  activeTab === tab.id 
+                    ? "bg-white dark:bg-slate-800 text-blue-900 dark:text-white shadow-sm ring-1 ring-slate-200 dark:ring-slate-700" 
+                    : "text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
+                )}
+              >
+                <tab.icon className="w-4 h-4"/> {tab.label}
+              </button>
+            ))}
+          </div>
       </div>
 
-      <div className="flex bg-slate-100 dark:bg-slate-900/50 p-1.5 rounded-2xl w-fit">
-        {[
-          { id: 'stock', label: 'Stock Consolidado' },
-          { id: 'escaner', label: 'Terminal de Escáner' },
-          { id: 'catalogo', label: 'Catálogo Maestro' }
-        ].map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id as any)}
-            className={cn(
-              "px-6 py-2.5 rounded-xl text-sm font-bold transition-all",
-              activeTab === tab.id 
-                ? "bg-white dark:bg-slate-800 text-blue-900 dark:text-white shadow-sm" 
-                : "text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
-            )}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
-
-      {activeTab === 'stock' && (
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="card-nexus p-6">
-              <div className="flex items-center gap-4 mb-4">
-                <div className="p-2.5 rounded-xl bg-blue-50 dark:bg-blue-900/20 text-blue-600">
-                  <CreditCard className="w-5 h-5" />
+      {/* PANEL HUB CON TARJETAS GIGANTES */}
+      {activeTab === 'panel' && panelView === 'hub' && (
+         <motion.div initial={{opacity:0, y:20}} animate={{opacity:1, y:0}} className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 py-4">
+            
+            <button onClick={() => setPanelView('ingreso')} className="bg-white dark:bg-slate-900 border-2 border-slate-100 hover:border-blue-200 dark:border-slate-800 dark:hover:border-blue-900 p-8 rounded-3xl text-left transition-all group flex flex-col items-start gap-6 hover:shadow-xl hover:shadow-blue-500/5">
+                <div className="p-4 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-2xl group-hover:scale-110 transition-transform">
+                   <ArrowDownToLine className="w-8 h-8" />
                 </div>
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Capital Inmovilizado</p>
-              </div>
-              <h3 className="text-2xl font-black text-blue-950 dark:text-white tracking-tighter truncate">{formatCurrency(totalCapital)}</h3>
-            </div>
-            <div className="card-nexus p-6">
-              <div className="flex items-center gap-4 mb-4">
-                <div className="p-2.5 rounded-xl bg-purple-50 dark:bg-purple-900/20 text-purple-600">
-                  <ArchiveRestore className="w-5 h-5" />
+                <div>
+                   <h3 className="text-2xl font-black text-slate-800 dark:text-white mb-2">Ingresar Stock</h3>
+                   <p className="text-slate-500 font-medium text-sm">Registrar nueva mercadería al sistema WMS mediante escaneo o compra.</p>
                 </div>
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Etiquetas Activas</p>
-              </div>
-              <h3 className="text-2xl font-black text-blue-950 dark:text-white tracking-tighter">{etiquetas.length} Lotes/Unidades</h3>
-            </div>
-          </div>
+            </button>
+            
+            <button onClick={() => setPanelView('traslado')} className="bg-white dark:bg-slate-900 border-2 border-slate-100 hover:border-purple-200 dark:border-slate-800 dark:hover:border-purple-900 p-8 rounded-3xl text-left transition-all group flex flex-col items-start gap-6 hover:shadow-xl hover:shadow-purple-500/5">
+                <div className="p-4 bg-purple-50 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400 rounded-2xl group-hover:scale-110 transition-transform">
+                   <ArrowRightLeft className="w-8 h-8" />
+                </div>
+                <div>
+                   <h3 className="text-2xl font-black text-slate-800 dark:text-white mb-2">Trasladar</h3>
+                   <p className="text-slate-500 font-medium text-sm">Mover artículos entre diferentes sectores y almacenes físicos.</p>
+                </div>
+            </button>
 
-          <div className="card-nexus overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] border-b border-slate-50 dark:border-slate-900">
-                    <th className="px-8 py-5">Producto / SKU</th>
-                    <th className="px-8 py-5 text-right">Cantidad Física</th>
-                    <th className="px-8 py-5 text-right">Lotes (Etiquetas)</th>
-                    <th className="px-8 py-5 text-right">Valor Total</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-50 dark:divide-slate-900">
-                  {stockConsolidado.map((prod) => {
-                    const countEtiquetas = etiquetas.filter(e => e.producto_id === prod.id).length;
-                    return (
-                    <tr key={prod.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-900/50 transition-colors group">
-                      <td className="px-8 py-6">
-                        <div className="flex items-center gap-4">
-                          <div className="w-12 h-12 bg-slate-50 dark:bg-slate-800 rounded-2xl flex items-center justify-center text-blue-900 dark:text-blue-400 border border-slate-100 dark:border-slate-700">
-                            <Box className="w-6 h-6" />
-                          </div>
-                          <div>
-                            <p className="font-black text-sm text-blue-950 dark:text-white tracking-tight">{prod.nombre}</p>
-                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{prod.sku}</p>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-8 py-6 text-right font-bold text-sm text-slate-700 dark:text-slate-300">
-                        {prod.total_cantidad} <span className="text-[10px] uppercase text-slate-400 ml-1">{prod.unidad}</span>
-                      </td>
-                      <td className="px-8 py-6 text-right font-bold text-sm text-slate-500">{countEtiquetas} activas</td>
-                      <td className="px-8 py-6 text-right font-black text-sm text-blue-600 dark:text-blue-400">{formatCurrency(prod.total_valor)}</td>
-                    </tr>
-                  )})}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </motion.div>
+            <button onClick={() => setPanelView('retiro')} className="bg-white dark:bg-slate-900 border-2 border-slate-100 hover:border-orange-200 dark:border-slate-800 dark:hover:border-orange-900 p-8 rounded-3xl text-left transition-all group flex flex-col items-start gap-6 hover:shadow-xl hover:shadow-orange-500/5">
+                <div className="p-4 bg-orange-50 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400 rounded-2xl group-hover:scale-110 transition-transform">
+                   <ArrowUpFromLine className="w-8 h-8" />
+                </div>
+                <div>
+                   <h3 className="text-2xl font-black text-slate-800 dark:text-white mb-2">Retirar Stock</h3>
+                   <p className="text-slate-500 font-medium text-sm">Registrar ventas, consumos libres, mermas o salidas definitivas del patrimonio.</p>
+                </div>
+            </button>
+
+            <button onClick={() => setActiveTab('catalogo')} className="bg-white dark:bg-slate-900 border-2 border-slate-100 hover:border-slate-300 dark:border-slate-800 dark:hover:border-slate-600 p-8 rounded-3xl text-left transition-all group flex flex-col items-start gap-6 hover:shadow-xl">
+                <div className="p-4 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-2xl group-hover:scale-110 transition-transform">
+                   <ScanBarcode className="w-8 h-8" />
+                </div>
+                <div>
+                   <h3 className="text-2xl font-black text-slate-800 dark:text-white mb-2">Catálogo</h3>
+                   <p className="text-slate-500 font-medium text-sm">Catálogo maestro para impresión o reimpresión de códigos de barras sueltos.</p>
+                </div>
+            </button>
+
+         </motion.div>
       )}
 
-      {activeTab === 'escaner' && (
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="max-w-xl mx-auto space-y-8">
-          <div className="card-nexus p-8 bg-blue-950 text-white border-blue-900 relative overflow-hidden">
-            <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-10"></div>
-            <div className="relative z-10 text-center space-y-6">
-              <ScanBarcode className="w-20 h-20 text-blue-400 mx-auto opacity-80" />
-              <div>
-                <h3 className="text-2xl font-black tracking-tight">Escáner de Salida</h3>
-                <p className="text-blue-300/60 font-medium text-sm mt-2">Escanea el código de barras de cualquier etiqueta para extraer inventario general.</p>
-              </div>
-              <form onSubmit={handleScan} className="flex flex-col gap-4 max-w-sm mx-auto">
-                <input 
-                  autoFocus
-                  className="w-full px-6 py-4 bg-white/10 border-2 border-blue-500/30 rounded-2xl text-center font-mono text-xl text-white outline-none focus:border-blue-400 focus:bg-white/20 transition-all placeholder:text-white/30"
-                  placeholder="CAJA-0001"
-                  value={scanInput}
-                  onChange={e => setScanInput(e.target.value)}
-                />
-                <button type="submit" className="hidden">Escanear</button>
-                <button 
-                  type="button" 
-                  onClick={() => setIsCameraOpen(true)}
-                  className="w-full mt-2 py-3 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl flex items-center justify-center gap-2 transition-colors uppercase text-xs tracking-widest"
-                >
-                  <Scan className="w-4 h-4" /> Abrir Cámara del Teléfono
-                </button>
-              </form>
-            </div>
-          </div>
-          
-          {isCameraOpen && (
-            <BarcodeScanner 
-              onScan={(code) => {
-                setIsCameraOpen(false);
-                processScan(code);
-              }}
-              onClose={() => setIsCameraOpen(false)}
-            />
-          )}
+      {activeTab === 'panel' && panelView === 'ingreso' && (
+         <div className="mt-8 relative"><button onClick={()=>setPanelView('hub')} className="absolute -top-12 z-50 text-sm font-black text-slate-500 hover:text-indigo-600 transition-colors uppercase">← Volver a Operaciones</button><RecepcionAuditoria onRecargaRequerida={fetchData} onCartChange={setManualCart} /></div>
+      )}
+      {activeTab === 'panel' && panelView === 'traslado' && (
+         <div className="mt-8 relative"><button onClick={()=>setPanelView('hub')} className="absolute -top-12 z-50 text-sm font-black text-slate-500 hover:text-indigo-600 transition-colors uppercase">← Volver a Operaciones</button><DespachoEgresos initialOperationType="traslado" initialMode="lote" /></div>
+      )}
+      {activeTab === 'panel' && panelView === 'retiro' && (
+         <div className="mt-8 relative"><button onClick={()=>setPanelView('hub')} className="absolute -top-12 z-50 text-sm font-black text-slate-500 hover:text-indigo-600 transition-colors uppercase">← Volver a Operaciones</button><DespachoEgresos initialOperationType="venta_consumo" initialMode="lote" /></div>
+      )}
 
-          <AnimatePresence>
-            {scannedEtiqueta && (
-              <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9 }} className="card-nexus p-8 border-emerald-500/30 shadow-emerald-900/5">
-                <div className="flex items-center justify-between mb-8">
-                  <div>
-                    <span className="text-[10px] font-black uppercase tracking-widest text-emerald-600 px-3 py-1 bg-emerald-50 rounded-lg">Etiqueta Encontrada</span>
-                    <h4 className="text-2xl font-black text-slate-900 dark:text-white mt-4">{scannedEtiqueta.codigo_barras}</h4>
-                    <p className="text-slate-500 mt-1 font-medium">{scannedEtiqueta.productos?.nombre} ({scannedEtiqueta.productos?.sku})</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Stock en Etiqueta</p>
-                    <p className="text-4xl font-black text-blue-600 mt-1">{scannedEtiqueta.cantidad_actual}</p>
-                  </div>
-                </div>
-                
-                <div className="bg-slate-50 dark:bg-slate-900/50 p-6 rounded-2xl">
-                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 block mb-4">Confirmar Extracción de esta etiqueta</label>
-                  <div className="flex items-center gap-4">
-                    <input 
-                      type="number" 
-                      min="1" 
-                      max={scannedEtiqueta.cantidad_actual} 
-                      className="input-nexus text-xl font-bold w-32"
-                      value={extractAmount}
-                      onChange={e => setExtractAmount(Number(e.target.value))}
-                    />
-                    <button onClick={handleExtract} className="btn-primary flex-1 py-4 text-sm">Ejecutar Salida Física</button>
-                  </div>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </motion.div>
+      {/* HISTORIAL TAB */}
+      {activeTab === 'historial' && (
+         <div className="mt-8 w-full"><DespachoEgresos initialMode="historial" initialOperationType="traslado" /></div>
+      )}
+
+      {/* PESTAÑA INVENTARIO (TABLA QUE EL USUARIO PIDIÓ CON FILTRO GEOGRÁFICO) */}
+      {activeTab === 'inventario' && (
+      <AnimatePresence>
+      <motion.div initial={{opacity:0, y:10}} animate={{opacity:1, y:0}} exit={{opacity:0}}>
+      
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+        <div className="card-nexus p-6 border-l-4 border-l-emerald-500">
+          <div className="flex items-center gap-4 mb-4">
+            <div className="p-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600">
+              <CreditCard className="w-5 h-5" />
+            </div>
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Capital Inmovilizado</p>
+          </div>
+          <div className="space-y-1">
+             <h3 className="text-xl font-black text-blue-950 dark:text-white tracking-tighter truncate">{formatCurrency(totalUSD, 'USD')}</h3>
+             {totalUYU > 0 && <h3 className="text-md font-bold text-slate-500 dark:text-slate-400 truncate tracking-tight">{formatCurrency(totalUYU, 'UYU')}</h3>}
+          </div>
+        </div>
+        <div className="card-nexus p-6">
+          <div className="flex items-center gap-4 mb-4">
+            <div className="p-2.5 rounded-xl bg-green-50 dark:bg-green-900/20 text-green-600">
+              <ArchiveRestore className="w-5 h-5" />
+            </div>
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Familias en Stock Real</p>
+          </div>
+          <h3 className="text-2xl font-black text-blue-950 dark:text-white tracking-tighter">{qtyActivos} Familias</h3>
+        </div>
+        <div className="card-nexus p-6">
+           <div className="flex items-center gap-4 mb-4">
+            <div className="p-2.5 rounded-xl bg-red-50 dark:bg-red-900/20 text-red-600">
+              <AlertCircle className="w-5 h-5" />
+            </div>
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Agotados Críticos</p>
+          </div>
+          <h3 className="text-2xl font-black text-blue-950 dark:text-white tracking-tighter">{qtyInactivos} Atributos</h3>
+        </div>
+      </div>
+
+      {/* FILTROS GEOGRÁFICOS AQUÍ */}
+      <div className="flex flex-wrap gap-2 mb-6 bg-slate-50 dark:bg-slate-900 p-2 rounded-2xl border border-slate-200 dark:border-slate-800">
+          <button 
+            onClick={() => { filterRef.current = null; setWarehouseFilterId(null); fetchData(); }}
+            className={`px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-all ${warehouseFilterId === null ? "bg-indigo-600 text-white shadow-lg" : "bg-transparent text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-800"}`}
+          >
+             <Network className="w-4 h-4" /> Uso Global
+          </button>
+          {depositos.map(dep => (
+            <button 
+              key={dep.id}
+              onClick={() => { filterRef.current = dep.id.toString(); setWarehouseFilterId(dep.id.toString()); fetchData(); }}
+              className={`px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-all ${warehouseFilterId === dep.id.toString() ? "bg-indigo-600 text-white shadow-lg" : "bg-transparent text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-800"}`}
+            >
+               <Box className="w-4 h-4" /> {dep.nombre}
+            </button>
+          ))}
+      </div>
+
+      <div className="card-nexus overflow-hidden">
+        <div className="p-4 border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-950 flex gap-2">
+           <div className="relative max-w-md flex-1">
+             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
+             <input type="text" placeholder="Buscar por Nombre o SKU..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="input-nexus pl-10 w-full" />
+           </div>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] border-b border-slate-50 dark:border-slate-900">
+                <th className="px-8 py-5">Familia Maestro</th>
+                <th className="px-8 py-5 text-right">Cantidad Física</th>
+                <th className="px-8 py-5 text-center">Gestiones Lotes</th>
+                <th className="px-8 py-5 text-right">Patrimonio</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-50 dark:divide-slate-900">
+              {groupedStock.map((maestro: any, index: number) => {
+                const isExpanded = !!expandedRows[maestro.maestro_id];
+                return (
+                <React.Fragment key={maestro.maestro_id+"_"+index}>
+                <tr onClick={() => toggleRow(maestro.maestro_id)} className="hover:bg-slate-50/50 dark:hover:bg-slate-900/50 transition-colors group cursor-pointer">
+                  <td className="px-8 py-6">
+                    <div className="flex items-center gap-4">
+                      <button className="p-1 text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-lg">{isExpanded ? <ChevronDown className="w-5 h-5"/> : <ChevronRight className="w-5 h-5"/>}</button>
+                      <div className="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400">
+                        <Package className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <p className="font-bold text-blue-950 dark:text-white uppercase">{maestro.producto_nombre}</p>
+                        <p className="text-xs text-slate-500 font-medium tracking-tight mt-1">
+                           <span className="bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded text-[10px] uppercase font-bold text-slate-600 dark:text-slate-400">{maestro.categoria_nombre}</span>
+                           <span className="text-indigo-500 font-medium ml-2">{maestro.variantes.length} Variantes Inferiores</span>
+                        </p>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-8 py-6 text-right">
+                    <span className="font-black text-xl text-blue-950 dark:text-white tracking-tighter">
+                      {maestro.variantes.reduce((sum: number, v: any) => sum + (v.cantidad_total || 0), 0)} <span className="text-xs font-medium text-slate-400 uppercase">{maestro.unidad_base}</span>
+                    </span>
+                  </td>
+                  <td className="px-8 py-6 text-center">
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black bg-emerald-50 text-emerald-600 dark:bg-emerald-900/20">
+                      <Layers className="w-3 h-3" /> {maestro.variaciones_etiquetas} Lotes Internos
+                    </span>
+                  </td>
+                  <td className="px-8 py-6 text-right">
+                    <span className="font-bold text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-900 px-3 py-1.5 rounded-lg border border-slate-100 dark:border-slate-800">
+                      {formatCurrency(maestro.capital_total)}
+                    </span>
+                  </td>
+                </tr>
+                {isExpanded && maestro.variantes.map((v: any, vIdx: number) => (
+                  <tr key={v.variante_id + "_" + vIdx} className="bg-slate-50/50 dark:bg-slate-900/50">
+                    <td className="px-8 py-4 pl-24">
+                      <div className="flex flex-col">
+                        <span className="text-sm font-bold text-slate-700 dark:text-slate-300 flex items-center gap-2">
+                           <div className="w-1.5 h-1.5 rounded-full bg-indigo-500"></div> {v.nombre_variante || 'N/A'}
+                        </span>
+                        <span className="text-[10px] text-slate-400 font-mono tracking-widest mt-1 uppercase">{v.sku}</span>
+                      </div>
+                    </td>
+                    <td className="px-8 py-4 text-right">
+                       <span className={cn("font-bold", v.cantidad_total > 0 ? "text-emerald-600" : "text-rose-500")}>
+                          {v.cantidad_total || 0}
+                       </span>
+                    </td>
+                    <td className="px-8 py-4 text-center">
+                       <div className="flex justify-center gap-2">
+                         {v.cantidad_total > 0 && (
+                          <button onClick={() => openLabelDrillDown(v)} className="btn-secondary text-[10px] py-1.5 px-3 border-emerald-200 text-emerald-700 hover:bg-emerald-50">Explorar Cajas</button>
+                         )}
+                         <button onClick={() => openEgresoAuto(v)} className="btn-secondary text-[10px] py-1.5 px-3">Extraer AutoFIFO</button>
+                       </div>
+                    </td>
+                     <td className="px-8 py-4 text-right">
+                       <span className="text-xs font-medium text-slate-500">{formatCurrency(v.costo, v.moneda)} <span className="text-[9px] uppercase tracking-widest opacity-60 ml-1">UNID</span></span>
+                    </td>
+                  </tr>
+                ))}
+                </React.Fragment>
+              )})}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      </motion.div>
+      </AnimatePresence>
       )}
 
       {activeTab === 'catalogo' && (
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-          <div className="card-nexus p-6">
-            <h3 className="font-black text-xl text-blue-950 dark:text-white tracking-tight mb-6">Maestro de Productos</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {productos.map(p => (
-                <div key={p.id} className="border border-slate-100 dark:border-slate-800 rounded-xl p-4 flex justify-between items-center hover:bg-slate-50 dark:hover:bg-slate-900/50 transition-colors">
-                  <div>
-                    <h4 className="font-bold text-slate-900 dark:text-white">{p.nombre}</h4>
-                    <p className="text-xs text-slate-400 mt-1 uppercase font-bold">{p.sku} • {p.unidad}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="font-mono font-bold text-slate-600 dark:text-slate-300">{formatCurrency(p.costo)}</p>
-                  </div>
-                </div>
+      <AnimatePresence>
+      <motion.div initial={{opacity:0, y:10}} animate={{opacity:1, y:0}} exit={{opacity:0}} className="space-y-6">
+        <div className="flex gap-4">
+           <button onClick={() => setIsCatProductModalOpen(true)} className="btn-secondary flex-1 py-4 border-dashed border-2 flex flex-col items-center justify-center gap-2 bg-transparent text-slate-500 hover:border-indigo-500 hover:text-indigo-500">
+               <Plus className="w-6 h-6" /> CREAR NUEVA CATEGORÍA DE NEGOCIO
+           </button>
+           <button onClick={() => setIsProductModalOpen(true)} className="btn-secondary flex-1 py-4 border-dashed border-2 flex flex-col items-center justify-center gap-2 bg-transparent text-slate-500 hover:border-indigo-500 hover:text-indigo-500">
+               <Plus className="w-6 h-6" /> CREAR PRODUCTO MAESTRO EN CATÁLOGO
+           </button>
+        </div>
+        <div className="card-nexus p-8">
+           <h3 className="text-sm font-black uppercase text-slate-400 tracking-widest mb-4">Categorías Formadas</h3>
+           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              {tiposProducto.map(cat => (
+                 <div key={cat.id} className="p-4 rounded-xl border border-slate-100 bg-slate-50 dark:border-slate-800 dark:bg-slate-900">
+                    <p className="font-bold text-blue-950 dark:text-white uppercase">{cat.nombre}</p>
+                    <span className="text-[10px] text-slate-400 uppercase tracking-widest">ID: {cat.id} · Sector {cat.sector}</span>
+                 </div>
               ))}
-            </div>
-          </div>
-        </motion.div>
+           </div>
+        </div>
+      </motion.div>
+      </AnimatePresence>
       )}
 
-      <Modal isOpen={isProductModalOpen} onClose={() => setIsProductModalOpen(false)} title="Nuevo Producto Maestro">
-        <form className="space-y-6" onSubmit={handleAddProduct}>
-          <div className="grid grid-cols-2 gap-6">
-            <div className="space-y-2">
-              <label className="text-[10px] font-black uppercase text-slate-400 ml-1 tracking-widest">SKU Base</label>
-              <input className="input-nexus uppercase" required value={newProduct.sku} onChange={e => setNewProduct({...newProduct, sku: e.target.value.toUpperCase()})} placeholder="TELA-ALG"/>
-            </div>
-            <div className="space-y-2">
-              <label className="text-[10px] font-black uppercase text-slate-400 ml-1 tracking-widest">Nombre Descriptivo</label>
-              <input className="input-nexus" required value={newProduct.nombre} onChange={e => setNewProduct({...newProduct, nombre: e.target.value})} placeholder="Ej. Rollo Algodón"/>
-            </div>
-            <div className="space-y-2">
-              <label className="text-[10px] font-black uppercase text-slate-400 ml-1 tracking-widest">Unidad de Medida</label>
-              <input className="input-nexus" required value={newProduct.unidad} onChange={e => setNewProduct({...newProduct, unidad: e.target.value})} placeholder="ud, lts, caja"/>
-            </div>
-            <div className="space-y-2">
-              <label className="text-[10px] font-black uppercase text-slate-400 ml-1 tracking-widest">Costo Referencial</label>
-              <input className="input-nexus" type="number" required value={newProduct.costo} onChange={e => setNewProduct({...newProduct, costo: Number(e.target.value)})}/>
-            </div>
-          </div>
-          <button type="submit" className="w-full btn-primary py-4">Guardar Producto en Catálogo</button>
-        </form>
+      {activeTab === 'compras' && (
+      <AnimatePresence>
+      <motion.div initial={{opacity:0, y:10}} animate={{opacity:1, y:0}} exit={{opacity:0}}>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+           {comprasPendientes.length === 0 ? (
+             <div className="md:col-span-2 card-nexus p-12 text-center text-slate-500 font-medium">No hay compras con estado PENDIENTE esperando etiquetas.</div>
+           ) : comprasPendientes.map((compra: any) => (
+             <div key={compra.id} className="card-nexus p-6 flex flex-col justify-between">
+                <div>
+                   <h3 className="font-black text-xl mb-1 text-blue-950 dark:text-white uppercase">Orden #{compra.id}</h3>
+                   <p className="text-slate-500 text-sm mb-4">Proveedor: <span className="font-bold">{compra.proveedor_nombre || 'N/A'}</span></p>
+                </div>
+                <div className="flex gap-2 justify-between">
+                   <span className="px-3 py-1 bg-yellow-100 text-yellow-800 rounded font-bold text-[10px] uppercase tracking-widest">{compra.estado}</span>
+                   <button onClick={() => { setSelectedCompraId(compra.id); setIsLabelCompraModalOpen(true); }} className="btn-primary px-6">Generar Rótulos Físicos</button>
+                </div>
+             </div>
+           ))}
+        </div>
+      </motion.div>
+      <Modal isOpen={isLabelCompraModalOpen} onClose={() => setIsLabelCompraModalOpen(false)} title="Generar Lotes desde Compra">
+         <div className="space-y-4">
+             <p className="text-sm text-slate-500 text-center py-4">Módulo en construcción.</p>
+             <button onClick={() => setIsLabelCompraModalOpen(false)} className="w-full btn-secondary py-3">Volver</button>
+         </div>
+      </Modal>
+      </AnimatePresence>
+      )}
+
+
+      {/* MODALES CLAVE */}
+      <Modal isOpen={isProductModalOpen} onClose={() => setIsProductModalOpen(false)} title="Catálogo: Alta Insumo Básico">
+         <form onSubmit={handleAddProduct} className="space-y-6">
+             <div className="grid grid-cols-2 gap-4">
+                 <div className="space-y-2 col-span-2">
+                   <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Familia / Nombre Identificador</label>
+                   <input required type="text" value={newProduct.nombre} onChange={e => setNewProduct({...newProduct, nombre: e.target.value})} className="input-nexus w-full uppercase" />
+                 </div>
+                 <div className="space-y-2">
+                   <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">SKU Unico Global</label>
+                   <input required type="text" value={newProduct.sku} onChange={e => setNewProduct({...newProduct, sku: e.target.value})} className="input-nexus w-full font-mono uppercase" />
+                 </div>
+                 <div className="space-y-2">
+                   <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Categoría Raíz</label>
+                   <select required value={newProduct.categoria_id} onChange={e => setNewProduct({...newProduct, categoria_id: e.target.value})} className="input-nexus w-full bg-transparent">
+                      <option value="" disabled>Seleccione...</option>
+                      {tiposProducto.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                   </select>
+                 </div>
+                 <div className="space-y-2">
+                   <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Unidad Métrica</label>
+                   <input required type="text" value={newProduct.unidad} onChange={e => setNewProduct({...newProduct, unidad: e.target.value})} className="input-nexus w-full" />
+                 </div>
+                 <div className="space-y-2">
+                   <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Costo Base Unitario</label>
+                   <input required type="number" min="0" step="0.01" value={newProduct.costo} onChange={e => setNewProduct({...newProduct, costo: Number(e.target.value)})} className="input-nexus w-full" />
+                 </div>
+             </div>
+             <button type="submit" className="w-full btn-primary py-4 mt-4">Forjar En Base de Datos Oficial</button>
+         </form>
       </Modal>
 
-      <Modal isOpen={isLabelModalOpen} onClose={() => setIsLabelModalOpen(false)} title="Generar e Ingresar Etiquetas">
-        <form className="space-y-6" onSubmit={handleGenerateLabels}>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Producto a Etiquetar</label>
-              <Select 
-                options={productos.map(p => ({ value: p.id, label: `${p.nombre} (${p.sku})` }))}
-                onChange={(option) => setNewLabel({...newLabel, producto_id: option?.value || ''})}
-                placeholder="Busca un insumo..."
-                className="my-react-select"
-                classNamePrefix="select"
-                styles={{
-                  control: (base) => ({
-                    ...base,
-                    borderRadius: '0.75rem',
-                    borderColor: '#e2e8f0',
-                    padding: '0.25rem',
-                    boxShadow: 'none',
-                    '&:hover': { borderColor: '#cbd5e1' }
-                  })
-                }}
-              />
-            </div>
-            <div className="space-y-2">
-              <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Depósito Destino</label>
-              <Select 
-                options={depositos.map(d => ({ value: d.id, label: d.nombre }))}
-                onChange={(option) => setNewLabel({...newLabel, deposito_id: option?.value || ''})}
-                placeholder="Escoge el almacén destino..."
-                styles={{
-                  control: (base) => ({
-                    ...base,
-                    borderRadius: '0.75rem',
-                    borderColor: '#e2e8f0',
-                    padding: '0.25rem',
-                    boxShadow: 'none',
-                    '&:hover': { borderColor: '#cbd5e1' }
-                  })
-                }}
-              />
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-6 border-t border-slate-100 dark:border-slate-800 pt-6">
-            <div className="space-y-2">
-              <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Nº Etiquetas a Generar</label>
-              <input className="input-nexus text-xl font-bold" type="number" min="1" required value={newLabel.numero_etiquetas} onChange={e => setNewLabel({...newLabel, numero_etiquetas: Number(e.target.value)})}/>
-              <p className="text-[10px] text-slate-400 mt-1 leading-tight">Cuántos códigos de barras físicos vas a imprimir. Ej: 5 rollos = 5 etiquetas.</p>
-            </div>
-            <div className="space-y-2">
-              <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Cantidad x Etiqueta</label>
-              <input className="input-nexus text-xl pr-4 font-bold" type="number" min="1" required value={newLabel.cantidad_por_etiqueta} onChange={e => setNewLabel({...newLabel, cantidad_por_etiqueta: Number(e.target.value)})}/>
-              <p className="text-[10px] text-slate-400 mt-1 leading-tight">Stock interno de cada etiqueta. Ej: 1 rollo, o 1 caja con 12 botellas.</p>
-            </div>
-          </div>
-          <button type="submit" className="w-full btn-primary py-4 mt-6">Imprimir y Asentar Ingreso</button>
-        </form>
+      <Modal isOpen={isCatProductModalOpen} onClose={() => setIsCatProductModalOpen(false)} title="Forjar Nueva Categoría de Sistema">
+         <form onSubmit={handleAddCategory} className="space-y-6">
+             <div className="space-y-2">
+               <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Nombre de la Categoria</label>
+               <input required type="text" value={newCategory.nombre} onChange={e => setNewCategory({...newCategory, nombre: e.target.value})} className="input-nexus w-full uppercase" />
+             </div>
+             <button type="submit" className="w-full btn-primary py-4">Validar Estructura</button>
+         </form>
       </Modal>
+
+      {/* MODAL DE EXPLORACION DE CAJAS (Lotes) */}
+      <Modal isOpen={isLabelDrillDownOpen} onClose={() => setIsLabelDrillDownOpen(false)} title={`Cajas en Bodega: ${variationChartProduct?.nombre_variante}`}>
+         <div className="space-y-4">
+             {labelCatalog.length === 0 ? (
+               <p className="text-slate-500 text-sm text-center py-6">No hay cajas activas para este atributo bajo este filtro geográfico.</p>
+             ) : (
+               labelCatalog.map((etq, i) => (
+                  <div key={etq.id} className="flex flex-col bg-slate-50 dark:bg-slate-900 p-4 rounded-xl border border-slate-100 dark:border-slate-800">
+                     <div className="flex justify-between items-center mb-2">
+                        <span className="font-mono text-xs text-slate-500 font-black">{etq.codigo_barras}</span>
+                        <span className="font-black text-indigo-600 bg-indigo-50 px-2 py-1 rounded text-xs">{etq.cantidad_actual} físicas</span>
+                     </div>
+                     <span className="text-[10px] text-slate-400 uppercase tracking-widest flex items-center gap-1 mt-2">
+                        <ArrowUpRight className="w-3 h-3"/> Referencia Lote interno de Sistema: [{etq.id}]
+                     </span>
+                  </div>
+               ))
+             )}
+         </div>
+      </Modal>
+
+      {/* MODAL DE EXTRACCION AUTOFIFO */}
+      <Modal isOpen={isEgresoModalOpen} onClose={() => setIsEgresoModalOpen(false)} title={`Extracción FIFO Automática: ${egresoProduct?.nombre_variante}`}>
+         <div className="space-y-6">
+             <div className="flex items-end gap-4 p-6 bg-emerald-50 dark:bg-emerald-900/10 rounded-2xl border-2 border-emerald-100 dark:border-emerald-900/30">
+                 <div className="flex-1 space-y-2">
+                    <label className="text-[10px] font-black text-emerald-800 dark:text-emerald-400 uppercase tracking-widest">Ingrese la cantidad necesaria</label>
+                    <input type="number" min="1" value={egresoAutoMonto} onChange={e => setEgresoAutoMonto(Number(e.target.value))} className="w-full text-center text-3xl font-black bg-transparent border-b-2 border-emerald-300 dark:border-emerald-700 outline-none text-emerald-900" />
+                 </div>
+                 <button onClick={applyAutoFIFO} className="px-6 py-4 rounded-xl font-bold uppercase tracking-widest bg-emerald-600 shadow-lg text-white hover:bg-emerald-700">Trazar Algoritmo FIFO</button>
+             </div>
+
+             <div className="space-y-3">
+                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Trazabilidad Predictiva</p>
+                 {Object.keys(egresoAmounts).filter(k => egresoAmounts[k] > 0).map(id => {
+                     const etq = egresoEtiquetas.find(e => e.id.toString() === id);
+                     return (
+                         <div key={id} className="flex items-center justify-between p-3 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900">
+                             <div className="flex items-center gap-2">
+                                <span className="font-mono text-xs">{etq?.codigo_barras}</span>
+                                <span className="text-[9px] bg-slate-200 dark:bg-slate-800 px-2 rounded-full font-medium">Lote Físico: {etq?.cantidad_actual}</span>
+                             </div>
+                             <span className="font-black text-sm text-rose-500">
+                                - {egresoAmounts[id]} uds
+                             </span>
+                         </div>
+                     );
+                 })}
+             </div>
+
+             <button onClick={confirmarEgreso} className="w-full bg-rose-600 hover:bg-rose-700 text-white font-black py-4 uppercase tracking-widest rounded-xl shadow-lg transition-all" disabled={Object.keys(egresoAmounts).filter(k => egresoAmounts[k] > 0).length === 0}>
+                Descontar Mercadería Definitivamente
+             </button>
+         </div>
+      </Modal>
+
     </div>
   );
 }

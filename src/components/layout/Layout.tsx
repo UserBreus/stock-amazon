@@ -10,11 +10,11 @@ export function Layout({ children }: { children: ReactNode }) {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   return (
-    <div className="bg-white dark:bg-slate-950 min-h-screen flex transition-colors duration-500 relative">
+    <div className="bg-slate-50 dark:bg-slate-950 min-h-screen flex transition-colors duration-500 relative">
       <Sidebar isMobileMenuOpen={isMobileMenuOpen} setIsMobileMenuOpen={setIsMobileMenuOpen} />
-      <div className="flex-1 flex flex-col min-w-0 md:ml-20 lg:ml-0 lg:pl-[288px] w-full">
+      <div className="flex-1 flex flex-col min-w-0 w-full">
         <TopBar onMenuToggle={() => setIsMobileMenuOpen(true)} />
-        <main className="flex-1 p-4 md:p-8 overflow-y-auto">
+        <main className="flex-1 p-4 md:px-8 md:pt-4 md:pb-8 overflow-y-auto">
           <AnimatePresence mode="wait">
             <motion.div
               key={window.location.pathname}
@@ -22,6 +22,7 @@ export function Layout({ children }: { children: ReactNode }) {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
               transition={{ duration: 0.3, ease: "easeOut" }}
+              className="flex flex-col h-full w-full"
             >
               {children}
             </motion.div>

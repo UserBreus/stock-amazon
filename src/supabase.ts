@@ -1,15 +1,6 @@
-import { createClient } from '@supabase/supabase-js';
+export const supabase = {} as any;
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-
-if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error('Faltan variables de entorno de Supabase');
-}
-
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
-
-export async function handleSupabaseError(error: any, context?: string) {
-  console.error(`Supabase Error (${context || 'General'}):`, error.message || error);
-  // Ideally, connect to a toast notification system here.
-}
+export const handleSupabaseError = (error: any, context: string) => {
+  console.error(`AWS Database Error at ${context}:`, error);
+  alert(`Error (${context}): ${error.message || 'Error desconocido'}`);
+};

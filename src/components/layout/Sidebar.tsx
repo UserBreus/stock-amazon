@@ -14,9 +14,12 @@ import {
   ChevronRight
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { DynamicIcon } from '../../context/IconContext';
+
 import { Modal } from '../ui/Modal';
 import { cn } from '../../lib/utils';
 import { supabase } from '../../supabase';
+import toast from 'react-hot-toast';
 
 interface SidebarProps {
   isMobileMenuOpen?: boolean;
@@ -30,19 +33,22 @@ export function Sidebar({ isMobileMenuOpen, setIsMobileMenuOpen }: SidebarProps)
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
 
+
   // Form state
   const [reportTitle, setReportTitle] = useState('');
   const [reportCategory, setReportCategory] = useState('Inventario');
   const [reportDescription, setReportDescription] = useState('');
 
   const menuItems = [
-    { name: 'Dashboard', path: '/', icon: LayoutDashboard, roles: ['admin', 'operario', 'operario_stock'] },
-    { name: 'Inventario Gerencial', path: '/inventario-gerencial', icon: BarChart3, roles: ['admin', 'operario_stock'] },
-    { name: 'Inventario Operativo', path: '/inventario-operativo', icon: Package, roles: ['admin', 'operario'] },
-    { name: 'Importaciones', path: '/importaciones', icon: Truck, roles: ['admin'] },
-    { name: 'Análisis de Proveedores', path: '/analisis-proveedores', icon: BarChart3, roles: ['admin'] },
+    { id: 'sidebar_dashboard', name: 'Panel de Control', path: '/', icon: LayoutDashboard, roles: ['gerente_stock', 'admin', 'operario', 'operario_stock', 'administrativo_stock'] },
+    { id: 'sidebar_inventario', name: 'Inventario Global', path: '/inventario-gerencial', icon: BarChart3, roles: ['gerente_stock', 'admin', 'operario_stock', 'administrativo_stock'] },
+    { id: 'sidebar_sectores', name: 'Sectores y Traslados', path: '/inventario-operativo', icon: Package, roles: ['gerente_stock', 'admin', 'operario', 'operario_stock'] },
+    { id: 'sidebar_compras', name: 'Registro de Compras', path: '/ingresos', icon: Truck, roles: ['gerente_stock', 'admin', 'administrativo_stock'] },
+    { id: 'sidebar_sistema', name: 'Gestión de Sistema', path: '/configuracion-maestros', icon: Settings, roles: ['gerente_stock', 'admin', 'administrativo_stock'] },
   ];
 
+  
+  
   const handleCreateReport = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
@@ -55,10 +61,10 @@ export function Sidebar({ isMobileMenuOpen, setIsMobileMenuOpen }: SidebarProps)
       setIsReportModalOpen(false);
       setReportTitle('');
       setReportDescription('');
-      alert('Reporte generado exitosamente');
+      toast.success('Reporte generado exitosamente');
     } catch (error) {
       console.error(error);
-      alert('Error al general el reporte');
+      toast.error('Error al generar el reporte');
     }
   };
 
@@ -85,18 +91,18 @@ export function Sidebar({ isMobileMenuOpen, setIsMobileMenuOpen }: SidebarProps)
               animate={{ opacity: 1, x: 0 }}
               className="flex items-center gap-3"
             >
-              <div className="w-10 h-10 bg-blue-900 rounded-xl flex items-center justify-center shadow-lg shadow-blue-900/20">
-                <Network className="text-white w-6 h-6" />
+              <div className="w-10 h-10 bg-cyan-500 rounded-xl flex items-center justify-center shadow-lg shadow-cyan-500/20">
+                <Network className="text-black w-6 h-6" />
               </div>
               <div>
-                <h2 className="text-lg font-black text-blue-950 dark:text-white leading-tight tracking-tighter">NEXUS</h2>
-                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Logistics Int.</p>
+                <h2 className="text-lg font-black text-cyan-950 dark:text-white leading-tight tracking-tighter">USER</h2>
+                <p className="text-[10px] text-cyan-600 dark:text-cyan-400 font-bold uppercase tracking-widest">Venta y Stock</p>
               </div>
             </motion.div>
           )}
           {isCollapsed && (
-            <div className="w-10 h-10 bg-blue-900 rounded-xl flex items-center justify-center shadow-lg shadow-blue-900/20 mx-auto">
-              <Network className="text-white w-6 h-6" />
+            <div className="w-10 h-10 bg-cyan-500 rounded-xl flex items-center justify-center shadow-lg shadow-cyan-500/20 mx-auto">
+              <Network className="text-black w-6 h-6" />
             </div>
           )}
         </div>
@@ -116,7 +122,7 @@ export function Sidebar({ isMobileMenuOpen, setIsMobileMenuOpen }: SidebarProps)
                   : "text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-900 hover:text-blue-900 dark:hover:text-blue-300"
               )}
             >
-              <item.icon className={cn(
+              <DynamicIcon id={item.id} fallback={item.icon} className={cn(
                 "w-5 h-5 transition-transform duration-300 group-hover:scale-110",
                 location.pathname === item.path ? "text-blue-900 dark:text-blue-400" : "text-slate-400 group-hover:text-blue-600"
               )} />
@@ -145,10 +151,10 @@ export function Sidebar({ isMobileMenuOpen, setIsMobileMenuOpen }: SidebarProps)
           )}
           
           <div className="pt-6 border-t border-slate-50 dark:border-slate-900">
-            <button className="w-full text-left text-slate-500 dark:text-slate-400 px-4 py-3 flex items-center gap-4 hover:text-blue-900 dark:hover:text-blue-300 transition-colors group">
-              <Settings className="w-5 h-5 group-hover:rotate-90 transition-transform duration-500" />
-              {!isCollapsed && <span className="text-sm font-bold tracking-tight">Configuración</span>}
-            </button>
+
+            
+            
+
             <button 
               onClick={() => {
                 logout();

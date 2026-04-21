@@ -1,0 +1,1 @@
+fetch('http://3.85.26.173:5005/sql', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query: "SELECT COUNT(*) as c FROM Stock_Etiquetas WHERE estado = 'impreso_pendiente'" }) }).then(r => r.json()).then(data => console.log(JSON.stringify(data)))

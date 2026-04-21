@@ -1,22 +1,25 @@
 import { createContext, useState, useEffect, useContext, ReactNode } from 'react';
-import { supabase } from '../supabase';
+
 
 export interface UserProfile {
   id: string;
   usuario: string;
   rol: string;
+  sucursal_activa_id?: number;
+  sucursal_activa_nombre?: string;
 }
 
 interface AuthContextType {
   user: UserProfile | null;
   profile: UserProfile | null;
   loading: boolean;
-  isAdmin: boolean;
+  isGerente: boolean;
+  isAdminStock: boolean;
   isOperario: boolean;
   isOperarioStock: boolean;
   darkMode: boolean;
   toggleDarkMode: () => void;
-  login: (usuarioStr: string, profileData: UserProfile) => void;
+  login: (usuarioStr: string, profileData: UserProfile, sucursalId?: number, sucursalNombre?: string) => void;
   logout: () => void;
 }
 
@@ -64,9 +67,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     checkSession();
   }, []);
 
-  const login = (usuarioStr: string, profileData: UserProfile) => {
-    setUser(profileData);
-    localStorage.setItem('nexus_custom_user', JSON.stringify(profileData));
+  const login = (usuarioStr: string, profileData: UserProfile, sucursalId?: number, sucursalNombre?: string) => {
+    const enrichedData = {
+      ...profileData,
+      sucursal_activa_id: sucursalId,
+      sucursal_activa_nombre: sucursalNombre
+    };
+    setUser(enrichedData);
+    localStorage.setItem('nexus_custom_user', JSON.stringify(enrichedData));
   };
 
   const logout = () => {
@@ -78,9 +86,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     user,
     profile: user,
     loading,
-    isAdmin: user?.rol === 'admin',
+    isGerente: user?.rol === 'gerente_stock',
+    isAdminStock: user?.rol === 'administrativo_stock' || user?.rol === 'admin',
     isOperario: user?.rol === 'operario',
-    isOperarioStock: user?.rol === 'operario_stock',
+    isOperarioStock: user?.rol === 'operario_stock' || user?.rol === 'atencion',
     darkMode,
     toggleDarkMode,
     login,
