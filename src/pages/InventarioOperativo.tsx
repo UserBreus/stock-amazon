@@ -42,6 +42,8 @@ export function InventarioOperativo() {
 
   // Modal selector de sector para supers
   const [isSectorModalOpen, setIsSectorModalOpen] = useState(false);
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
     fetchBaseData();
@@ -88,12 +90,13 @@ export function InventarioOperativo() {
     try {
       const [etiqRes, remitosRes, historialRes] = await Promise.all([
         executeAWSQuery(`
-          SELECT e.*, p.nombre as producto_nombre, v.nombre_variante as producto_sku, p.unidad_base as unidad
+          SELECT e.*, p.nombre as producto_nombre, v.nombre_variante as producto_sku, p.unidad_base as unidad, c.nombre as familia_nombre
           FROM Stock_Etiquetas e
           INNER JOIN Stock_Variantes v ON e.variante_id = v.id
           INNER JOIN Stock_Productos_Maestros p ON v.producto_maestro_id = p.id
+          LEFT JOIN Stock_Categorias c ON p.categoria_id = c.id
           WHERE e.deposito_id = ${sectorSeleccionado} AND (e.estado = 'activo' OR e.estado IS NULL) AND e.cantidad_actual > 0
-          ORDER BY p.nombre ASC
+          ORDER BY c.nombre ASC, p.nombre ASC
         `),
         executeAWSQuery(`
           SELECT r.*, d_origen.nombre as origen_nombre, 
@@ -278,13 +281,12 @@ export function InventarioOperativo() {
       try {
           const res = await executeAWSQuery(`
               SELECT c.id as cat_id, c.nombre as cat_name, 
-                     f.id as fam_id, f.nombre as fam_name, 
+                     c.id as fam_id, c.nombre as fam_name, 
                      p.id as prod_id, p.nombre as prod_name, p.codigo_sku as prod_sku, p.requiere_lote,
                      v.id as var_id, v.nombre_variante as var_name, v.codigo_barras as var_sku
               FROM Stock_Variantes v
               INNER JOIN Stock_Productos_Maestros p ON v.producto_maestro_id = p.id
-              INNER JOIN Stock_Familias f ON p.familia_id = f.id
-              INNER JOIN Stock_Categorias c ON f.categoria_id = c.id
+              LEFT JOIN Stock_Categorias c ON p.categoria_id = c.id
           `);
           if (res) {
               const cats = Array.from(new Set(res.map((r:any) => JSON.stringify({ id: r.cat_id, nombre: r.cat_name })))).map((s:any) => JSON.parse(s));
@@ -342,27 +344,27 @@ export function InventarioOperativo() {
   return (
     <div className="space-y-8 max-w-7xl mx-auto">
       {/* HEADER DE MI SECTOR */}
-      <div className="card-nexus p-8 bg-gradient-to-br from-blue-900 to-indigo-950 text-white rounded-3xl shadow-xl shadow-blue-900/20 relative overflow-hidden">
-        <div className="absolute top-0 right-0 p-10 opacity-10 blur-xl pointer-events-none">
-            <MapPin className="w-64 h-64" />
+      <div className="card-nexus p-8 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl relative overflow-hidden">
+        <div className="absolute top-0 right-0 p-10 opacity-5 pointer-events-none">
+            <MapPin className="w-64 h-64 text-slate-900 dark:text-white" />
         </div>
         <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 relative z-10">
           <div>
-            <h1 className="text-4xl font-black tracking-tighter">Mi Sector de Operaciones</h1>
-            <p className="text-blue-200 mt-2 text-sm max-w-xl">Supervisa el inventario disponible en tiempo real para tu área o punto de recarga. Registra el material operado y recibe remitos transferidos por Logística Central.</p>
+            <h1 className="text-4xl font-black tracking-tighter text-slate-900 dark:text-white">Mi Sector de Operaciones</h1>
+            <p className="text-slate-500 dark:text-slate-400 mt-2 text-sm max-w-xl">Supervisa el inventario disponible en tiempo real para tu área o punto de recarga. Registra el material operado y recibe remitos transferidos por Logística Central.</p>
           </div>
           <div className="w-full md:w-80">
-            <label className="text-[10px] font-black uppercase text-blue-300 tracking-widest pl-1">Sector Asignado en Base</label>
+            <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest pl-1">Sector Asignado en Base</label>
             <button 
                type="button"
                onClick={() => isSuperUser ? setIsSectorModalOpen(true) : toast("Debes pedirle a un administrador que asigne tu cuenta a otra área.")}
-               className={cn("input-nexus w-full mt-1 flex items-center justify-between text-left h-[46px] border-none shadow-inner", isSuperUser ? 'bg-white/10 hover:bg-white/20' : 'bg-black/20 cursor-not-allowed opacity-80')}
+               className={cn("input-nexus w-full mt-1 flex items-center justify-between text-left h-[46px] border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950", isSuperUser ? 'hover:bg-slate-100 dark:hover:bg-slate-800' : 'cursor-not-allowed opacity-80')}
             >
-               <span className="font-black text-sm text-white flex items-center gap-2 truncate">
-                  <MapPin className="w-4 h-4 text-emerald-400" />
+               <span className="font-black text-sm text-slate-800 dark:text-white flex items-center gap-2 truncate">
+                  <MapPin className="w-4 h-4 text-emerald-500" />
                   {currentSectorObj?.nombre || 'Ninguno'}
                </span>
-               {isSuperUser && <ArrowDownRight className="w-4 h-4 opacity-50" />}
+               {isSuperUser && <ArrowDownRight className="w-4 h-4 opacity-50 text-slate-400" />}
             </button>
           </div>
         </div>
@@ -402,44 +404,133 @@ export function InventarioOperativo() {
                </h3>
                <div className="relative w-full sm:w-64">
                    <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                   <input type="text" placeholder="Buscar por Variante o Maestro..." className="input-nexus w-full h-10 pl-9 bg-slate-50 dark:bg-slate-950 font-bold text-sm" />
+                   <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Buscar por Variante o Maestro..." className="input-nexus w-full h-10 pl-9 bg-slate-50 dark:bg-slate-950 font-bold text-sm focus:ring-indigo-500" />
                </div>
            </div>
 
-           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+           <div className="space-y-8">
               {etiquetasLocales.length === 0 && (
-                  <div className="col-span-full py-20 text-center border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-3xl">
+                  <div className="py-20 text-center border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-3xl">
                       <PackageCheck className="w-16 h-16 text-slate-300 dark:text-slate-700 mx-auto mb-4" />
                       <p className="font-bold text-slate-500 text-lg">Área sin existencias reportadas.</p>
                       <p className="text-sm text-slate-400">Todo el material consumido, o a espera de remito central.</p>
                   </div>
               )}
-              {etiquetasLocales.map((et) => (
-                  <div key={et.id} className="card-nexus p-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-indigo-300 transition-colors flex flex-col group">
-                      <div className="flex justify-between items-start mb-3">
-                          <div>
-                              <span className="text-[10px] font-black uppercase tracking-widest text-indigo-500 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20 px-2 py-0.5 rounded">{et.producto_sku || 'Artículo'}</span>
-                              <h4 className="font-black text-slate-900 dark:text-white mt-1.5 leading-tight pr-4">{et.producto_nombre}</h4>
+              {etiquetasLocales.length > 0 && (() => {
+                  const filteredEtiquetas = etiquetasLocales.filter(et => {
+                      if (!searchQuery) return true;
+                      const term = searchQuery.toLowerCase();
+                      return (et.producto_nombre?.toLowerCase().includes(term) || et.producto_sku?.toLowerCase().includes(term));
+                  });
+
+                  if (searchQuery) {
+                      if (filteredEtiquetas.length === 0) {
+                          return <div className="text-center p-10 text-slate-500 font-bold bg-slate-50 dark:bg-slate-900 rounded-3xl">No se encontraron productos físicos que coincidan con tu búsqueda.</div>;
+                      }
+                      return (
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                              {filteredEtiquetas.map((et: any) => (
+                                  <div key={et.id} className="card-nexus p-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-indigo-300 transition-colors flex flex-col group">
+                                      <div className="flex justify-between items-start mb-3">
+                                          <div>
+                                              <span className="text-[10px] font-black uppercase tracking-widest text-indigo-500 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20 px-2 py-0.5 rounded">{et.producto_sku || 'Artículo'}</span>
+                                              <h4 className="font-black text-slate-900 dark:text-white mt-1.5 leading-tight pr-4">{et.producto_nombre}</h4>
+                                          </div>
+                                      </div>
+                                      <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800 flex items-end justify-between">
+                                          <div>
+                                              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-0.5">Saldo Físico Actual</p>
+                                              <p className="font-black text-2xl text-slate-800 dark:text-white">
+                                                  {et.cantidad_actual} <span className="text-sm text-slate-500">{et.unidad}</span>
+                                              </p>
+                                          </div>
+                                          <button onClick={() => { setBajaEtiqueta(et); setBajaCantidad(1); }} className="opacity-100 lg:opacity-0 group-hover:opacity-100 btn-secondary bg-red-50 text-red-600 hover:bg-red-100 border-none transition-all h-9 text-xs px-3 shadow-none flex items-center gap-1">
+                                             <MinusCircle className="w-3.5 h-3.5" /> Consumir
+                                          </button>
+                                      </div>
+                                  </div>
+                              ))}
                           </div>
-                      </div>
-                      
-                      <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800 flex items-end justify-between">
-                          <div>
-                              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-0.5">Saldo Físico Actual</p>
-                              <p className="font-black text-2xl text-slate-800 dark:text-white">
-                                  {et.cantidad_actual} <span className="text-sm text-slate-500">{et.unidad}</span>
-                              </p>
+                      );
+                  }
+
+                  const grouped = etiquetasLocales.reduce((acc: any, curr: any) => {
+                      const fam = curr.familia_nombre || 'Sin Familia Asignada';
+                      if (!acc[fam]) acc[fam] = [];
+                      acc[fam].push(curr);
+                      return acc;
+                  }, {});
+                  
+                  if (!selectedCategory) {
+                      return (
+                          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                              {Object.entries(grouped).map(([familia, tags]: [string, any]) => (
+                                  <button
+                                      key={familia}
+                                      onClick={() => setSelectedCategory(familia)}
+                                      className="flex flex-col items-center justify-center text-center p-8 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-indigo-400 hover:shadow-lg hover:shadow-indigo-500/10 hover:-translate-y-1 transition-all rounded-[2rem] group"
+                                  >
+                                      <div className="w-14 h-14 bg-slate-50 dark:bg-slate-800 text-slate-500 group-hover:bg-indigo-50 group-hover:text-indigo-500 rounded-2xl flex items-center justify-center mb-4 transition-colors">
+                                          <Box className="w-7 h-7" />
+                                      </div>
+                                      <h4 className="font-black text-slate-800 dark:text-white text-lg tracking-tight">{familia}</h4>
+                                      <span className="text-xs font-bold text-slate-500 mt-2 bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-full">{tags.length} Lotes físicos</span>
+                                  </button>
+                              ))}
+                          </div>
+                      );
+                  }
+
+                  const tags = grouped[selectedCategory] || [];
+                  return (
+                      <div className="bg-slate-50/50 dark:bg-slate-950/20 rounded-3xl border border-slate-100 dark:border-slate-800/60 p-6">
+                          <div className="flex items-center gap-4 mb-6">
+                              <button 
+                                 onClick={() => setSelectedCategory(null)}
+                                 className="w-10 h-10 flex items-center justify-center bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl transition-colors shrink-0 shadow-sm"
+                              >
+                                  <ArrowRight className="w-5 h-5 opacity-70 rotate-180" />
+                              </button>
+                              <div>
+                                  <h4 className="font-black text-slate-700 dark:text-slate-300 text-2xl flex items-center gap-3">
+                                      <div className="w-2 h-6 bg-indigo-400 rounded-full"></div>
+                                      {selectedCategory}
+                                  </h4>
+                                  <p className="text-sm font-bold text-slate-500">{tags.length} lotes encontrados</p>
+                              </div>
                           </div>
                           
-                          <button 
-                             onClick={() => { setBajaEtiqueta(et); setBajaCantidad(1); }}
-                             className="opacity-100 lg:opacity-0 group-hover:opacity-100 btn-secondary bg-red-50 text-red-600 hover:bg-red-100 border-none transition-all h-9 text-xs px-3 shadow-none flex items-center gap-1"
-                          >
-                             <MinusCircle className="w-3.5 h-3.5" /> Consumir
-                          </button>
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                              {tags.map((et: any) => (
+                                  <div key={et.id} className="card-nexus p-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-indigo-300 transition-colors flex flex-col group">
+                                      <div className="flex justify-between items-start mb-3">
+                                          <div>
+                                              <span className="text-[10px] font-black uppercase tracking-widest text-indigo-500 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20 px-2 py-0.5 rounded">{et.producto_sku || 'Artículo'}</span>
+                                              <h4 className="font-black text-slate-900 dark:text-white mt-1.5 leading-tight pr-4">{et.producto_nombre}</h4>
+                                          </div>
+                                      </div>
+                                      
+                                      <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800 flex items-end justify-between">
+                                          <div>
+                                              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-0.5">Saldo Físico Actual</p>
+                                              <p className="font-black text-2xl text-slate-800 dark:text-white">
+                                                  {et.cantidad_actual} <span className="text-sm text-slate-500">{et.unidad}</span>
+                                              </p>
+                                          </div>
+                                          
+                                          <button 
+                                             onClick={() => { setBajaEtiqueta(et); setBajaCantidad(1); }}
+                                             className="opacity-100 lg:opacity-0 group-hover:opacity-100 btn-secondary bg-red-50 text-red-600 hover:bg-red-100 border-none transition-all h-9 text-xs px-3 shadow-none flex items-center gap-1"
+                                          >
+                                             <MinusCircle className="w-3.5 h-3.5" /> Consumir
+                                          </button>
+                                      </div>
+                                  </div>
+                              ))}
+                          </div>
                       </div>
-                  </div>
-              ))}
+                  );
+              })()}
            </div>
         </motion.div>
       )}
