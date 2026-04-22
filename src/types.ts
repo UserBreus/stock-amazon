@@ -1,4 +1,4 @@
-export type UserRole = 'admin' | 'gerente_stock' | 'administrativo_stock' | 'operario' | 'operario_stock';
+export type UserRole = 'admin' | 'gerente_stock' | 'administrativo_stock' | 'operario' | 'operario_stock' | 'atencion';
 
 export interface UserProfile {
   id: string;

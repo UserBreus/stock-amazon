@@ -39,13 +39,13 @@ export default function App() {
             } />
             
             <Route path="/inventario-gerencial" element={
-              <ProtectedRoute roles={['gerente_stock', 'admin', 'operario_stock', 'administrativo_stock']}>
+              <ProtectedRoute roles={['gerente_stock', 'admin', 'operario_stock', 'administrativo_stock', 'atencion']}>
                 <Layout><InventarioGerencial /></Layout>
               </ProtectedRoute>
             } />
             
             <Route path="/inventario-operativo" element={
-              <ProtectedRoute roles={['gerente_stock', 'admin', 'operario', 'operario_stock']}>
+              <ProtectedRoute roles={['gerente_stock', 'admin', 'operario', 'operario_stock', 'atencion']}>
                 <Layout><InventarioOperativo /></Layout>
               </ProtectedRoute>
             } />

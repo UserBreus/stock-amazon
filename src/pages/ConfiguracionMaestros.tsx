@@ -317,7 +317,7 @@ export function ConfiguracionMaestros() {
   const createCategoria = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await executeAWSQuery(`INSERT INTO Stock_Categorias (nombre, descripcion) VALUES ('${catName}', '${catDesc}')`);
+      await executeAWSQuery(`INSERT INTO Stock_Categorias (nombre, descripcion) VALUES ('${catName.replace(/'/g, "''")}', '${catDesc.replace(/'/g, "''")}')`);
       setCatName(''); setCatDesc(''); toast.success("Agrupador Guardado"); fetchData();
     } catch (err: any) {
       toast.error("Error al guardar categoría: " + (err.message || "Es posible que este nombre ya exista."));
@@ -327,7 +327,7 @@ export function ConfiguracionMaestros() {
   const createProveedor = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await executeAWSQuery(`INSERT INTO Stock_Proveedores (nombre, documento) VALUES ('${provName}', '${provDoc}')`);
+      await executeAWSQuery(`INSERT INTO Stock_Proveedores (nombre, documento) VALUES ('${provName.replace(/'/g, "''")}', '${provDoc.replace(/'/g, "''")}')`);
       setProvName(''); setProvDoc(''); toast.success("Proveedor Guardado"); fetchData();
     } catch (err: any) {
       toast.error("Error al guardar proveedor: " + (err.message || "Es posible que ya esté registrado."));
@@ -336,12 +336,13 @@ export function ConfiguracionMaestros() {
 
   const saveProductoMaestro = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!pmCatId) return toast.error("Por favor, selecciona una familia primero.");
     try {
       if (editProdId) {
-          await executeAWSQuery(`UPDATE Stock_Productos_Maestros SET nombre='${pmNombre}', categoria_id=${pmCatId}, unidad_base='${pmUnidad.replace(/'/g, "''")}', tipo_gestion='${pmTipoGestion}' WHERE id=${editProdId}`);
+          await executeAWSQuery(`UPDATE Stock_Productos_Maestros SET nombre='${pmNombre.replace(/'/g, "''")}', categoria_id=${pmCatId}, unidad_base='${pmUnidad.replace(/'/g, "''")}', tipo_gestion='${pmTipoGestion}' WHERE id=${editProdId}`);
           toast.success("Producto Actualizado");
       } else {
-          await executeAWSQuery(`INSERT INTO Stock_Productos_Maestros (sku, nombre, categoria_id, unidad_base, tipo_gestion) VALUES ('${pmSKU}', '${pmNombre}', ${pmCatId}, '${pmUnidad.replace(/'/g, "''")}', '${pmTipoGestion}')`);
+          await executeAWSQuery(`INSERT INTO Stock_Productos_Maestros (sku, nombre, categoria_id, unidad_base, tipo_gestion) VALUES ('${pmSKU.replace(/'/g, "''")}', '${pmNombre.replace(/'/g, "''")}', ${pmCatId}, '${pmUnidad.replace(/'/g, "''")}', '${pmTipoGestion}')`);
           toast.success("Producto Registrado");
       }
       setPmSKU(''); setPmNombre(''); setPmCatId(''); setPmTipoGestion('granel'); setPmUnidad('ud'); setEditProdId(null); 
@@ -357,8 +358,9 @@ export function ConfiguracionMaestros() {
 
   const createVariante = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!varProdId) return toast.error("Por favor, selecciona un maestro primero.");
     try {
-      await executeAWSQuery(`INSERT INTO Stock_Variantes (producto_maestro_id, codigo_variante, nombre_variante) VALUES ('${varProdId}', '${varSku}', '${varNombre}')`);
+      await executeAWSQuery(`INSERT INTO Stock_Variantes (producto_maestro_id, codigo_variante, nombre_variante) VALUES ('${varProdId}', '${varSku.replace(/'/g, "''")}', '${varNombre.replace(/'/g, "''")}')`);
       setVarNombre(''); setVarSku(''); toast.success("Variante Creada"); fetchData();
     } catch (err: any) {
        toast.error("Error al crear variante: " + (err.message || "Posible duplicado."));
@@ -555,11 +557,11 @@ export function ConfiguracionMaestros() {
                       if(!almName.trim()) return;
                       try {
                           if (editAlmId) {
-                              await executeAWSQuery(`UPDATE Stock_Depositos SET nombre = '${almName}', ubicacion = '${almUbicacion}' WHERE id = ${editAlmId}`);
+                              await executeAWSQuery(`UPDATE Stock_Depositos SET nombre = '${almName.replace(/'/g, "''")}', ubicacion = '${almUbicacion.replace(/'/g, "''")}' WHERE id = ${editAlmId}`);
                               toast.success("Almacén modificado correctamente");
                           } else {
                               try { await executeAWSQuery("ALTER TABLE Stock_Depositos ADD ubicacion VARCHAR(255)"); } catch(e){}
-                              await executeAWSQuery(`INSERT INTO Stock_Depositos (nombre, ubicacion) VALUES ('${almName}', '${almUbicacion}')`);
+                              await executeAWSQuery(`INSERT INTO Stock_Depositos (nombre, ubicacion) VALUES ('${almName.replace(/'/g, "''")}', '${almUbicacion.replace(/'/g, "''")}')`);
                               toast.success("Almacén creado correctamente");
                           }
                           setAlmName('');

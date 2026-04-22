@@ -14,6 +14,7 @@ interface DrillDownModalProps {
   closeOnSelect?: boolean;
   multiSelect?: boolean;
   onSelectMultiple?: (ids: string[]) => void;
+  activeItemIds?: string[];
 }
 
 export function CategoryDrillDownModal({ 
@@ -26,7 +27,8 @@ export function CategoryDrillDownModal({
   selectedValue,
   closeOnSelect = true,
   multiSelect = false,
-  onSelectMultiple
+  onSelectMultiple,
+  activeItemIds = []
 }: DrillDownModalProps) {
   const [query, setQuery] = useState('');
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
@@ -58,7 +60,7 @@ export function CategoryDrillDownModal({
     if (!selectedCategoryId) {
       // Vista Raíz: Categorías. Mostramos cuántos productos tiene.
       return categorias.map(c => {
-        const prodCount = new Set(productos.filter(p => p.categoria_id?.toString() === c.id.toString()).map(p => p.producto_maestro_id)).size;
+        const prodCount = new Set(productos.filter(p => p.categoria_id?.toString() === c.id.toString()).map(p => p.producto_maestro_id || p.id)).size;
         return {
           type: 'category' as const,
           id: c.id.toString(),
@@ -72,6 +74,18 @@ export function CategoryDrillDownModal({
     if (!selectedMaestroId) {
       // Vista Nivel 1: Productos Maestros dentro de la Categoría Seleccionada
       const prodsInCat = productos.filter(p => p.categoria_id?.toString() === selectedCategoryId);
+      
+      const isMaestroList = prodsInCat.length > 0 && prodsInCat[0].producto_maestro_id === undefined;
+      if (isMaestroList) {
+          return prodsInCat.map(p => ({
+               type: 'product' as const,
+               id: p.id.toString(),
+               label: p.nombre,
+               sublabel: p.sku || 'Matriz',
+               icon: Box
+          }));
+      }
+
       const maestrosMap = new Map();
       prodsInCat.forEach(p => {
          if (!maestrosMap.has(p.producto_maestro_id)) {
@@ -259,7 +273,7 @@ export function CategoryDrillDownModal({
                       className={cn(
                         "text-left transition-all group relative",
                         viewMode === 'tarjeta' ? "p-4 rounded-2xl border-2 flex flex-col items-center text-center gap-2" : "p-3 rounded-xl border-2 flex items-center gap-3",
-                        item.type === 'product' && (selectedValue === item.id || selectedIds.has(item.id))
+                        item.type === 'product' && (selectedValue === item.id || selectedIds.has(item.id) || activeItemIds.includes(item.id))
                           ? "border-blue-500 bg-blue-50/50 dark:bg-blue-900/20" 
                           : "border-transparent bg-slate-50 dark:bg-slate-900 hover:border-blue-200 dark:hover:border-blue-800 hover:bg-white"
                       )}

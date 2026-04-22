@@ -40,12 +40,13 @@ export function ImportacionesTrackingModal({ isOpen, onClose, importacion, onUpd
     setLoading(true);
 
     try {
-      await supabase.from('importacion_eventos').insert([{
+      const { error } = await supabase.from('importacion_eventos').insert([{
         importacion_id: importacion.id,
         ubicacion: nuevaUbicacion,
         anotacion: nuevaAnotacion,
         usuario: user?.usuario || 'Sistema'
       }]);
+      if (error) throw error;
 
       onUpdate();
       setNuevaAnotacion('');
@@ -58,14 +59,16 @@ export function ImportacionesTrackingModal({ isOpen, onClose, importacion, onUpd
     }
   };
 
-  const handleUpdateStatusAndDates = async (key: 'estado' | 'fecha_arribo_puerto' | 'fecha_llegada_deposito', val: string | number) => {
+  const handleUpdateStatusAndDates = async (key: 'estado' | 'fecha_arribo_puerto' | 'fecha_llegada_deposito' | 'progreso', val: string | number) => {
     try {
       if (key === 'fecha_arribo_puerto' || key === 'fecha_llegada_deposito') {
         const confirmMsg = key === 'fecha_arribo_puerto' ? '¿Confirmar arribo al puerto destino?' : '¿Confirmar llegada al depósito final?';
         if (!confirm(confirmMsg)) return;
-         await supabase.from('importaciones').update({ [key]: new Date().toISOString() }).eq('id', importacion.id);
+         const { error } = await supabase.from('importaciones').update({ [key]: new Date().toISOString() }).eq('id', importacion.id);
+         if (error) throw error;
       } else {
-         await supabase.from('importaciones').update({ [key]: val }).eq('id', importacion.id);
+         const { error } = await supabase.from('importaciones').update({ [key]: val }).eq('id', importacion.id);
+         if (error) throw error;
       }
       onUpdate();
     } catch (e: any) {

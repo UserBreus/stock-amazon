@@ -1,2 +1,0 @@
-const q = `SELECT d.*, v.codigo_variante as sku, pm.nombre + ' ' + v.nombre_variante as full_nombre FROM Stock_Compras_Detalle d INNER JOIN Stock_Variantes v ON d.variante_id = v.id INNER JOIN Stock_Productos_Maestros pm ON v.producto_maestro_id = pm.id WHERE d.compra_id = 'EDAA62E4-A9AB-458D-8BA2-1E10C2F5FFC3'`;
-fetch('http://3.85.26.173:5005/sql', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query: q }) }).then(r => r.json()).then(data => console.log(JSON.stringify(data)))

@@ -91,12 +91,13 @@ export function ImportacionesCreationModal({ isOpen, onClose, onSuccess }: Props
       }
 
       // 3. Insertar Evento Inicial (Automático)
-      await supabase.from('importacion_eventos').insert([{
+      const { error: eventError } = await supabase.from('importacion_eventos').insert([{
         importacion_id: id.toUpperCase(),
         ubicacion: puertoOrigen,
         anotacion: 'Importación Creada y Planificada. Documentación en orden.',
         usuario: user?.usuario || 'Sistema'
       }]);
+      if (eventError) throw eventError;
 
       onSuccess();
       onClose();

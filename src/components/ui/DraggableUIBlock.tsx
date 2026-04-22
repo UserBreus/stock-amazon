@@ -70,7 +70,7 @@ export function DraggableUIBlock({
                 onClick={handleClick}
                 className={cn(className, isEditMode && 'cursor-move ring-2 ring-transparent hover:ring-indigo-500/50 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all', isBeingEdited && 'ring-2 ring-indigo-500 bg-indigo-50 dark:bg-indigo-900/30')}
             >
-               <DynamicUIIcon config={config} fallback={fallbackIcon} className={cn("w-5 h-5 shrink-0 transition-transform group-hover:scale-110", config ? config.icon_color : "text-slate-400")} />
+               <DynamicUIIcon id={componentId} fallback={fallbackIcon} className={cn("w-5 h-5 shrink-0 transition-transform group-hover:scale-110", config ? config.icon_color : "text-slate-400")} />
                <span className="font-bold text-sm tracking-tight truncate">{title}</span>
             </button>
         );
@@ -95,7 +95,7 @@ export function DraggableUIBlock({
             {isEditMode && <div className="absolute inset-0 bg-white/5 dark:bg-black/5 animate-pulse rounded-3xl pointer-events-none" />}
             
             <div className={cn("p-4 rounded-2xl transition-transform", isEditMode ? "" : "group-hover:scale-110", config ? config.bg_color : "bg-slate-100")}>
-                <DynamicUIIcon config={config} fallback={fallbackIcon} className={cn("w-8 h-8", config ? config.icon_color : "text-slate-600")} />
+                <DynamicUIIcon id={componentId} fallback={fallbackIcon} className={cn("w-8 h-8", config ? config.icon_color : "text-slate-600")} />
             </div>
             
             <div className="mt-6 flex-1 flex flex-col">

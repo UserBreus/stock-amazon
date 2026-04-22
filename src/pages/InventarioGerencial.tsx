@@ -97,7 +97,7 @@ export function InventarioGerencial() {
       const [stockRes, capRes, depRes, catRes, compRes] = await Promise.all([
         executeAWSQuery(advancedQuery),
         executeAWSQuery("SELECT * FROM Vista_Capital_Activo"),
-        executeAWSQuery("SELECT * FROM Stock_Depositos WHERE tipo='general'"),
+        executeAWSQuery("SELECT * FROM Stock_Depositos"),
         executeAWSQuery("SELECT * FROM Stock_Categorias ORDER BY nombre"),
         executeAWSQuery("SELECT c.*, p.nombre as proveedor_nombre FROM Stock_Compras c LEFT JOIN Stock_Proveedores p ON c.proveedor_id = p.id WHERE c.estado = 'pendiente' ORDER BY c.fecha_creacion DESC")
       ]);
@@ -362,17 +362,12 @@ export function InventarioGerencial() {
       {activeTab === 'panel' && panelView === 'ingreso' && (
          <div className="mt-4"><RecepcionAuditoria onRecargaRequerida={fetchData} onCartChange={setManualCart} /></div>
       )}
+
       {activeTab === 'panel' && panelView === 'traslado' && (
          <div className="mt-4"><DespachoEgresos initialOperationType="traslado" initialMode="lote" /></div>
       )}
       {activeTab === 'panel' && panelView === 'retiro' && (
          <div className="mt-4"><DespachoEgresos initialOperationType="venta_consumo" initialMode="lote" /></div>
-      )}
-      {activeTab === 'panel' && panelView === 'traslado' && (
-         <div className="mt-8 relative"><button onClick={()=>setPanelView('hub')} className="absolute -top-12 z-50 text-sm font-black text-slate-500 hover:text-indigo-600 transition-colors uppercase">← Volver a Operaciones</button><DespachoEgresos initialOperationType="traslado" initialMode="lote" /></div>
-      )}
-      {activeTab === 'panel' && panelView === 'retiro' && (
-         <div className="mt-8 relative"><button onClick={()=>setPanelView('hub')} className="absolute -top-12 z-50 text-sm font-black text-slate-500 hover:text-indigo-600 transition-colors uppercase">← Volver a Operaciones</button><DespachoEgresos initialOperationType="venta_consumo" initialMode="lote" /></div>
       )}
 
       {/* HISTORIAL TAB */}
@@ -419,20 +414,23 @@ export function InventarioGerencial() {
       </div>
 
       {/* FILTROS GEOGRÁFICOS AQUÍ */}
-      <div className="flex flex-wrap gap-2 mb-6 bg-slate-50 dark:bg-slate-900 p-2 rounded-2xl border border-slate-200 dark:border-slate-800">
+      <h3 className="text-sm font-black uppercase text-slate-400 tracking-widest mb-4">Filtrar por Locación (Almacenes)</h3>
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 mb-8">
           <button 
             onClick={() => { filterRef.current = null; setWarehouseFilterId(null); fetchData(); }}
-            className={`px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-all ${warehouseFilterId === null ? "bg-indigo-600 text-white shadow-lg" : "bg-transparent text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-800"}`}
+            className={`p-4 rounded-2xl flex flex-col items-center justify-center gap-3 transition-all border-2 ${warehouseFilterId === null ? "bg-indigo-50 border-indigo-500 text-indigo-700 shadow-lg dark:bg-indigo-900/40 dark:border-indigo-500 dark:text-indigo-300" : "bg-white border-slate-100 text-slate-400 hover:border-slate-300 hover:text-slate-600 dark:bg-slate-900 dark:border-slate-800 dark:hover:border-slate-700"}`}
           >
-             <Network className="w-4 h-4" /> Uso Global
+             <Network className="w-8 h-8 opacity-90" />
+             <span className="font-black tracking-widest uppercase text-xs">Uso Global</span>
           </button>
           {depositos.map(dep => (
             <button 
               key={dep.id}
               onClick={() => { filterRef.current = dep.id.toString(); setWarehouseFilterId(dep.id.toString()); fetchData(); }}
-              className={`px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-all ${warehouseFilterId === dep.id.toString() ? "bg-indigo-600 text-white shadow-lg" : "bg-transparent text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-800"}`}
+              className={`p-4 rounded-2xl flex flex-col items-center justify-center gap-3 transition-all border-2 ${warehouseFilterId === dep.id.toString() ? "bg-indigo-50 border-indigo-500 text-indigo-700 shadow-lg dark:bg-indigo-900/40 dark:border-indigo-500 dark:text-indigo-300" : "bg-white border-slate-100 text-slate-400 hover:border-slate-300 hover:text-slate-600 dark:bg-slate-900 dark:border-slate-800 dark:hover:border-slate-700"}`}
             >
-               <Box className="w-4 h-4" /> {dep.nombre}
+               <Box className="w-8 h-8 opacity-90" />
+               <span className="font-black uppercase tracking-widest text-xs text-center">{dep.nombre}</span>
             </button>
           ))}
       </div>

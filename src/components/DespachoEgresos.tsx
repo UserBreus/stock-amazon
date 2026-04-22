@@ -7,6 +7,7 @@ import { BarcodeScanner } from './ui/BarcodeScanner';
 import toast from 'react-hot-toast';
 import { cn } from '../lib/utils';
 import { Modal } from './ui/Modal';
+import { CategoryDrillDownModal } from './ui/CategoryDrillDownModal';
 
 interface DespachoEgresosProps { initialOperationType?: 'traslado' | 'venta_consumo'; initialMode?: 'lote' | 'solicitudes' | 'historial'; }
 
@@ -17,6 +18,10 @@ export function DespachoEgresos({ initialOperationType = 'traslado', initialMode
   const [mode, setMode] = useState<'lote' | 'solicitudes' | 'historial'>(initialMode);
   const [isCameraOpen, setIsCameraOpen] = useState(false);
   const [scanInput, setScanInput] = useState('');
+  const [isCatalogOpen, setIsCatalogOpen] = useState(false);
+  const [catalogCategorias, setCatalogCategorias] = useState<any[]>([]);
+  const [catalogProductos, setCatalogProductos] = useState<any[]>([]);
+  const [isLoadingCatalog, setIsLoadingCatalog] = useState(false);
   
   // Lote state
   const [cart, setCart] = useState<any[]>([]);
@@ -118,6 +123,60 @@ export function DespachoEgresos({ initialOperationType = 'traslado', initialMode
          setLoadingCode(false);
          setScanInput('');
      }
+  };
+
+  
+  const openCatalog = async () => {
+      if(!origenId) return toast.error("Seleccione un Origen Logístico primero.");
+      setIsLoadingCatalog(true);
+      try {
+          const catRes = await executeAWSQuery("SELECT id, nombre FROM Stock_Categorias ORDER BY nombre");
+          const prodRes = await executeAWSQuery(`
+              SELECT v.id, v.nombre_variante, v.nombre_variante as nombre, pm.id as producto_maestro_id, pm.nombre as producto_nombre, pm.categoria_id 
+              FROM Stock_Variantes v
+              INNER JOIN Stock_Productos_Maestros pm ON v.producto_maestro_id = pm.id
+              WHERE EXISTS (
+                 SELECT 1 FROM Stock_Etiquetas e WHERE e.variante_id = v.id AND e.deposito_id = ${origenId} AND e.cantidad_actual > 0
+              )
+          `);
+          setCatalogCategorias(catRes || []);
+          setCatalogProductos(prodRes || []);
+          setIsCatalogOpen(true);
+      } catch (e: any) {
+          toast.error("Error cargando catálogo: " + e.message);
+      } finally {
+          setIsLoadingCatalog(false);
+      }
+  };
+
+  const handleCatalogSelection = async (varianteId: string) => {
+      setLoadingCode(true);
+      try {
+          const res = await executeAWSQuery(`
+              SELECT TOP 1 e.*, v.nombre_variante, pm.nombre as producto_nombre, d.nombre as deposito_nombre
+              FROM Stock_Etiquetas e
+              INNER JOIN Stock_Variantes v ON e.variante_id = v.id
+              INNER JOIN Stock_Productos_Maestros pm ON v.producto_maestro_id = pm.id
+              LEFT JOIN Stock_Depositos d ON e.deposito_id = d.id
+              WHERE e.variante_id = ${varianteId} AND e.deposito_id = ${origenId} AND e.cantidad_actual > 0
+              ORDER BY e.id ASC
+          `);
+          if(res && res.length > 0) {
+              const etq = res[0];
+              if (cart.find(c => c.id === etq.id)) {
+                 toast.error("La etiqueta física detectada de este producto ya está en la bandeja.");
+              } else {
+                 setCart([{...etq, cantidad_a_extraer: etq.cantidad_actual}, ...cart]);
+                 toast.success("Producto agregado desde inventario físico");
+              }
+          } else {
+              toast.error("No hay etiquetas físicas disponibles de este producto.");
+          }
+      } catch(e: any) {
+          toast.error("Fallo al obtener etiqueta física: " + e.message);
+      } finally {
+          setLoadingCode(false);
+      }
   };
 
   const handleManualCodeSubmit = (e: React.FormEvent) => {
@@ -243,6 +302,7 @@ export function DespachoEgresos({ initialOperationType = 'traslado', initialMode
                                 className="w-full h-14 pl-12 bg-white dark:bg-slate-900 border-2 border-indigo-100 dark:border-indigo-900/50 rounded-xl font-mono font-bold disabled:opacity-50"
                                 placeholder={origenId ? "Escanear múltiples lotes..." : "Por favor pre-selecciona el Origen..."} />
                           </form>
+                          <button type="button" onClick={openCatalog} disabled={isLoadingCatalog || !origenId} className="h-14 px-6 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-400 font-black rounded-xl disabled:opacity-50 flex items-center gap-2"><Search className="w-5 h-5"/> Catálogo</button>
                           <button onClick={() => setIsCameraOpen(true)} disabled={!origenId} className="h-14 px-6 bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-black rounded-xl disabled:opacity-50">Cámara</button>
                       </div>
                       
@@ -393,22 +453,91 @@ export function DespachoEgresos({ initialOperationType = 'traslado', initialMode
               <div className="text-center p-4">
                   <CheckCircle className="w-16 h-16 text-emerald-500 mx-auto mb-4" />
                   <h3 className="text-2xl font-black mb-2">¡Despacho Registrado!</h3>
-                  <button onClick={()=>window.print()} className="w-full bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-black py-4 rounded-xl flex items-center justify-center gap-2 mt-6">
-                      <Printer className="w-5 h-5"/> IMPRIMIR A4 DE CONSTANCIA
+                  <button onClick={()=>window.print()} className="w-full bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-black py-4 rounded-xl flex items-center justify-center gap-2 mt-6 print:hidden">
+                      <Printer className="w-5 h-5"/> IMPRIMIR REMITO
                   </button>
-                  <div className="hidden @media print:block text-left p-8 absolute inset-0 bg-white z-[999] text-black h-screen">
-                      <h1 className="text-3xl font-black mb-2">REMITO DE TRASLADO</h1>
-                      <p className="font-mono text-sm text-gray-500">#{remitoPDFInfo.codigo} | {remitoPDFInfo.fecha}</p>
-                      <table className="w-full mt-10 border-collapse">
-                         <thead><tr className="border-b-2 border-black"><th className="text-left py-2">Código</th><th className="text-left py-2">Prod</th><th className="text-right py-2">Qty</th></tr></thead>
+                  <div className="hidden print:block text-left p-10 absolute inset-0 bg-white z-[999] text-black h-auto min-h-screen font-sans">
+                      <div className="flex justify-between items-start border-2 border-black rounded-xl p-4 relative mb-6">
+                          <div className="absolute top-0 left-1/2 -translate-x-1/2 bg-white border-2 border-black border-t-0 p-2 font-black text-3xl">X</div>
+                          
+                          <div className="w-1/2 pr-6 border-r-2 border-black">
+                              <h1 className="text-3xl font-black mb-1 leading-tight">DOCUMENTO NO VÁLIDO COMO FACTURA</h1>
+                              <p className="font-bold text-lg leading-tight uppercase">SISTEMA INTERNO WMS</p>
+                              <p className="text-sm mt-4 tracking-widest font-mono text-slate-600">COMPROBANTE DE TRASLADO FÍSICO</p>
+                          </div>
+                          <div className="w-1/2 pl-6 text-right">
+                              <h2 className="text-3xl font-black uppercase mb-4 tracking-tight">REMITO</h2>
+                              <div className="inline-block text-left">
+                                  <p className="text-sm mb-1"><strong>N° Documento:</strong> <span className="font-mono text-base">{remitoPDFInfo.codigo}</span></p>
+                                  <p className="text-sm mb-1"><strong>Fecha Emisión:</strong> <span className="font-mono text-base">{remitoPDFInfo.fecha}</span></p>
+                                  <p className="text-sm"><strong>Operador Logístico:</strong> <span className="font-mono text-base">{(user as any)?.nombre || 'Automático'}</span></p>
+                              </div>
+                          </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4 mb-6">
+                          <div className="border-2 border-black p-4 rounded-xl bg-slate-50">
+                              <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1">Sale desde (Origen Logístico)</p>
+                              <p className="font-black text-xl text-slate-900">{remitoPDFInfo.origen || depositos.find(d => d.id.toString() === origenId)?.nombre || 'Bodega Principal'}</p>
+                          </div>
+                          <div className="border-2 border-black p-4 rounded-xl bg-slate-50">
+                              <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1">Llega a (Destino Físico)</p>
+                              <p className="font-black text-xl text-slate-900">{remitoPDFInfo.destino}</p>
+                          </div>
+                      </div>
+
+                      <table className="w-full mb-10 border-2 border-black">
+                         <thead>
+                            <tr className="bg-slate-200 border-b-2 border-black">
+                                <th className="text-center py-3 border-r-2 border-black w-24 text-sm font-black">CANT.</th>
+                                <th className="text-center py-3 border-r-2 border-black w-48 text-sm font-black">CÓDIGO (LOTE)</th>
+                                <th className="text-left py-3 px-4 border-r-2 border-black text-sm font-black">DESCRIPCIÓN DEL ARTÍCULO</th>
+                                <th className="text-center py-3 text-sm font-black w-32">VARIACIÓN</th>
+                            </tr>
+                         </thead>
                          <tbody>
-                            {remitoPDFInfo.cart.map((c:any)=><tr key={c.codigo_barras} className="border-b border-gray-200"><td className="font-mono py-2">{c.codigo_barras}</td><td>{c.producto_nombre}</td><td className="text-right">{c.cantidad_a_extraer}</td></tr>)}
+                            {remitoPDFInfo.cart.map((c:any)=>(
+                               <tr key={c.codigo_barras} className="border-b border-black">
+                                  <td className="text-center py-4 border-r-2 border-black font-black text-xl">{c.cantidad_a_extraer}</td>
+                                  <td className="text-center py-4 border-r-2 border-black font-mono font-bold text-sm tracking-tighter">{c.codigo_barras}</td>
+                                  <td className="text-left py-4 px-4 border-r-2 border-black font-bold uppercase text-slate-800">{c.producto_nombre}</td>
+                                  <td className="text-center py-4 font-bold text-xs uppercase bg-slate-50">{c.nombre_variante}</td>
+                               </tr>
+                            ))}
                          </tbody>
                       </table>
+
+                      <div className="grid grid-cols-2 gap-24 mt-32 px-10">
+                          <div className="border-t-2 border-black text-center pt-2">
+                              <p className="font-black uppercase tracking-widest text-sm">Firma de Entrega (Origen)</p>
+                              <p className="text-xs text-slate-500 font-medium tracking-wide mt-1">Aclaración y DNI</p>
+                          </div>
+                          <div className="border-t-2 border-black text-center pt-2">
+                              <p className="font-black uppercase tracking-widest text-sm">Firma de Recepción (Destino)</p>
+                              <p className="text-xs text-slate-500 font-medium tracking-wide mt-1">Aclaración y Fecha de Ingreso</p>
+                          </div>
+                      </div>
+
+                      <div className="mt-12 text-center border-t border-slate-300 pt-4">
+                           <p className="text-[9px] uppercase font-mono text-slate-400 font-bold tracking-widest">Documento Remito X generado mediante Módulo Despachos WMS</p>
+                      </div>
                   </div>
               </div>
           )}
       </Modal>
+
+      <AnimatePresence>
+        <CategoryDrillDownModal 
+           isOpen={isCatalogOpen} 
+           onClose={() => setIsCatalogOpen(false)} 
+           title="Selección Manual: Físico de Operaciones" 
+           categorias={catalogCategorias} 
+           productos={catalogProductos} 
+           onSelect={handleCatalogSelection} 
+           closeOnSelect={false}
+           activeItemIds={cart.map(c => c.variante_id?.toString())} 
+        />
+      </AnimatePresence>
 
     </div>
   );

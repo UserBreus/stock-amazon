@@ -1,0 +1,20 @@
+async function run() {
+    try {
+        const query = `
+          SELECT * FROM Stock_Movimientos ORDER BY fecha DESC
+        `;
+        
+        const r1 = await fetch('http://3.85.26.173:5005/sql', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ query })
+        });
+        const json1 = await r1.json();
+        const d = json1.data || [];
+        console.table(d.slice(0, 5));
+        
+    } catch(e) {
+        console.error("Error:", e.message);
+    }
+}
+run();
