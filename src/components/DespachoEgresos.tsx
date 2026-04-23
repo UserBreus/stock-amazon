@@ -554,7 +554,7 @@ export function DespachoEgresos({ initialOperationType = 'traslado', initialMode
 
       {/* GLOBAL PRINT PORTAL */}
       {isViewingFullscreenPDF && remitoPDFInfo && (
-        <div id="print-root" className="fixed inset-0 z-[100] bg-slate-800/90 backdrop-blur-sm overflow-y-auto p-4 sm:p-10 flex justify-center print:static print:w-full print:bg-white print:p-0 print:block">
+        <div className="fixed inset-0 z-[100] bg-slate-800/90 backdrop-blur-sm overflow-y-auto p-4 sm:p-10 flex justify-center print:static print:w-full print:bg-white print:p-0 print:block">
             <div className="fixed top-6 right-6 flex gap-4 z-[110] print:hidden">
               <button onClick={() => { setTimeout(() => window.print(), 100); }} className="bg-indigo-600 text-white p-4 rounded-full shadow-2xl hover:bg-indigo-700 transition-transform hover:scale-110 flex items-center justify-center">
                  <span className="font-black text-xs uppercase tracking-widest flex items-center gap-2"><Printer className="w-4 h-4"/> Imprimir Hoja</span>
@@ -563,7 +563,7 @@ export function DespachoEgresos({ initialOperationType = 'traslado', initialMode
                  <span className="font-black text-xs uppercase tracking-widest">X Cerrar</span>
               </button>
             </div>
-            <div className="w-full max-w-[900px] bg-white text-slate-800 font-sans p-12 min-h-[1056px] shadow-2xl relative border border-slate-100 rounded-3xl my-10 flex flex-col">
+            <div id="print-root" className="w-full max-w-[900px] bg-white text-slate-800 font-sans p-12 min-h-[1056px] shadow-2xl relative border border-slate-100 rounded-3xl my-10 flex flex-col print:shadow-none print:border-none print:m-0 print:p-0 print:w-full print:max-w-full print:rounded-none">
                 <div className="flex justify-between items-start border-b border-slate-100 pb-8 mb-8 relative">
                     <div className="w-1/2 pr-6">
                         <h1 className="text-4xl font-black mb-2 tracking-tighter text-slate-900 leading-none">REMITO DE SALIDA</h1>
