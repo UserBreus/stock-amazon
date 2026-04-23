@@ -277,7 +277,7 @@ export function DespachoEgresos({ initialOperationType = 'traslado', initialMode
                  SELECT id, variante_id, cantidad_actual, codigo_barras 
                  FROM Stock_Etiquetas 
                  WHERE variante_id IN (${bulkVariants.join(',')}) AND deposito_id = ${origenId} AND cantidad_actual > 0 AND estado = 'activo'
-                 ORDER BY fecha_creacion ASC
+                 ORDER BY id ASC
               `);
               if(bRes) allBulkLabels = bRes;
           }
