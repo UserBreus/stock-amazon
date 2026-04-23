@@ -114,6 +114,10 @@ html {
   #print-root, #print-root * {
     visibility: visible;
   }
+  .hide-on-print, .hide-on-print * {
+    visibility: hidden !important;
+    display: none !important;
+  }
   #print-root {
     position: absolute;
     left: 0;
