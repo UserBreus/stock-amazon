@@ -334,7 +334,6 @@ export function DespachoEgresos({ initialOperationType = 'traslado', initialMode
              fecha: new Date().toLocaleString(), 
              nuevasEtiquetas: labelsToPrint 
           });
-          setShowPDF(true);
 
           setCart([]);
           toast.success("Operación ejecutada con éxito.");
