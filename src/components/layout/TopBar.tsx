@@ -10,7 +10,7 @@ export function TopBar({ onMenuToggle }: { onMenuToggle?: () => void }) {
   const canEditUI = profile?.rol === 'admin' || isGerente || isAdminStock;
 
   return (
-    <header className="bg-white/80 dark:bg-slate-950/80 backdrop-blur-xl sticky top-0 z-40 border-b border-slate-200 dark:border-slate-900 transition-colors duration-500">
+    <header className="print:hidden bg-white/80 dark:bg-slate-950/80 backdrop-blur-xl sticky top-0 z-40 border-b border-slate-200 dark:border-slate-900 transition-colors duration-500">
       <div className="flex items-center justify-between px-4 md:px-8 py-4">
         <div className="flex-1 max-w-xl flex items-center gap-3">
           <button 

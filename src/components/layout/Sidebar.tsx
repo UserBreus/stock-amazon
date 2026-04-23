@@ -80,7 +80,7 @@ export function Sidebar({ isMobileMenuOpen, setIsMobileMenuOpen }: SidebarProps)
       )}
 
       <aside className={cn(
-        "fixed md:sticky left-0 top-0 h-screen z-50 bg-white dark:bg-slate-950 border-r border-slate-100 dark:border-slate-900 flex flex-col py-8 transition-all duration-300 ease-in-out shrink-0",
+        "print:hidden fixed md:sticky left-0 top-0 h-screen z-50 bg-white dark:bg-slate-950 border-r border-slate-100 dark:border-slate-900 flex flex-col py-8 transition-all duration-300 ease-in-out shrink-0",
         isCollapsed ? "w-20" : "w-72",
         // En móviles: oculto (fuera de pantalla) a menos que se abra 
         isMobileMenuOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
