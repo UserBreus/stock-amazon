@@ -632,7 +632,7 @@ export function DespachoEgresos({ initialOperationType = 'traslado', initialMode
 
         {/* GLOBAL PRINT PORTAL - MOVED OUTSIDE OF HIDDEN ROOT PARENT */}
         {remitoPDFInfo && (
-            <div className="hidden print:block text-left p-10 absolute top-0 left-0 w-full min-h-screen bg-white z-[99999] text-black font-sans">
+            <div className="hidden print:block w-full bg-white text-black font-sans p-8">
                 <div className="flex justify-between items-start border-2 border-black rounded-xl p-4 relative mb-6">
                     <div className="absolute top-0 left-1/2 -translate-x-1/2 bg-white border-2 border-black border-t-0 p-2 font-black text-3xl">X</div>
                     

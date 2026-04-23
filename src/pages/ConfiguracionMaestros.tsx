@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Settings, Box, Network, Truck, Search, Folder, ArrowLeft, Palette, LayoutDashboard, Tag, Layers, ArchiveRestore, History, Edit3, Trash2 } from 'lucide-react';
+import { Settings, Box, Network, Truck, Search, Folder, ArrowLeft, Palette, LayoutDashboard, Tag, Layers, ArchiveRestore, History, Edit3, Trash2, Banknote } from 'lucide-react';
 import { IconManager } from '../components/IconManager';
 import { useUIConfig, DynamicUIIcon } from '../context/UIContext';
 
@@ -18,17 +18,25 @@ export function ConfiguracionMaestros() {
   const [catName, setCatName] = useState('');
   const [catDesc, setCatDesc] = useState('');
   const [categorias, setCategorias] = useState<any[]>([]);
+  const [editCatId, setEditCatId] = useState<number|null>(null);
+  const [deleteCatToMove, setDeleteCatToMove] = useState<number|null>(null);
+  const [transferTargetId, setTransferTargetId] = useState('');
 
   // Monedas
   const [monedas, setMonedas] = useState<any[]>([]);
   const [monNombre, setMonNombre] = useState('');
   const [monCodigo, setMonCodigo] = useState('');
   const [monSimbolo, setMonSimbolo] = useState('');
+  const [editMonId, setEditMonId] = useState<number|null>(null);
   
   // Proveedores
   const [provName, setProvName] = useState('');
   const [provDoc, setProvDoc] = useState('');
+  const [provContacto, setProvContacto] = useState('');
+  const [provCiudad, setProvCiudad] = useState('');
+  const [provRazon, setProvRazon] = useState('');
   const [proveedores, setProveedores] = useState<any[]>([]);
+  const [editProvId, setEditProvId] = useState<string|null>(null);
 
   // Almacenes
   const [almacenes, setAlmacenes] = useState<any[]>([]);
@@ -328,18 +336,124 @@ export function ConfiguracionMaestros() {
   const createCategoria = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await executeAWSQuery(`INSERT INTO Stock_Categorias (nombre, descripcion) VALUES ('${catName.replace(/'/g, "''")}', '${catDesc.replace(/'/g, "''")}')`);
-      setCatName(''); setCatDesc(''); toast.success("Agrupador Guardado"); fetchData();
+      if (editCatId) {
+          await executeAWSQuery(`UPDATE Stock_Categorias SET nombre = '${catName.replace(/'/g, "''")}', descripcion = '${catDesc.replace(/'/g, "''")}' WHERE id = ${editCatId}`);
+          toast.success("Familia Actualizada");
+      } else {
+          await executeAWSQuery(`INSERT INTO Stock_Categorias (nombre, descripcion) VALUES ('${catName.replace(/'/g, "''")}', '${catDesc.replace(/'/g, "''")}')`);
+          toast.success("Agrupador Guardado");
+      }
+      setCatName(''); setCatDesc(''); setEditCatId(null); fetchData();
     } catch (err: any) {
       toast.error("Error al guardar categoría: " + (err.message || "Es posible que este nombre ya exista."));
     }
   };
 
+  const handleDeleteCatAttempt = async (catId: number) => {
+      const prodsToMove = await executeAWSQuery(`SELECT COUNT(*) as c FROM Stock_Productos_Maestros WHERE categoria_id = ${catId}`);
+      if(prodsToMove && prodsToMove[0] && prodsToMove[0].c > 0) {
+          setDeleteCatToMove(catId);
+      } else {
+          if(window.confirm('¿Seguro quieres borrar esta familia sin artículos vinculados?')) {
+              try {
+                  await executeAWSQuery(`DELETE FROM Stock_Categorias WHERE id = ${catId}`);
+                  toast.success("Familia Eliminada");
+                  fetchData();
+              } catch(e) {
+                  toast.error("No se pudo eliminar la familia.");
+              }
+          }
+      }
+  };
+
+  const executeCatTransferAndDelete = async () => {
+    if(!transferTargetId) return toast.error("Debes elegir un destino para la migración.");
+    try {
+        await executeAWSQuery(`
+            BEGIN TRANSACTION;
+            UPDATE Stock_Productos_Maestros SET categoria_id = ${transferTargetId} WHERE categoria_id = ${deleteCatToMove};
+            DELETE FROM Stock_Categorias WHERE id = ${deleteCatToMove};
+            COMMIT;
+        `);
+        toast.success("Artículos migrados y Familia eliminada exitosamente.");
+        setDeleteCatToMove(null);
+        setTransferTargetId('');
+        fetchData();
+    } catch(err) {
+        toast.error("Error en el traspaso de base de datos.");
+    }
+  };
+
+  const saveMoneda = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      if (editMonId) {
+          await executeAWSQuery(`UPDATE Stock_Monedas SET nombre='${monNombre.replace(/'/g, "''")}', codigo='${monCodigo.replace(/'/g, "''")}', simbolo='${monSimbolo.replace(/'/g, "''")}' WHERE id=${editMonId}`);
+          toast.success("Moneda Actualizada");
+      } else {
+          await executeAWSQuery(`INSERT INTO Stock_Monedas (nombre, codigo, simbolo) VALUES ('${monNombre.replace(/'/g, "''")}', '${monCodigo.replace(/'/g, "''")}', '${monSimbolo.replace(/'/g, "''")}')`);
+          toast.success("Moneda Creada");
+      }
+      setMonNombre(''); setMonCodigo(''); setMonSimbolo(''); setEditMonId(null);
+      const m = await executeAWSQuery("SELECT * FROM Stock_Monedas ORDER BY id ASC");
+      if(m) setMonedas(m);
+    } catch(err) {
+      toast.error("Error al guardar moneda");
+    }
+  };
+
+  const deleteMoneda = async (id: number) => {
+    if(!window.confirm("¿Seguro que deseas eliminar esta moneda?")) return;
+    try {
+        await executeAWSQuery(`DELETE FROM Stock_Monedas WHERE id = ${id}`);
+        toast.success("Moneda Eliminada");
+        const m = await executeAWSQuery("SELECT * FROM Stock_Monedas ORDER BY id ASC");
+        if(m) setMonedas(m);
+    } catch(err) {
+        toast.error("No se pudo eliminar, es posible que esté en uso.");
+    }
+  };
+
+  const renameUnidad = async (id: number, current: string) => {
+      const val = window.prompt("Editar Unidad de Medida:", current);
+      if(!val || val.trim() === current) return;
+      try {
+          await executeAWSQuery(`UPDATE wms_unidades_medida SET nombre = '${val.trim().toLowerCase()}' WHERE id = ${id}`);
+          setUnidadesMedida(prev => prev.map(u => u.id === id ? { ...u, nombre: val.trim().toLowerCase() } : u));
+          toast.success("Unidad renombrada");
+      } catch(e) { toast.error("Error al renombrar"); }
+  };
+  const renameAtributo = async (id: number, current: string) => {
+      const val = window.prompt("Editar Categoría de Rasgo:", current);
+      if(!val || val.trim() === current) return;
+      try {
+          await executeAWSQuery(`UPDATE wms_atributos_base SET nombre = '${val.trim()}' WHERE id = ${id}`);
+          setAtributosBase(prev => prev.map(u => u.id === id ? { ...u, nombre: val.trim() } : u));
+          toast.success("Categoría renombrada");
+      } catch(e) { toast.error("Error al renombrar"); }
+  };
+  const renameValor = async (id: number, current: string) => {
+      const val = window.prompt("Editar Valor de Rasgo:", current);
+      if(!val || val.trim() === current) return;
+      try {
+          await executeAWSQuery(`UPDATE wms_atributos_valores_base SET valor = '${val.trim()}' WHERE id = ${id}`);
+          setValoresBase(prev => prev.map(u => u.id === id ? { ...u, valor: val.trim() } : u));
+          toast.success("Valor renombrado");
+      } catch(e) { toast.error("Error al renombrar"); }
+  };
+
   const createProveedor = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await executeAWSQuery(`INSERT INTO Stock_Proveedores (nombre, documento) VALUES ('${provName.replace(/'/g, "''")}', '${provDoc.replace(/'/g, "''")}')`);
-      setProvName(''); setProvDoc(''); toast.success("Proveedor Guardado"); fetchData();
+      if (editProvId) {
+          await executeAWSQuery(`UPDATE Stock_Proveedores SET nombre='${provName.replace(/'/g, "''")}', documento='${provDoc.replace(/'/g, "''")}', contacto='${provContacto.replace(/'/g, "''")}', ciudad='${provCiudad.replace(/'/g, "''")}', razon_social='${provRazon.replace(/'/g, "''")}' WHERE id='${editProvId}'`);
+          toast.success("Proveedor Actualizado");
+      } else {
+          await executeAWSQuery(`INSERT INTO Stock_Proveedores (nombre, documento, contacto, ciudad, razon_social) VALUES ('${provName.replace(/'/g, "''")}', '${provDoc.replace(/'/g, "''")}', '${provContacto.replace(/'/g, "''")}', '${provCiudad.replace(/'/g, "''")}', '${provRazon.replace(/'/g, "''")}')`);
+          toast.success("Proveedor Guardado");
+      }
+      setProvName(''); setProvDoc(''); setProvContacto(''); setProvCiudad(''); setProvRazon(''); setEditProvId(null);
+      fetchData();
     } catch (err: any) {
       toast.error("Error al guardar proveedor: " + (err.message || "Es posible que ya esté registrado."));
     }
@@ -540,6 +654,27 @@ export function ConfiguracionMaestros() {
                <p className="text-slate-500 font-medium text-xs leading-relaxed">{uiConfigs['btn_sys_almacenes']?.sub_label || 'Locaciones físicas o lógicas. Configuración de depositos de stock.'}</p>
             </div>
       </button>
+
+      <button 
+           draggable={isEditMode}
+           onDragStart={(e) => handleDragStart(e, 'btn_sys_monedas')}
+           onDragOver={handleDragOver}
+           onDrop={(e) => handleDrop(e, 'btn_sys_monedas')}
+           onClick={(e) => {
+               if (isEditMode) { e.preventDefault(); setEditingComponentId('btn_sys_monedas'); }
+               else { setActiveTab('monedas'); }
+           }} 
+           style={{ order: uiConfigs['btn_sys_monedas']?.order_index || 7 }}
+           className={`${isEditMode ? 'ring-2 ring-indigo-500 hover:ring-indigo-500/50 cursor-move border-dashed shadow-[0_0_15px_rgba(99,102,241,0.5)]' : ''} ${uiConfigs['btn_sys_monedas']?.bg_color || 'bg-white dark:bg-slate-900 border border-slate-200 hover:border-green-300 dark:border-slate-800 dark:hover:border-green-900'} p-8 rounded-3xl text-left transition-all h-full group flex flex-col items-start gap-6 hover:shadow-xl hover:-translate-y-1`}
+        >
+            <div className="p-4 bg-green-50 dark:bg-green-900/30 text-green-600 dark:text-green-400 rounded-2xl group-hover:scale-110 transition-transform">
+               <DynamicUIIcon id="btn_sys_monedas" fallback={Banknote} className={`w-8 h-8 ${uiConfigs['btn_sys_monedas']?.icon_color || ''}`} />
+            </div>
+            <div className="flex-1 flex flex-col">
+               <h3 className="text-xl font-black text-slate-800 dark:text-white mb-2">{uiConfigs['btn_sys_monedas']?.label || 'Monedas'}</h3>
+               <p className="text-slate-500 font-medium text-xs leading-relaxed">{uiConfigs['btn_sys_monedas']?.sub_label || 'Tipos de cambio y divisas operables en compras.'}</p>
+            </div>
+      </button>
   </motion.div>
 
       </div>
@@ -550,6 +685,64 @@ export function ConfiguracionMaestros() {
       )}
 
       {activeTab === 'iconos' && <IconManager />}
+
+      {activeTab === 'monedas' && (
+        <motion.div initial={{opacity:0}} animate={{opacity:1}} className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+            <div className="lg:col-span-4 card-nexus p-8 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm relative">
+                
+                {editMonId && (
+                   <div className="absolute top-6 right-6">
+                      <button type="button" onClick={() => { setEditMonId(null); setMonNombre(''); setMonCodigo(''); setMonSimbolo(''); }} className="text-xs font-bold text-red-500 hover:text-red-700 bg-red-100 hover:bg-red-200 px-3 py-1.5 rounded-lg transition-colors">Cancelar Edición</button>
+                   </div>
+                )}
+
+                <h3 className="text-xl font-black text-slate-900 dark:text-white mb-6 flex items-center gap-2"><Banknote className="w-5 h-5 text-green-500"/> {editMonId ? 'Editar Moneda' : 'Nueva Moneda'}</h3>
+                <form className="space-y-4" onSubmit={saveMoneda}>
+                    <div>
+                        <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-1 block">Nombre (Ej: Dólares)</label>
+                        <input className="input-nexus w-full bg-slate-50 dark:bg-slate-950 focus:bg-white dark:focus:bg-slate-900" required value={monNombre} onChange={e=>setMonNombre(e.target.value)} />
+                    </div>
+                    <div>
+                        <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-1 block">Código ISO (Ej: USD)</label>
+                        <input className="input-nexus w-full bg-slate-50 dark:bg-slate-950 focus:bg-white dark:focus:bg-slate-900" required value={monCodigo} onChange={e=>setMonCodigo(e.target.value.toUpperCase().substring(0,3))} />
+                    </div>
+                    <div>
+                        <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-1 block">Símbolo (Ej: U$S)</label>
+                        <input className="input-nexus w-full bg-slate-50 dark:bg-slate-950 focus:bg-white dark:focus:bg-slate-900" required value={monSimbolo} onChange={e=>setMonSimbolo(e.target.value)} />
+                    </div>
+                    <button type="submit" className={`${editMonId ? 'bg-green-600 hover:bg-green-700' : 'btn-primary'} text-white w-full py-3.5 mt-2 font-black rounded-xl transition-all shadow-lg`}>{editMonId ? 'Actualizar Moneda' : 'Añadir Moneda'}</button>
+                </form>
+            </div>
+            <div className="lg:col-span-8 card-nexus p-8 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
+                <h3 className="text-xl font-black text-slate-900 dark:text-white mb-6">Monedas Configuradas</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {monedas.map(m => (
+                        <div key={m.id} className="group p-4 border border-slate-100 dark:border-slate-800/60 bg-slate-50 dark:bg-slate-950 rounded-xl hover:border-green-200 dark:hover:border-green-900/50 transition-colors flex justify-between items-center relative">
+                            
+                            <div className="flex flex-col">
+                                <p className="font-black text-slate-900 dark:text-slate-200 mb-0.5 pr-8">{m.nombre}</p>
+                                <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">{m.codigo} • {m.simbolo}</p>
+                            </div>
+                            
+                            <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity flex gap-2">
+                               <button onClick={() => { 
+                                   setEditMonId(m.id); 
+                                   setMonNombre(m.nombre || ''); 
+                                   setMonCodigo(m.codigo || ''); 
+                                   setMonSimbolo(m.simbolo || ''); 
+                               }} className="p-2 bg-white dark:bg-slate-900 text-slate-400 hover:text-green-600 rounded-lg shadow-sm border border-slate-200 dark:border-slate-700" title="Editar">
+                                   <Edit3 className="w-4 h-4"/>
+                               </button>
+                               <button onClick={() => deleteMoneda(m.id)} className="p-2 bg-white dark:bg-slate-900 text-slate-400 hover:text-red-500 rounded-lg shadow-sm border border-slate-200 dark:border-slate-700" title="Eliminar">
+                                   <Trash2 className="w-4 h-4"/>
+                               </button>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        </motion.div>
+      )}
 
       {activeTab === 'almacenes' && (
         <motion.div initial={{opacity:0}} animate={{opacity:1}} className="card-nexus p-8 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm max-w-5xl mx-auto mt-10">
@@ -637,28 +830,69 @@ export function ConfiguracionMaestros() {
 
       {activeTab === 'proveedores' && (
         <motion.div initial={{opacity:0}} animate={{opacity:1}} className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-            <div className="lg:col-span-4 card-nexus p-8 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
-                <h3 className="text-xl font-black text-slate-900 dark:text-white mb-6 flex items-center gap-2"><Truck className="w-5 h-5 text-blue-500"/> Nuevo Proveedor</h3>
-                <form className="space-y-5" onSubmit={createProveedor}>
+            <div className="lg:col-span-4 card-nexus p-8 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm relative">
+                
+                {editProvId && (
+                   <div className="absolute top-6 right-6">
+                      <button type="button" onClick={() => { setEditProvId(null); setProvName(''); setProvDoc(''); setProvContacto(''); setProvCiudad(''); setProvRazon(''); }} className="text-xs font-bold text-red-500 hover:text-red-700 bg-red-100 hover:bg-red-200 px-3 py-1.5 rounded-lg transition-colors">Cancelar Edición</button>
+                   </div>
+                )}
+
+                <h3 className="text-xl font-black text-slate-900 dark:text-white mb-6 flex items-center gap-2"><Truck className="w-5 h-5 text-blue-500"/> {editProvId ? 'Editar Proveedor' : 'Nuevo Proveedor'}</h3>
+                <form className="space-y-4" onSubmit={createProveedor}>
                     <div>
-                        <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-1.5 block">Empresa / Nombre</label>
+                        <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-1 block">Nombre Fantasía</label>
                         <input className="input-nexus w-full bg-slate-50 dark:bg-slate-950 focus:bg-white dark:focus:bg-slate-900" required value={provName} onChange={e=>setProvName(e.target.value)} />
                     </div>
                     <div>
-                        <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-1.5 block">RUT / Identificación</label>
-                        <input className="input-nexus w-full bg-slate-50 dark:bg-slate-950 focus:bg-white dark:focus:bg-slate-900" value={provDoc} onChange={e=>setProvDoc(e.target.value)} />
+                        <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-1 block">Razón Social</label>
+                        <input className="input-nexus w-full bg-slate-50 dark:bg-slate-950 focus:bg-white dark:focus:bg-slate-900" value={provRazon} onChange={e=>setProvRazon(e.target.value)} />
                     </div>
-                    <button type="submit" className="btn-primary w-full py-3.5 mt-2 font-black">Registrar Proveedor</button>
+                    <div className="grid grid-cols-2 gap-4">
+                       <div>
+                           <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-1 block">RUT / ID</label>
+                           <input className="input-nexus w-full bg-slate-50 dark:bg-slate-950 focus:bg-white dark:focus:bg-slate-900" value={provDoc} onChange={e=>setProvDoc(e.target.value)} />
+                       </div>
+                       <div>
+                           <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-1 block">Ciudad / País</label>
+                           <input className="input-nexus w-full bg-slate-50 dark:bg-slate-950 focus:bg-white dark:focus:bg-slate-900" value={provCiudad} onChange={e=>setProvCiudad(e.target.value)} />
+                       </div>
+                    </div>
+                    <div>
+                        <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-1 block">Persona de Contacto / Tel.</label>
+                        <input className="input-nexus w-full bg-slate-50 dark:bg-slate-950 focus:bg-white dark:focus:bg-slate-900" value={provContacto} onChange={e=>setProvContacto(e.target.value)} />
+                    </div>
+                    <button type="submit" className={`${editProvId ? 'bg-indigo-600 hover:bg-indigo-700' : 'btn-primary'} text-white w-full py-3.5 mt-2 font-black rounded-xl transition-all shadow-lg`}>{editProvId ? 'Actualizar Proveedor' : 'Registrar Proveedor'}</button>
                 </form>
-
             </div>
             <div className="lg:col-span-8 card-nexus p-8 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
                 <h3 className="text-xl font-black text-slate-900 dark:text-white mb-6">Directorio de Proveedores</h3>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 gap-4">
                     {proveedores.map(p => (
-                        <div key={p.id} className="p-4 border border-slate-100 dark:border-slate-800/60 bg-slate-50 dark:bg-slate-950 rounded-xl hover:border-blue-200 dark:hover:border-blue-900/50 transition-colors">
-                            <p className="font-black text-sm text-slate-900 dark:text-slate-200 mb-1">{p.nombre}</p>
-                            <p className="text-xs font-bold text-slate-500 dark:text-slate-400">ID/RUT: {p.documento || 'N/A'}</p>
+                        <div key={p.id} className="group p-4 border border-slate-100 dark:border-slate-800/60 bg-slate-50 dark:bg-slate-950 rounded-xl hover:border-blue-200 dark:hover:border-blue-900/50 transition-colors flex flex-col justify-between relative">
+                            
+                            <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity">
+                               <button onClick={() => { 
+                                   setEditProvId(p.id); 
+                                   setProvName(p.nombre || ''); 
+                                   setProvDoc(p.documento || ''); 
+                                   setProvContacto(p.contacto || ''); 
+                                   setProvCiudad(p.ciudad || ''); 
+                                   setProvRazon(p.razon_social || ''); 
+                               }} className="p-2 bg-white dark:bg-slate-900 text-slate-400 hover:text-indigo-600 rounded-lg shadow-sm border border-slate-200 dark:border-slate-700" title="Editar">
+                                   <Edit3 className="w-4 h-4"/>
+                               </button>
+                            </div>
+
+                            <div>
+                                <p className="font-black text-slate-900 dark:text-slate-200 mb-0.5 pr-8">{p.nombre}</p>
+                                {p.razon_social && <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">{p.razon_social}</p>}
+                            </div>
+                            <div className="mt-4 space-y-1">
+                                <p className="text-[10px] font-bold text-slate-500"><b className="text-slate-400">RUT:</b> {p.documento || '-'}</p>
+                                <p className="text-[10px] font-bold text-slate-500"><b className="text-slate-400">CIUDAD:</b> {p.ciudad || '-'}</p>
+                                <p className="text-[10px] font-bold text-slate-500"><b className="text-slate-400">CONTACTO:</b> {p.contacto || '-'}</p>
+                            </div>
                         </div>
                     ))}
                 </div>
@@ -667,9 +901,17 @@ export function ConfiguracionMaestros() {
       )}
 
       {activeTab === 'categorias' && (
+        <>
         <motion.div initial={{opacity:0}} animate={{opacity:1}} className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-            <div className="lg:col-span-4 card-nexus p-8 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
-                <h3 className="text-xl font-black text-slate-900 dark:text-white mb-6 flex items-center gap-2"><Settings className="w-5 h-5 text-blue-500"/> Nueva Categoría</h3>
+            <div className="lg:col-span-4 card-nexus p-8 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm relative">
+                
+                {editCatId && (
+                   <div className="absolute top-6 right-6">
+                      <button type="button" onClick={() => { setEditCatId(null); setCatName(''); setCatDesc(''); }} className="text-xs font-bold text-red-500 hover:text-red-700 bg-red-100 hover:bg-red-200 px-3 py-1.5 rounded-lg transition-colors">Cancelar Edición</button>
+                   </div>
+                )}
+
+                <h3 className="text-xl font-black text-slate-900 dark:text-white mb-6 flex items-center gap-2"><Settings className="w-5 h-5 text-blue-500"/> {editCatId ? 'Editar Categoría' : 'Nueva Categoría'}</h3>
                 <form className="space-y-5" onSubmit={createCategoria}>
                     <div>
                         <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-1.5 block">Nombre (Ej. Remeras)</label>
@@ -679,20 +921,61 @@ export function ConfiguracionMaestros() {
                         <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-1.5 block">Referencia Interna</label>
                         <input className="input-nexus w-full bg-slate-50 dark:bg-slate-950 focus:bg-white dark:focus:bg-slate-900" value={catDesc} onChange={e=>setCatDesc(e.target.value)} />
                     </div>
-                    <button type="submit" className="btn-primary w-full py-3.5 mt-2 font-black">Crear Agrupador</button>
+                    <button type="submit" className={`${editCatId ? 'bg-indigo-600 hover:bg-indigo-700' : 'btn-primary'} text-white w-full py-3.5 mt-2 font-black rounded-xl transition-all shadow-lg`}>{editCatId ? 'Actualizar Agrupador' : 'Crear Agrupador'}</button>
                 </form>
             </div>
             <div className="lg:col-span-8 card-nexus p-8 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
                 <h3 className="text-xl font-black text-slate-900 dark:text-white mb-6">Lista de Familias Mantenidas</h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                     {categorias.map(c => (
-                        <div key={c.id} className="p-4 border border-slate-100 dark:border-slate-800/60 bg-slate-50 dark:bg-slate-950 rounded-xl hover:border-blue-200 dark:hover:border-blue-900/50 transition-colors">
+                        <div key={c.id} className="group p-4 border border-slate-100 dark:border-slate-800/60 bg-slate-50 dark:bg-slate-950 rounded-xl hover:border-blue-200 dark:hover:border-blue-900/50 transition-colors flex justify-between items-center">
                             <p className="font-black text-sm text-slate-900 dark:text-slate-200">{c.nombre}</p>
+                            
+                            <div className="opacity-0 group-hover:opacity-100 flex gap-2 transition-opacity">
+                               <button onClick={() => { setEditCatId(c.id); setCatName(c.nombre); setCatDesc(c.descripcion || ''); }} className="p-2 bg-white dark:bg-slate-900 text-slate-400 hover:text-indigo-600 rounded-lg shadow-sm border border-slate-200 dark:border-slate-700" title="Editar">
+                                   <Edit3 className="w-4 h-4"/>
+                               </button>
+                               <button onClick={() => handleDeleteCatAttempt(c.id)} className="p-2 bg-white dark:bg-slate-900 text-slate-400 hover:text-red-500 rounded-lg shadow-sm border border-slate-200 dark:border-slate-700" title="Eliminar y Migrar">
+                                   <Trash2 className="w-4 h-4"/>
+                               </button>
+                            </div>
                         </div>
                     ))}
                 </div>
             </div>
         </motion.div>
+
+        {deleteCatToMove && (
+            <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-[2px] flex items-center justify-center p-4">
+               <div className="bg-white dark:bg-slate-900 rounded-3xl p-8 max-w-lg w-full shadow-2xl border border-slate-100 dark:border-slate-800 relative ring-1 ring-black/5">
+                   <div className="flex items-center gap-4 mb-6">
+                      <div className="w-12 h-12 rounded-2xl bg-amber-100 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400 flex items-center justify-center"><Layers className="w-6 h-6"/></div>
+                      <div>
+                          <h3 className="text-xl font-black text-slate-900 dark:text-white">Migración Requerida</h3>
+                          <p className="text-sm font-bold text-slate-500">La familia posee artículos vinculados</p>
+                      </div>
+                   </div>
+                   
+                   <div className="bg-amber-50 dark:bg-amber-900/10 p-5 rounded-2xl border border-amber-200/50 mb-6 font-medium text-amber-800 dark:text-amber-200/70 text-sm">
+                       Para salvaguardar la integridad de la base de datos, debes seleccionar un <b>Agrupador de Destino</b>. Todos los artículos que estaban categorizados bajo "{categorias.find(c=>c.id === deleteCatToMove)?.nombre}" serán movidos a esta nueva categoría de forma automática antes de borrarla de forma definitiva.
+                   </div>
+
+                   <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-2 block">Nueva Familia de Destino</label>
+                   <select className="input-nexus w-full mb-6 font-bold" value={transferTargetId} onChange={(e) => setTransferTargetId(e.target.value)}>
+                       <option value="">Selecciona dónde alojar los artículos...</option>
+                       {categorias.filter(c => c.id !== deleteCatToMove).map(c => (
+                           <option key={c.id} value={c.id}>{c.nombre}</option>
+                       ))}
+                   </select>
+
+                   <div className="flex justify-end gap-3">
+                       <button onClick={() => { setDeleteCatToMove(null); setTransferTargetId(''); }} className="px-6 py-3 rounded-xl font-bold text-slate-600 hover:bg-slate-100 transition-colors">Cancelar</button>
+                       <button onClick={executeCatTransferAndDelete} className="px-6 py-3 rounded-xl font-black bg-amber-500 hover:bg-amber-600 text-white shadow-lg shadow-amber-500/30 transition-transform hover:scale-105">Proceder Atómicamente</button>
+                   </div>
+               </div>
+            </div>
+        )}
+        </>
       )}
 
       {activeTab === 'titulos_base' && (
@@ -886,8 +1169,18 @@ export function ConfiguracionMaestros() {
                 <h3 className="text-xl font-black text-slate-900 dark:text-white mb-6">Equivalencias de Rinde Registradas</h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-h-[60vh] overflow-y-auto custom-scrollbar pr-2">
                     {equivalencias.map((e, idx) => (
-                        <div key={idx} className="p-4 border border-slate-100 dark:border-slate-800/60 bg-slate-50 dark:bg-slate-950 rounded-xl flex flex-col hover:border-green-200 dark:hover:border-green-900/50 transition-colors">
-                            <span className="font-black text-sm text-slate-900 dark:text-slate-200 mb-2">{e.producto_nombre}</span>
+                        <div key={idx} className="p-4 border border-slate-100 dark:border-slate-800/60 bg-slate-50 dark:bg-slate-950 rounded-xl flex flex-col hover:border-green-200 dark:hover:border-green-900/50 transition-colors relative group">
+                            
+                            <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity">
+                               <button onClick={() => { 
+                                   setRendProdId(e.producto_maestro_id?.toString() || ''); 
+                                   setRendGramos(e.gramos_por_metro_lineal?.toString() || ''); 
+                               }} className="p-2 bg-white dark:bg-slate-900 text-slate-400 hover:text-green-600 rounded-lg shadow-sm border border-slate-200 dark:border-slate-700" title="Editar Rendimiento">
+                                   <Edit3 className="w-4 h-4"/>
+                               </button>
+                            </div>
+
+                            <span className="font-black text-sm text-slate-900 dark:text-slate-200 mb-2 pr-8">{e.producto_nombre}</span>
                             <div className="flex items-center justify-between mt-auto">
                                 <span className="text-xs text-green-600 dark:text-green-400 font-black tracking-widest">≈ {e.gramos_por_metro_lineal} g / Mts</span>
                             </div>
@@ -964,7 +1257,7 @@ export function ConfiguracionMaestros() {
                     <div className="flex flex-wrap gap-2">
                         {unidadesMedida.map(u => (
                             <span key={u.id} className="text-[10px] font-black uppercase tracking-widest bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 px-2.5 py-1.5 rounded flex items-center gap-1 border border-emerald-100 dark:border-emerald-800/30">
-                                {u.nombre}
+                                <span className="cursor-pointer hover:underline" onClick={() => renameUnidad(u.id, u.nombre)}>{u.nombre}</span>
                                 <button type="button" onClick={async() => {
                                     try {
                                         await executeAWSQuery(`DELETE FROM wms_unidades_medida WHERE id = ${u.id}`);
@@ -988,15 +1281,19 @@ export function ConfiguracionMaestros() {
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                             {atributosBase.map(ab => (
                                 <div key={ab.id} className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden shadow-sm flex flex-col hover:border-indigo-300 dark:hover:border-indigo-900/60 transition-all">
-                                    <div className="px-4 py-3 bg-indigo-50/50 dark:bg-indigo-900/20 border-b border-indigo-100 dark:border-indigo-900/30 flex justify-between items-center">
-                                        <span className="font-black text-indigo-900 dark:text-indigo-400 text-sm">{ab.nombre}</span>
+                                    <div className="px-4 py-3 bg-indigo-50/50 dark:bg-indigo-900/20 border-b border-indigo-100 dark:border-indigo-900/30 flex justify-between items-center group/cat">
+                                        <div className="flex items-center gap-2">
+                                            <span className="font-black text-indigo-900 dark:text-indigo-400 text-sm">{ab.nombre}</span>
+                                            <button onClick={() => renameAtributo(ab.id, ab.nombre)} className="opacity-0 group-hover/cat:opacity-100 text-indigo-400 hover:text-indigo-600 transition-opacity" title="Editar nombre de categoría"><Edit3 className="w-3.5 h-3.5"/></button>
+                                        </div>
                                         <button onClick={() => deleteAtributoBase(ab.id)} className="text-slate-400 hover:text-red-500 transition-colors" title="Eliminar categoría entera">&times;</button>
                                     </div>
                                     <div className="p-4 flex-1">
                                         <div className="flex flex-wrap gap-2 mb-4">
                                             {valoresBase.filter(vb => vb.atributo_id === ab.id).map(vb => (
-                                                <span key={vb.id} className="text-[10px] font-black uppercase tracking-widest bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 px-2.5 py-1 rounded-md flex items-center gap-1">
+                                                <span key={vb.id} className="text-[10px] font-black uppercase tracking-widest bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 px-2.5 py-1 rounded-md flex items-center gap-1 group/val">
                                                     {vb.valor}
+                                                    <button onClick={() => renameValor(vb.id, vb.valor)} className="opacity-0 group-hover/val:opacity-100 text-slate-400 hover:text-indigo-500 ml-1 transition-opacity"><Edit3 className="w-3 h-3"/></button>
                                                     <button onClick={() => deleteValorBase(vb.id)} className="text-slate-400 hover:text-red-500 ml-1">&times;</button>
                                                 </span>
                                             ))}

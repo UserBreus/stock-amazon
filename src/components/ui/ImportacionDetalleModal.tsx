@@ -156,7 +156,14 @@ export function ImportacionDetalleModal({ isOpen, onClose, importacion, onUpdate
                   </div>
                   <div className="p-8">
                       <div className="relative">
-                          <div className="absolute left-6 top-10 bottom-10 w-0.5 bg-indigo-100 dark:bg-indigo-900/30"></div>
+                          {/* Línea base inactiva */}
+                          <div className="absolute left-[23px] top-6 bottom-6 w-1 bg-slate-200 dark:bg-slate-800 rounded-full"></div>
+                          {/* Línea pintada activa */}
+                          <div 
+                              className="absolute left-[23px] top-6 w-1 bg-indigo-500 rounded-full transition-all duration-700 ease-out" 
+                              style={{ height: `calc(${Math.max(0, currentStepIndex) / (timelineSteps.length - 1) * 100}% - 12px)` }}
+                          ></div>
+                          
                           <div className="space-y-8 relative">
                               {timelineSteps.map((step, idx) => {
                                   const isCompleted = currentStepIndex >= idx;

@@ -26,12 +26,12 @@ export function GestionImportaciones() {
       const q = `
         SELECT 
             i.id, i.origen, i.empresa_importadora, i.contacto_importadora,
-            i.empresa_transporte_local, i.contacto_transporte_local, i.estado, i.fecha_creacion,
+            i.empresa_transporte_local, i.contacto_transporte_local, i.estado, i.fecha_creacion, i.progreso,
             COUNT(c.id) as cantidad_compras
         FROM Stock_Importaciones i
         LEFT JOIN Stock_Compras c ON c.importacion_id = i.id
         GROUP BY i.id, i.origen, i.empresa_importadora, i.contacto_importadora,
-                 i.empresa_transporte_local, i.contacto_transporte_local, i.estado, i.fecha_creacion
+                 i.empresa_transporte_local, i.contacto_transporte_local, i.estado, i.fecha_creacion, i.progreso
         ORDER BY i.fecha_creacion DESC
       `;
       const res = await executeAWSQuery(q);
@@ -76,6 +76,11 @@ export function GestionImportaciones() {
       );
   }
 
+  const timelineKeys = [
+    'realizada', 'en_fabricacion', 'en_deposito_traslado', 'esperando_embarque', 
+    'embarcado', 'puerto_intermedio', 'puerto_uruguayo', 'esperando_envio', 'recibido'
+  ];
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
@@ -94,31 +99,48 @@ export function GestionImportaciones() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2 space-y-4">
-            {importaciones.map(imp => (
+          <div className="lg:col-span-3 space-y-4">
+            {importaciones.map(imp => {
+                const currentIdx = timelineKeys.indexOf(imp.progreso);
+                const pct = currentIdx === -1 ? 0 : (currentIdx / (timelineKeys.length - 1)) * 100;
+                
+                return (
                 <div key={imp.id} className="card-nexus p-0 overflow-hidden flex flex-col sm:flex-row border-2 border-transparent hover:border-indigo-200 dark:hover:border-indigo-800 transition-colors">
                     
-                    <div className="flex-1 p-6 flex items-start gap-4 cursor-pointer" onClick={() => setSelectedImp(imp)}>
-                        <div className={cn("p-4 rounded-2xl flex items-center justify-center shrink-0 transition-colors", selectedImpId === imp.id ? "bg-indigo-100 text-indigo-600" : "bg-slate-100 dark:bg-slate-800 text-slate-400")}>
-                            <Globe2 className="w-6 h-6" />
+                    <div className="flex-1 p-6 flex flex-col justify-between gap-4 cursor-pointer" onClick={() => setSelectedImp(imp)}>
+                        <div className="flex items-start gap-4">
+                            <div className={cn("p-4 rounded-2xl flex items-center justify-center shrink-0 transition-colors", selectedImpId === imp.id ? "bg-indigo-100 text-indigo-600" : "bg-slate-100 dark:bg-slate-800 text-slate-400")}>
+                                <Globe2 className="w-6 h-6" />
+                            </div>
+                            <div className="flex-1">
+                                <div className="flex items-center justify-between gap-3">
+                                   <h3 className="font-black text-slate-800 dark:text-slate-100 uppercase tracking-widest">{imp.origen}</h3>
+                                   <span className="px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-700 font-bold text-[10px] uppercase tracking-wider">{imp.estado}</span>
+                                </div>
+                                <div className="grid grid-cols-2 gap-x-6 gap-y-2 mt-4">
+                                    <div>
+                                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1"><Building2 className="w-3 h-3"/> Importador</p>
+                                        <p className="text-sm font-bold text-slate-700 dark:text-slate-300">{imp.empresa_importadora || '-'}</p>
+                                        {imp.contacto_importadora && <p className="text-xs font-bold text-indigo-500 mt-1">{imp.contacto_importadora}</p>}
+                                    </div>
+                                    <div>
+                                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1"><Truck className="w-3 h-3"/> Trans. Local</p>
+                                        <p className="text-sm font-bold text-slate-700 dark:text-slate-300">{imp.empresa_transporte_local || '-'}</p>
+                                        {imp.contacto_transporte_local && <p className="text-xs font-bold text-emerald-500 mt-1">{imp.contacto_transporte_local}</p>}
+                                    </div>
+                                </div>
+                            </div>
                         </div>
-                        <div>
-                            <div className="flex items-center gap-3">
-                               <h3 className="font-black text-slate-800 dark:text-slate-100 uppercase tracking-widest">{imp.origen}</h3>
-                               <span className="px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-700 font-bold text-[10px] uppercase tracking-wider">{imp.estado}</span>
-                            </div>
-                            <div className="grid grid-cols-2 gap-x-6 gap-y-2 mt-4">
-                                <div>
-                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1"><Building2 className="w-3 h-3"/> Importador</p>
-                                    <p className="text-sm font-bold text-slate-700 dark:text-slate-300">{imp.empresa_importadora || '-'}</p>
-                                    {imp.contacto_importadora && <p className="text-xs font-bold text-indigo-500 mt-1">{imp.contacto_importadora}</p>}
-                                </div>
-                                <div>
-                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1"><Truck className="w-3 h-3"/> Trans. Local</p>
-                                    <p className="text-sm font-bold text-slate-700 dark:text-slate-300">{imp.empresa_transporte_local || '-'}</p>
-                                    {imp.contacto_transporte_local && <p className="text-xs font-bold text-emerald-500 mt-1">{imp.contacto_transporte_local}</p>}
-                                </div>
-                            </div>
+
+                        {/* Progression Bar Over Card! */}
+                        <div className="mt-2 w-full max-w-lg">
+                           <div className="flex justify-between mb-1">
+                             <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest">Tracking Progress</p>
+                             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{(imp.progreso || 'Desconocido').replace(/_/g, ' ')}</p>
+                           </div>
+                           <div className="w-full rounded-full h-1.5 bg-slate-100 dark:bg-slate-800 overflow-hidden">
+                                <div className="h-full bg-indigo-500 rounded-full transition-all duration-1000 ease-out" style={{ width: `${pct}%`}}></div>
+                           </div>
                         </div>
                     </div>
 
@@ -127,7 +149,8 @@ export function GestionImportaciones() {
                          <p className="text-3xl font-black text-indigo-600 font-mono tracking-tighter">{imp.cantidad_compras}</p>
                     </div>
                 </div>
-            ))}
+                )
+            })}
             {importaciones.length === 0 && (
                 <div className="text-center py-12 bg-white dark:bg-[#0a101f] border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-3xl">
                     <Globe2 className="w-12 h-12 text-slate-300 dark:text-slate-700 mx-auto mb-4"/>
