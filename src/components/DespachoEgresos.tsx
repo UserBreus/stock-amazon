@@ -111,7 +111,7 @@ export function DespachoEgresos({ initialOperationType = 'traslado', initialMode
             } else if (cart.find(c => c.id === etq.id)) {
                toast.error("La etiqueta ya está en la bandeja");
             } else {
-               setCart([{...etq, cantidad_a_extraer: etq.cantidad_actual}, ...cart]);
+               setCart([{...etq, isBulk: false, cantidad_a_extraer: etq.cantidad_actual}, ...cart]);
                toast.success("Lote cargado");
             }
          } else {
@@ -153,27 +153,39 @@ export function DespachoEgresos({ initialOperationType = 'traslado', initialMode
       setLoadingCode(true);
       try {
           const res = await executeAWSQuery(`
-              SELECT TOP 1 e.*, v.nombre_variante, pm.nombre as producto_nombre, d.nombre as deposito_nombre
-              FROM Stock_Etiquetas e
-              INNER JOIN Stock_Variantes v ON e.variante_id = v.id
+              SELECT v.id as variante_id, v.nombre_variante, pm.nombre as producto_nombre, d.nombre as deposito_nombre,
+                     SUM(e.cantidad_actual) as cantidad_total
+              FROM Stock_Variantes v
               INNER JOIN Stock_Productos_Maestros pm ON v.producto_maestro_id = pm.id
+              INNER JOIN Stock_Etiquetas e ON e.variante_id = v.id
               LEFT JOIN Stock_Depositos d ON e.deposito_id = d.id
-              WHERE e.variante_id = ${varianteId} AND e.deposito_id = ${origenId} AND e.cantidad_actual > 0
-              ORDER BY e.id ASC
+              WHERE e.variante_id = ${varianteId} AND e.deposito_id = ${origenId} AND e.cantidad_actual > 0 AND e.estado = 'activo'
+              GROUP BY v.id, v.nombre_variante, pm.nombre, d.nombre
           `);
           if(res && res.length > 0) {
-              const etq = res[0];
-              if (cart.find(c => c.id === etq.id)) {
-                 toast.error("La etiqueta física detectada de este producto ya está en la bandeja.");
+              const bulkItem = res[0];
+              const existingIndex = cart.findIndex(c => c.isBulk && c.variante_id === bulkItem.variante_id);
+              if (existingIndex > -1) {
+                 toast.error("Este producto ya está en el nivel de volumen del carrito.");
               } else {
-                 setCart([{...etq, cantidad_a_extraer: etq.cantidad_actual}, ...cart]);
-                 toast.success("Producto agregado desde inventario físico");
+                 setCart([{
+                    id: 'BULK_' + bulkItem.variante_id,
+                    isBulk: true,
+                    variante_id: bulkItem.variante_id,
+                    codigo_barras: 'GRANEL-AUTO',
+                    producto_nombre: bulkItem.producto_nombre,
+                    nombre_variante: bulkItem.nombre_variante,
+                    cantidad_actual: bulkItem.cantidad_total,
+                    cantidad_a_extraer: bulkItem.cantidad_total,
+                    deposito_id: origenId
+                 }, ...cart]);
+                 toast.success("Volumen de producto agregado al carrito");
               }
           } else {
-              toast.error("No hay etiquetas físicas disponibles de este producto.");
+              toast.error("No hay stock físico activo disponible de este producto.");
           }
       } catch(e: any) {
-          toast.error("Fallo al obtener etiqueta física: " + e.message);
+          toast.error("Fallo al obtener stock físico: " + e.message);
       } finally {
           setLoadingCode(false);
       }
@@ -211,46 +223,89 @@ export function DespachoEgresos({ initialOperationType = 'traslado', initialMode
 
           let labelsToPrint: any[] = [];
           const opNameOut = isTransfer ? 'traslado_salida' : 'egreso_final';
+          const origenFijoSQL = origenId; 
+          let queryVarCounter = 0;
 
-          for (let i = 0; i < cart.length; i++) {
-              const item = cart[i];
-              // Use origenId for strict enforcement instead of the old item nullable
-              const origenFijoSQL = origenId; 
-
-              if (item.cantidad_a_extraer === item.cantidad_actual) {
+          const pushQueriesForLot = (loteId: number, loteCodigo: string, allocQty: number, initialLoteQty: number, info: any) => {
+              if (allocQty === initialLoteQty) {
                   if (isTransfer) {
                       queries.push(`
-                          UPDATE Stock_Etiquetas SET deposito_id = ${destinoId} WHERE id = ${item.id};
+                          UPDATE Stock_Etiquetas SET deposito_id = ${destinoId} WHERE id = ${loteId};
                           INSERT INTO Stock_Movimientos (etiqueta_id, tipo_movimiento, cantidad_afectada, deposito_origen_id, deposito_destino_id, remito_id, usuario_id)
-                          VALUES (${item.id}, '${opNameOut}', ${item.cantidad_a_extraer}, ${origenFijoSQL}, ${destinoId}, @RemId, '${(user as any)?.id || ''}');
+                          VALUES (${loteId}, '${opNameOut}', ${allocQty}, ${origenFijoSQL}, ${destinoId}, @RemId, '${(user as any)?.id || ''}');
                       `);
                   } else {
                       queries.push(`
-                          UPDATE Stock_Etiquetas SET cantidad_actual = 0, estado = 'consumido' WHERE id = ${item.id};
+                          UPDATE Stock_Etiquetas SET cantidad_actual = 0, estado = 'consumido' WHERE id = ${loteId};
                           INSERT INTO Stock_Movimientos (etiqueta_id, tipo_movimiento, cantidad_afectada, deposito_origen_id, remito_id, usuario_id)
-                          VALUES (${item.id}, '${opNameOut}', ${item.cantidad_a_extraer}, ${origenFijoSQL}, @RemId, '${(user as any)?.id || ''}');
+                          VALUES (${loteId}, '${opNameOut}', ${allocQty}, ${origenFijoSQL}, @RemId, '${(user as any)?.id || ''}');
                       `);
                   }
               } else {
-                  queries.push(`UPDATE Stock_Etiquetas SET cantidad_actual = cantidad_actual - ${item.cantidad_a_extraer} WHERE id = ${item.id};`);
+                  queries.push(`UPDATE Stock_Etiquetas SET cantidad_actual = cantidad_actual - ${allocQty} WHERE id = ${loteId};`);
                   if (isTransfer) {
-                      const newCode = `${item.codigo_barras}-S${Math.floor(Math.random()*99)}`;
-                      labelsToPrint.push({ codigo_barras: newCode, producto_nombre: item.producto_nombre, nombre_variante: item.nombre_variante, cantidad_actual: item.cantidad_a_extraer });
+                      const newCode = `${loteCodigo}-S${Math.floor(Math.random()*999)}`;
+                      labelsToPrint.push({ codigo_barras: newCode, producto_nombre: info.producto_nombre, nombre_variante: info.nombre_variante, cantidad_actual: allocQty });
+                      queryVarCounter++;
                       queries.push(`
-                          DECLARE @NewLote_${i} INT;
+                          DECLARE @NewLote_${queryVarCounter} INT;
                           INSERT INTO Stock_Etiquetas (codigo_barras, variante_id, deposito_id, cantidad_inicial, cantidad_actual, estado)
-                          VALUES ('${newCode}', ${item.variante_id}, ${destinoId}, ${item.cantidad_a_extraer}, ${item.cantidad_a_extraer}, 'activo');
-                          SET @NewLote_${i} = SCOPE_IDENTITY();
+                          VALUES ('${newCode}', ${info.variante_id}, ${destinoId}, ${allocQty}, ${allocQty}, 'activo');
+                          SET @NewLote_${queryVarCounter} = SCOPE_IDENTITY();
                           INSERT INTO Stock_Movimientos (etiqueta_id, tipo_movimiento, cantidad_afectada, deposito_origen_id, deposito_destino_id, remito_id, usuario_id)
-                          VALUES (@NewLote_${i}, 'fraccionamiento_ingreso', ${item.cantidad_a_extraer}, ${origenFijoSQL}, ${destinoId}, @RemId, '${(user as any)?.id || ''}');
+                          VALUES (@NewLote_${queryVarCounter}, 'fraccionamiento_ingreso', ${allocQty}, ${origenFijoSQL}, ${destinoId}, @RemId, '${(user as any)?.id || ''}');
                           INSERT INTO Stock_Movimientos (etiqueta_id, tipo_movimiento, cantidad_afectada, deposito_origen_id, deposito_destino_id, remito_id, usuario_id)
-                          VALUES (${item.id}, 'fraccionamiento_salida', ${item.cantidad_a_extraer}, ${origenFijoSQL}, ${destinoId}, @RemId, '${(user as any)?.id || ''}');
+                          VALUES (${loteId}, 'fraccionamiento_salida', ${allocQty}, ${origenFijoSQL}, ${destinoId}, @RemId, '${(user as any)?.id || ''}');
                       `);
                   } else {
                       queries.push(`
                           INSERT INTO Stock_Movimientos (etiqueta_id, tipo_movimiento, cantidad_afectada, deposito_origen_id, remito_id, usuario_id)
-                          VALUES (${item.id}, '${opNameOut}', ${item.cantidad_a_extraer}, ${origenFijoSQL}, @RemId, '${(user as any)?.id || ''}');
+                          VALUES (${loteId}, '${opNameOut}', ${allocQty}, ${origenFijoSQL}, @RemId, '${(user as any)?.id || ''}');
                       `);
+                  }
+              }
+          };
+
+          const bulkVariants = cart.filter(c => c.isBulk).map(c => c.variante_id);
+          let allBulkLabels: any[] = [];
+          if (bulkVariants.length > 0) {
+              const bRes = await executeAWSQuery(`
+                 SELECT id, variante_id, cantidad_actual, codigo_barras 
+                 FROM Stock_Etiquetas 
+                 WHERE variante_id IN (${bulkVariants.join(',')}) AND deposito_id = ${origenId} AND cantidad_actual > 0 AND estado = 'activo'
+                 ORDER BY fecha_creacion ASC
+              `);
+              if(bRes) allBulkLabels = bRes;
+          }
+          const manuallyScannedIds = cart.filter(c => !c.isBulk).map(c => c.id);
+
+          for (let i = 0; i < cart.length; i++) {
+              const item = cart[i];
+              if (!item.isBulk) {
+                  pushQueriesForLot(Number(item.id), item.codigo_barras, item.cantidad_a_extraer, item.cantidad_actual, item);
+              } else {
+                  let reqQty = item.cantidad_a_extraer;
+                  let myLabels = allBulkLabels.filter(l => l.variante_id === item.variante_id && !manuallyScannedIds.includes(l.id));
+                  
+                  let bestFit = myLabels.find(l => l.cantidad_actual === reqQty);
+                  if (bestFit) {
+                      pushQueriesForLot(bestFit.id, bestFit.codigo_barras, reqQty, bestFit.cantidad_actual, item);
+                      bestFit.cantidad_actual -= reqQty; 
+                      reqQty = 0;
+                  } else {
+                      for (let lb of myLabels) {
+                          if (reqQty <= 0) break;
+                          if (lb.cantidad_actual <= 0) continue; 
+                          
+                          let draw = Math.min(lb.cantidad_actual, reqQty);
+                          pushQueriesForLot(lb.id, lb.codigo_barras, draw, lb.cantidad_actual, item);
+                          lb.cantidad_actual -= draw;
+                          reqQty -= draw;
+                      }
+                  }
+
+                  if (reqQty > 0) {
+                     throw new Error(`Inconsistencia Lógica: No hay suficiente stock físico libre no-escaneado para completar la orden granel de ${item.producto_nombre}.`);
                   }
               }
           }
