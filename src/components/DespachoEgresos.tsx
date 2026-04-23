@@ -132,11 +132,13 @@ export function DespachoEgresos({ initialOperationType = 'traslado', initialMode
       try {
           const catRes = await executeAWSQuery("SELECT id, nombre FROM Stock_Categorias ORDER BY nombre");
           const prodRes = await executeAWSQuery(`
-              SELECT v.id, v.nombre_variante, v.nombre_variante as nombre, pm.id as producto_maestro_id, pm.nombre as producto_nombre, pm.categoria_id 
+              SELECT v.id, v.nombre_variante, 
+                     CAST(v.nombre_variante AS VARCHAR(100)) + ' (Disp: ' + CAST((SELECT SUM(cantidad_actual) FROM Stock_Etiquetas WHERE variante_id = v.id AND deposito_id = ${origenId} AND estado = 'activo') AS VARCHAR(50)) + ')' as nombre,
+                     pm.id as producto_maestro_id, pm.nombre as producto_nombre, pm.categoria_id 
               FROM Stock_Variantes v
               INNER JOIN Stock_Productos_Maestros pm ON v.producto_maestro_id = pm.id
               WHERE EXISTS (
-                 SELECT 1 FROM Stock_Etiquetas e WHERE e.variante_id = v.id AND e.deposito_id = ${origenId} AND e.cantidad_actual > 0
+                 SELECT 1 FROM Stock_Etiquetas e WHERE e.variante_id = v.id AND e.deposito_id = ${origenId} AND e.cantidad_actual > 0 AND e.estado = 'activo'
               )
           `);
           setCatalogCategorias(catRes || []);
@@ -368,7 +370,11 @@ export function DespachoEgresos({ initialOperationType = 'traslado', initialMode
                                      <div key={idx} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-xl flex items-center shadow-sm">
                                          <div className="flex-1 min-w-0">
                                             <div className="flex items-center gap-2"><h4 className="font-black truncate">{item.producto_nombre}</h4><span className="bg-slate-100 dark:bg-slate-800 px-2 rounded text-[10px] font-bold">{item.nombre_variante}</span></div>
-                                            <p className="text-xs font-mono text-indigo-500">{item.codigo_barras} (Disp: {item.cantidad_actual})</p>
+                                            <p className="text-[10px] font-mono text-slate-400 mt-1 uppercase tracking-widest">{item.codigo_barras}</p>
+                                         </div>
+                                         <div className="flex-shrink-0 mx-4 lg:mx-8 text-center bg-emerald-50 dark:bg-emerald-900/30 px-3 py-1 rounded-lg border border-emerald-100 dark:border-emerald-800/50">
+                                            <p className="text-[9px] uppercase font-black tracking-widest text-emerald-600 dark:text-emerald-400">Disponible</p>
+                                            <p className="text-lg font-black text-emerald-700 dark:text-emerald-300 leading-none">{item.cantidad_actual}</p>
                                          </div>
                                          <div className="flex items-center gap-2">
                                             <input type="number" step="0.01" max={item.cantidad_actual} value={item.cantidad_a_extraer} onChange={e=>{
