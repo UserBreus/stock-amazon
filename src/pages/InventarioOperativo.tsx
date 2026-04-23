@@ -341,7 +341,7 @@ export function InventarioOperativo() {
   };
 
 
-  const activeRem = (remitosPendientes.find(r => r.id.toString() === selectedActiveRemitoId) || remitosHistoricos.find(r => r.id.toString() === selectedActiveRemitoId)) as any;
+  const activeRem = (remitosPendientes.find(r => String(r.id) === String(selectedActiveRemitoId)) || remitosHistoricos.find(r => String(r.id) === String(selectedActiveRemitoId))) as any;
 
   return (
     <>
