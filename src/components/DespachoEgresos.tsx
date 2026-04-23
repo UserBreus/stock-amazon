@@ -318,9 +318,11 @@ export function DespachoEgresos({ initialOperationType = 'traslado', initialMode
 
           const executeRes = await executeAWSQuery(`BEGIN TRY BEGIN TRANSACTION; ${queries.join('\n')} COMMIT TRANSACTION; END TRY BEGIN CATCH ROLLBACK TRANSACTION; THROW; END CATCH`);
 
-          if (isTransfer) {
-             setRemitoPDFInfo({ cart: [...cart], destino: depositos.find(d => d.id.toString() === destinoId)?.nombre || 'Ubicación', codigo: executeRes?.[0]?.rem_code || 'REM-0000', fecha: new Date().toLocaleString(), nuevasEtiquetas: labelsToPrint });
-          }
+          // Always set remito for Printing Receipt
+          const opCode = isTransfer ? (executeRes?.[0]?.rem_code || 'REM-0000') : ('BAJA-' + Date.now().toString().slice(-6));
+          const opDestino = isTransfer ? (depositos.find(d => d.id.toString() === destinoId)?.nombre || 'Ubicación') : 'Consumido / Retiro Final';
+          setRemitoPDFInfo({ cart: [...cart], destino: opDestino, codigo: opCode, fecha: new Date().toLocaleString(), nuevasEtiquetas: labelsToPrint });
+
           setCart([]);
           toast.success("Operación ejecutada con éxito.");
       } catch (err: any) {
