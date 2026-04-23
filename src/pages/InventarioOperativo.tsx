@@ -707,7 +707,7 @@ export function InventarioOperativo() {
                  
                  <div className="flex gap-3 pt-4 mt-6 border-t border-slate-200 dark:border-slate-800 flex-wrap">
                      {activeRem && (
-                        <button onClick={() => { setRemitoDetalleItems(null); setIsViewingFullscreenPDF(true); }} className="flex-none bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-black py-4 px-6 rounded-xl flex items-center justify-center gap-2">
+                        <button onClick={() => { setIsViewingFullscreenPDF(true); }} className="flex-none bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-black py-4 px-6 rounded-xl flex items-center justify-center gap-2">
                             <ClipboardList className="w-5 h-5"/> VER HOJA REMITO
                         </button>
                      )}
