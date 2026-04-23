@@ -14,7 +14,7 @@ export function IconManager() {
         { id: 'sidebar_dashboard', label: 'Menú: Panel de Control' },
         { id: 'sidebar_inventario', label: 'Menú: Inventario Global' },
         { id: 'sidebar_sectores', label: 'Menú: Sectores y Traslados' },
-        { id: 'sidebar_compras', label: 'Menú: Registro de Compras' },
+        { id: 'sidebar_compras', label: 'Menú: Compras' },
         { id: 'sidebar_sistema', label: 'Menú: Gestión de Sistema' },
         { id: 'btn_ingreso_stock', label: 'Dashboard: Ingresar Stock' },
         { id: 'btn_traslado_stock', label: 'Dashboard: Trasladar' },

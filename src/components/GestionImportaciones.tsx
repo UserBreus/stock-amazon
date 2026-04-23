@@ -1,186 +1,158 @@
 import React, { useState, useEffect } from 'react';
 import { executeAWSQuery } from '../lib/aws-client';
 import toast from 'react-hot-toast';
-import { Truck, Calculator, Coins, CheckCircle, Search, PlaneTakeoff, Box } from 'lucide-react';
+import { CheckCircle, Search, PlaneTakeoff, Globe2, Plus, Building2, Truck, Box, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn, formatCurrency } from '../lib/utils';
+import { ImportacionesCreationModal } from './ui/ImportacionesCreationModal';
+import { ImportacionDetalleModal } from './ui/ImportacionDetalleModal';
 
 export function GestionImportaciones() {
-  const [compras, setCompras] = useState<any[]>([]);
+  const [importaciones, setImportaciones] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedCompra, setSelectedCompra] = useState<any | null>(null);
-  
-  const [gastos, setGastos] = useState<string>('');
-  const [calculating, setCalculating] = useState(false);
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [selectedImpId, setSelectedImpId] = useState<string | null>(null);
+  const [selectedImp, setSelectedImp] = useState<any | null>(null);
+  const [comprasDetalle, setComprasDetalle] = useState<any[]>([]);
+  const [loadingDetalle, setLoadingDetalle] = useState(false);
 
   useEffect(() => {
-    fetchCompras();
+    fetchImportaciones();
   }, []);
 
-  const fetchCompras = async () => {
+  const fetchImportaciones = async () => {
     setLoading(true);
     try {
       const q = `
         SELECT 
-            c.id, c.referencia_factura, c.fecha_creacion, c.gastos_extras, c.total_compra,
-            prov.nombre as proveedor_nombre,
-            ISNULL(SUM(d.cantidad), 0) as total_unidades
-        FROM Stock_Compras c
-        LEFT JOIN Stock_Proveedores prov ON c.proveedor_id = prov.id
-        LEFT JOIN Stock_Compras_Detalle d ON c.id = d.compra_id
-        GROUP BY c.id, c.referencia_factura, c.fecha_creacion, c.gastos_extras, c.total_compra, prov.nombre
-        ORDER BY c.fecha_creacion DESC
+            i.id, i.origen, i.empresa_importadora, i.contacto_importadora,
+            i.empresa_transporte_local, i.contacto_transporte_local, i.estado, i.fecha_creacion,
+            COUNT(c.id) as cantidad_compras
+        FROM Stock_Importaciones i
+        LEFT JOIN Stock_Compras c ON c.importacion_id = i.id
+        GROUP BY i.id, i.origen, i.empresa_importadora, i.contacto_importadora,
+                 i.empresa_transporte_local, i.contacto_transporte_local, i.estado, i.fecha_creacion
+        ORDER BY i.fecha_creacion DESC
       `;
       const res = await executeAWSQuery(q);
-      setCompras(res || []);
+      setImportaciones(res || []);
     } catch (e: any) {
-      toast.error('Error cargando órdenes de compra: ' + e.message);
+      toast.error('Error cargando importaciones: ' + e.message);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleSelect = (compra: any) => {
-    setSelectedCompra(compra);
-    setGastos(compra.gastos_extras?.toString() || '0');
-  };
-
-  const handleAsignarGastos = async () => {
-    if (!selectedCompra) return;
-    const numGastos = parseFloat(gastos);
-    if (isNaN(numGastos) || numGastos < 0) return toast.error('Ingresa un monto válido.');
-    if (selectedCompra.total_unidades <= 0) return toast.error("La orden no tiene unidades asociadas para dividir el costo.");
-
-    setCalculating(true);
-    try {
-        const costoExtraPorUnidad = numGastos / selectedCompra.total_unidades;
-
-        // Script para DB
-        const q = `
-            -- 1. Asignamos gasto extra maestro
-            UPDATE Stock_Compras SET gastos_extras = ${numGastos} WHERE id = '${selectedCompra.id}';
-
-            -- 2. Propagamos a cada etiqueta el valor unitario base + el extra de importacion unitario
-            UPDATE e
-            SET e.costo_unitario_real = (ISNULL(d.precio_unitario, 0) + ${costoExtraPorUnidad})
-            FROM Stock_Etiquetas e
-            INNER JOIN Stock_Compras_Detalle d ON e.variante_id = d.variante_id AND d.compra_id = e.compra_id
-            WHERE e.compra_id = '${selectedCompra.id}';
-        `;
-
-        await executeAWSQuery(q);
-        toast.success(`Gastos de importación aplicados. Costo subió ${formatCurrency(costoExtraPorUnidad, 'USD')} por unidad.`);
-        
-        await fetchCompras();
-        setSelectedCompra(null);
-    } catch(e:any) {
-        toast.error("Error aplicando distribución de costos: " + e.message);
-    } finally {
-        setCalculating(false);
-    }
+  const loadDetalle = async (id: string) => {
+     setSelectedImpId(id);
+     setLoadingDetalle(true);
+     setComprasDetalle([]);
+     try {
+         const q = `
+            SELECT 
+                c.id, c.referencia_factura, c.fecha_creacion, c.total_compra,
+                prov.nombre as proveedor_nombre,
+                ISNULL(SUM(d.cantidad), 0) as total_unidades
+            FROM Stock_Compras c
+            LEFT JOIN Stock_Proveedores prov ON c.proveedor_id = prov.id
+            LEFT JOIN Stock_Compras_Detalle d ON c.id = d.compra_id
+            WHERE c.importacion_id = '${id}'
+            GROUP BY c.id, c.referencia_factura, c.fecha_creacion, c.total_compra, prov.nombre
+         `;
+         const res = await executeAWSQuery(q);
+         setComprasDetalle(res || []);
+     } catch(e:any) {
+         toast.error("Error cargando compras de la importación");
+     } finally {
+         setLoadingDetalle(false);
+     }
   };
 
   if (loading) {
       return (
           <div className="flex justify-center items-center h-48">
-              <div className="animate-spin text-blue-500"><Truck className="w-8 h-8" /></div>
+              <div className="animate-spin text-indigo-500"><PlaneTakeoff className="w-8 h-8" /></div>
           </div>
       );
   }
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-4 mb-4">
-        <div className="p-3 rounded-2xl bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600">
-          <PlaneTakeoff className="w-6 h-6" />
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
+        <div className="flex items-center gap-4">
+            <div className="p-3 rounded-2xl bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600">
+            <PlaneTakeoff className="w-6 h-6" />
+            </div>
+            <div>
+            <h2 className="text-xl font-black text-slate-800 dark:text-white tracking-tighter">Importaciones Consolidadas</h2>
+            <p className="text-sm font-bold text-slate-500">Administra expedientes logísticos globales.</p>
+            </div>
         </div>
-        <div>
-           <h2 className="text-xl font-black text-slate-800 dark:text-white tracking-tighter">Gastos de Patrimonio e Importación</h2>
-           <p className="text-sm font-bold text-slate-500">Distribuye gastos logísticos extras equitativamente por unidades.</p>
-        </div>
+        <button onClick={() => setIsCreateOpen(true)} className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-xl font-black flex items-center gap-2 shadow-lg shadow-indigo-500/30 transition-transform hover:scale-105 active:scale-95">
+            <Plus className="w-5 h-5"/> Crear Importación
+        </button>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 space-y-4">
-            {compras.map(c => (
-                <button
-                    key={c.id}
-                    onClick={() => handleSelect(c)}
-                    className={cn(
-                        "w-full card-nexus p-5 text-left border-2 transition-all flex items-center justify-between",
-                        selectedCompra?.id === c.id ? "border-indigo-500 bg-indigo-50/10" : "border-transparent hover:border-slate-200 dark:hover:border-slate-800"
-                    )}
-                >
-                    <div className="flex items-center gap-4">
-                        <div className="p-3 bg-slate-100 dark:bg-slate-800 rounded-xl">
-                            <Box className="w-5 h-5 text-slate-400" />
+            {importaciones.map(imp => (
+                <div key={imp.id} className="card-nexus p-0 overflow-hidden flex flex-col sm:flex-row border-2 border-transparent hover:border-indigo-200 dark:hover:border-indigo-800 transition-colors">
+                    
+                    <div className="flex-1 p-6 flex items-start gap-4 cursor-pointer" onClick={() => setSelectedImp(imp)}>
+                        <div className={cn("p-4 rounded-2xl flex items-center justify-center shrink-0 transition-colors", selectedImpId === imp.id ? "bg-indigo-100 text-indigo-600" : "bg-slate-100 dark:bg-slate-800 text-slate-400")}>
+                            <Globe2 className="w-6 h-6" />
                         </div>
                         <div>
-                            <h3 className="font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wide">
-                                Ref: {c.referencia_factura || 'S/Ref'}
-                            </h3>
-                            <p className="text-xs font-bold text-slate-400 mt-1">
-                                Prov: {c.proveedor_nombre} • {c.total_unidades} unidades
-                            </p>
+                            <div className="flex items-center gap-3">
+                               <h3 className="font-black text-slate-800 dark:text-slate-100 uppercase tracking-widest">{imp.origen}</h3>
+                               <span className="px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-700 font-bold text-[10px] uppercase tracking-wider">{imp.estado}</span>
+                            </div>
+                            <div className="grid grid-cols-2 gap-x-6 gap-y-2 mt-4">
+                                <div>
+                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1"><Building2 className="w-3 h-3"/> Importador</p>
+                                    <p className="text-sm font-bold text-slate-700 dark:text-slate-300">{imp.empresa_importadora || '-'}</p>
+                                    {imp.contacto_importadora && <p className="text-xs font-bold text-indigo-500 mt-1">{imp.contacto_importadora}</p>}
+                                </div>
+                                <div>
+                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1"><Truck className="w-3 h-3"/> Trans. Local</p>
+                                    <p className="text-sm font-bold text-slate-700 dark:text-slate-300">{imp.empresa_transporte_local || '-'}</p>
+                                    {imp.contacto_transporte_local && <p className="text-xs font-bold text-emerald-500 mt-1">{imp.contacto_transporte_local}</p>}
+                                </div>
+                            </div>
                         </div>
                     </div>
-                    <div className="text-right">
-                        <p className="font-black text-emerald-600 dark:text-emerald-400">{formatCurrency(c.total_compra, 'USD')}</p>
-                        {c.gastos_extras > 0 && <p className="text-xs font-bold text-rose-500">+ {formatCurrency(c.gastos_extras, 'USD')} Extra</p>}
+
+                    <div className="bg-slate-50 dark:bg-slate-900 border-l border-slate-100 dark:border-slate-800 p-6 flex flex-col justify-center items-center sm:items-end min-w-[150px] cursor-pointer" onClick={() => setSelectedImp(imp)}>
+                         <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Compras Contenidas</p>
+                         <p className="text-3xl font-black text-indigo-600 font-mono tracking-tighter">{imp.cantidad_compras}</p>
                     </div>
-                </button>
+                </div>
             ))}
-            {compras.length === 0 && (
-                <div className="text-center py-10 font-bold text-slate-400">No hay órdenes de compra registradas.</div>
+            {importaciones.length === 0 && (
+                <div className="text-center py-12 bg-white dark:bg-[#0a101f] border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-3xl">
+                    <Globe2 className="w-12 h-12 text-slate-300 dark:text-slate-700 mx-auto mb-4"/>
+                    <h3 className="font-black text-slate-800 dark:text-slate-200">No hay importaciones registradas</h3>
+                    <p className="text-slate-500 font-bold mt-2">Crea una para comenzar a vincular compras.</p>
+                </div>
             )}
           </div>
-
-          <AnimatePresence mode="wait">
-            {selectedCompra && (
-                <motion.div initial={{ opacity:0, x:20 }} animate={{ opacity:1, x:0 }} exit={{ opacity:0 }} className="lg:col-span-1">
-                    <div className="card-nexus p-6 sticky top-6">
-                        <h3 className="font-black text-slate-800 dark:text-slate-100 mb-6 flex items-center gap-2">
-                            <Calculator className="w-5 h-5 text-indigo-500" />
-                            Aplicar Gastos a Orden
-                        </h3>
-                        
-                        <div className="space-y-4">
-                           <div>
-                               <label className="text-xs font-black text-slate-400 uppercase tracking-widest pl-1">Monto Gastos Extras (USD)</label>
-                               <div className="relative mt-2">
-                                  <Coins className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
-                                  <input 
-                                     type="number"
-                                     value={gastos}
-                                     onChange={e => setGastos(e.target.value)}
-                                     placeholder="Ej: 500"
-                                     className="w-full bg-slate-100 dark:bg-slate-900 border-none rounded-xl pl-12 pr-4 py-3 font-bold text-slate-800 dark:text-white outline-none focus:ring-2 ring-indigo-500 transition-all"
-                                  />
-                               </div>
-                           </div>
-                           
-                           <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-900/50 border border-slate-100 dark:border-slate-800">
-                               <p className="text-sm font-bold text-slate-500">Unidades totales: <span className="text-slate-800 dark:text-slate-200">{selectedCompra.total_unidades}</span></p>
-                               {parseFloat(gastos) > 0 && selectedCompra.total_unidades > 0 && (
-                                   <p className="text-sm font-bold text-indigo-600 mt-2">
-                                       +{formatCurrency(parseFloat(gastos) / selectedCompra.total_unidades, 'USD')} por unidad
-                                   </p>
-                               )}
-                           </div>
-
-                           <button 
-                             onClick={handleAsignarGastos}
-                             disabled={calculating}
-                             className="w-full mt-4 flex items-center justify-center gap-2 bg-indigo-500 hover:bg-indigo-600 text-white p-3 rounded-xl font-bold transition-all disabled:opacity-50"
-                           >
-                               {calculating ? 'Calculando...' : 'Guardar y Distribuir Costos'}
-                           </button>
-                        </div>
-                    </div>
-                </motion.div>
-            )}
-          </AnimatePresence>
       </div>
+
+      <ImportacionesCreationModal 
+          isOpen={isCreateOpen}
+          onClose={() => setIsCreateOpen(false)}
+          onSuccess={fetchImportaciones}
+      />
+
+      <ImportacionDetalleModal 
+          isOpen={selectedImp !== null}
+          importacion={selectedImp}
+          onClose={() => setSelectedImp(null)}
+          onUpdate={() => {
+              fetchImportaciones();
+              setSelectedImp(null);
+          }}
+      />
     </div>
   );
 }

@@ -1,8 +1,9 @@
 import { ReactNode } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Plus } from 'lucide-react';
+import { cn } from '../../lib/utils';
 
-export function Modal({ isOpen, onClose, title, children }: { isOpen: boolean, onClose: () => void, title: string, children: ReactNode }) {
+export function Modal({ isOpen, onClose, title, children, maxWidth = "max-w-lg" }: { isOpen: boolean, onClose: () => void, title: string, children: ReactNode, maxWidth?: string }) {
   return (
     <AnimatePresence>
       {isOpen && (
@@ -19,7 +20,7 @@ export function Modal({ isOpen, onClose, title, children }: { isOpen: boolean, o
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.9, y: 20 }}
             transition={{ type: "spring", damping: 25, stiffness: 300 }}
-            className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden relative z-10 border border-slate-100 dark:border-slate-800"
+            className={cn("bg-white dark:bg-slate-900 rounded-3xl shadow-2xl w-full max-h-[90vh] flex flex-col overflow-hidden relative z-10 border border-slate-100 dark:border-slate-800", maxWidth)}
           >
             <div className="px-8 py-6 border-b border-slate-50 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-800/50">
               <h3 className="text-xl font-bold text-blue-950 dark:text-blue-50 tracking-tight">{title}</h3>
@@ -30,7 +31,7 @@ export function Modal({ isOpen, onClose, title, children }: { isOpen: boolean, o
                 <Plus className="w-5 h-5 rotate-45 text-slate-400" />
               </button>
             </div>
-            <div className="p-8">
+            <div className="p-8 overflow-y-auto flex-1">
               {children}
             </div>
           </motion.div>

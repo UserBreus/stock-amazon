@@ -43,7 +43,7 @@ export function Sidebar({ isMobileMenuOpen, setIsMobileMenuOpen }: SidebarProps)
     { id: 'sidebar_dashboard', name: 'Panel de Control', path: '/', icon: LayoutDashboard, roles: ['gerente_stock', 'admin', 'operario', 'operario_stock', 'administrativo_stock', 'atencion'] },
     { id: 'sidebar_inventario', name: 'Inventario Global', path: '/inventario-gerencial', icon: BarChart3, roles: ['gerente_stock', 'admin', 'operario_stock', 'administrativo_stock', 'atencion'] },
     { id: 'sidebar_sectores', name: 'Mi Sector', path: '/inventario-operativo', icon: Package, roles: ['gerente_stock', 'admin', 'operario', 'operario_stock', 'atencion'] },
-    { id: 'sidebar_compras', name: 'Registro de Compras', path: '/ingresos', icon: Truck, roles: ['gerente_stock', 'admin', 'administrativo_stock'] },
+    { id: 'sidebar_compras', name: 'Compras', path: '/ingresos', icon: Truck, roles: ['gerente_stock', 'admin', 'administrativo_stock'] },
     { id: 'sidebar_sistema', name: 'Gestión de Sistema', path: '/configuracion-maestros', icon: Settings, roles: ['gerente_stock', 'admin', 'administrativo_stock'] },
   ];
 

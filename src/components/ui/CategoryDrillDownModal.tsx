@@ -95,12 +95,32 @@ export function CategoryDrillDownModal({
                label: p.producto_nombre,
                sublabel: '0 variantes',
                icon: Box,
-               count: 0
+               count: 0,
+               exactVariantId: p.id,
+               exactVariantName: p.nombre_variante
             });
+         } else {
+            const m = maestrosMap.get(p.producto_maestro_id);
+            m.exactVariantId = p.id;
+            m.exactVariantName = p.nombre_variante;
          }
          maestrosMap.get(p.producto_maestro_id).count++;
       });
-      return Array.from(maestrosMap.values()).map(m => ({...m, sublabel: `${m.count} variantes`}));
+      return Array.from(maestrosMap.values()).map(m => {
+          if (m.count === 1) {
+              return {
+                 type: 'product' as const,
+                 id: m.exactVariantId.toString(),
+                 label: m.label,
+                 sublabel: m.exactVariantName ? String(m.exactVariantName) : '',
+                 icon: Box
+              };
+          }
+          return {
+             ...m, 
+             sublabel: `${m.count} variantes`
+          };
+      });
     }
 
     // Lógica para agrupamiento de variantes (Nivel 2.5)
@@ -108,7 +128,7 @@ export function CategoryDrillDownModal({
     
     const groupsMap = new Map();
     variantsOfMaestro.forEach(p => {
-       const varName = p.nombre_variante || 'Normal';
+       const varName = p.nombre_variante || p.producto_nombre || '';
        const groupName = varName.split(' - ')[0].trim();
        if (!groupsMap.has(groupName)) {
            groupsMap.set(groupName, {
@@ -135,13 +155,13 @@ export function CategoryDrillDownModal({
     return variantsOfMaestro
       .filter(p => {
           if (!shouldGroup) return true; // Show all if no grouping needed
-          const varName = p.nombre_variante || 'Normal';
+          const varName = p.nombre_variante || p.producto_nombre || '';
           return varName.split(' - ')[0].trim() === selectedVariantGroup;
       })
       .map(p => ({
         type: 'product' as const,
         id: p.id.toString(),
-        label: p.nombre_variante || 'Normal',
+        label: p.nombre_variante ? p.nombre_variante : (p.producto_nombre || ''),
         sublabel: `Variante de ${p.producto_nombre}`,
         icon: Network
       }));

@@ -11,7 +11,7 @@ import { ModalSelector } from '../components/ui/ModalSelector';
 import { CategoryDrillDownModal } from '../components/ui/CategoryDrillDownModal';
 
 export function ConfiguracionMaestros() {
-  const [activeTab, setActiveTab] = useState<'hub' | 'categorias' | 'titulos_base' | 'diccionario' | 'modelos' | 'proveedores' | 'rendimientos' | 'iconos' | 'almacenes'>('hub');
+  const [activeTab, setActiveTab] = useState<'hub'|'categorias'|'titulos_base'|'diccionario'|'modelos'|'proveedores'|'rendimientos'|'iconos'|'almacenes'|'monedas'>('hub');
   const { isEditMode, setEditingComponentId, uiConfigs, updateConfigLocal } = useUIConfig();
   
   // Categorias
@@ -19,6 +19,12 @@ export function ConfiguracionMaestros() {
   const [catDesc, setCatDesc] = useState('');
   const [categorias, setCategorias] = useState<any[]>([]);
 
+  // Monedas
+  const [monedas, setMonedas] = useState<any[]>([]);
+  const [monNombre, setMonNombre] = useState('');
+  const [monCodigo, setMonCodigo] = useState('');
+  const [monSimbolo, setMonSimbolo] = useState('');
+  
   // Proveedores
   const [provName, setProvName] = useState('');
   const [provDoc, setProvDoc] = useState('');
@@ -101,6 +107,11 @@ export function ConfiguracionMaestros() {
   useEffect(() => {
      if(activeTab === 'rendimientos') {
          fetchRendimientos();
+     }
+     if(activeTab === 'monedas') {
+         executeAWSQuery("SELECT * FROM Stock_Monedas ORDER BY id ASC")
+            .then((m) => { if (m) setMonedas(m); })
+            .catch(console.error);
      }
      if(activeTab === 'almacenes') {
          executeAWSQuery("SELECT * FROM Stock_Depositos ORDER BY id ASC")
