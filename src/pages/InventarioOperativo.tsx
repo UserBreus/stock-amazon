@@ -23,6 +23,7 @@ export function InventarioOperativo() {
   const [selectedActiveRemitoId, setSelectedActiveRemitoId] = useState<string|null>(null);
   const [selectedRemitoEstado, setSelectedRemitoEstado] = useState<string|null>(null);
   const [isReceiving, setIsReceiving] = useState(false);
+  const [isViewingFullscreenPDF, setIsViewingFullscreenPDF] = useState(false);
   
   const [loading, setLoading] = useState(true);
     const [activeTab, setActiveTab] = useState<'stock' | 'recepcion' | 'historial' | 'solicitar'>('stock');
@@ -661,7 +662,7 @@ export function InventarioOperativo() {
       </AnimatePresence>
 
       
-      {remitoDetalleItems && (
+      {remitoDetalleItems && !isViewingFullscreenPDF && (
           <Modal isOpen={true} onClose={() => { setRemitoDetalleItems(null); setSelectedActiveRemitoId(null); setSelectedRemitoEstado(null); }} title={selectedRemitoEstado === 'EN_TRANSITO' ? "Controlar Recepción" : "Detalle de Remito"}>
               <div className="space-y-4">
                  {selectedRemitoEstado === 'EN_TRANSITO' && (
@@ -706,8 +707,8 @@ export function InventarioOperativo() {
                  
                  <div className="flex gap-3 pt-4 mt-6 border-t border-slate-200 dark:border-slate-800 flex-wrap">
                      {activeRem && (
-                        <button onClick={() => { setTimeout(() => window.print(), 100); }} className="flex-none bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-black py-4 px-6 rounded-xl flex items-center justify-center gap-2">
-                            <Printer className="w-5 h-5"/> IMPRIMIR
+                        <button onClick={() => { setRemitoDetalleItems(null); setIsViewingFullscreenPDF(true); }} className="flex-none bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-black py-4 px-6 rounded-xl flex items-center justify-center gap-2">
+                            <ClipboardList className="w-5 h-5"/> VER HOJA REMITO
                         </button>
                      )}
                      <button onClick={() => { setRemitoDetalleItems(null); setSelectedActiveRemitoId(null); setSelectedRemitoEstado(null); }} className="flex-1 min-w-[120px] bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-white font-black py-4 rounded-xl">Cerrar</button>
@@ -731,71 +732,60 @@ export function InventarioOperativo() {
       />
     </div>
 
-    {/* GLOBAL PRINT PORTAL - COPIA AISLADA PARA RECEPCION */}
-    {activeRem && remitoDetalleItems && (
-        <div className="hidden print:block w-full bg-white text-black font-sans p-8">
-            <div className="flex justify-between items-start border-2 border-black rounded-xl p-4 relative mb-6">
-                <div className="w-1/2 pr-6 border-r-2 border-black">
-                    <h1 className="text-3xl font-black mb-1 leading-tight">DOCUMENTO NO VÁLIDO COMO FACTURA</h1>
-                    <p className="font-bold text-lg leading-tight uppercase">SISTEMA INTERNO WMS</p>
-                    <p className="text-sm mt-4 tracking-widest font-mono text-slate-600">COMPROBANTE DE MOVIMIENTO FÍSICO</p>
-                </div>
-                <div className="w-1/2 pl-6 text-right">
-                    <h2 className="text-3xl font-black uppercase mb-4 tracking-tight">REMITO</h2>
-                    <div className="inline-block text-left">
-                        <p className="text-sm mb-1"><strong>N° Documento:</strong> <span className="font-mono text-base">{activeRem.rem_code || activeRem.numeracion || 'N/A'}</span></p>
-                        <p className="text-sm mb-1"><strong>Fecha Envío:</strong> <span className="font-mono text-base">{new Date(activeRem.fecha_creacion).toLocaleString()}</span></p>
-                        <p className="text-sm"><strong>Estado Actual:</strong> <span className="font-mono text-base">{activeRem.estado}</span></p>
+    {isViewingFullscreenPDF && activeRem && (
+        <div className="fixed inset-0 z-[100] bg-slate-400 overflow-y-auto p-4 sm:p-10 flex justify-center">
+            <button onClick={() => { setIsViewingFullscreenPDF(false); }} className="fixed top-6 right-6 bg-slate-900 text-white p-4 rounded-full shadow-2xl hover:bg-slate-800 transition-transform hover:scale-110 z-[110]">
+               <span className="font-black">X CERRAR</span>
+            </button>
+            <div className="w-full max-w-[900px] bg-white text-black font-sans p-10 min-h-screen shadow-2xl relative border border-slate-300">
+                <div className="flex justify-between items-start border-2 border-black p-4 relative mb-6">
+                    <div className="w-1/2 pr-6 border-r-2 border-black">
+                        <h1 className="text-3xl font-black mb-1 leading-tight">DOCUMENTO COMPROBANTE</h1>
+                        <p className="font-bold text-lg leading-tight uppercase">SISTEMA INTERNO WMS</p>
+                        <p className="text-sm mt-4 tracking-widest font-mono text-slate-600">COMPROBANTE DE MOVIMIENTO FÍSICO</p>
+                    </div>
+                    <div className="w-1/2 pl-6 text-right">
+                        <h2 className="text-3xl font-black uppercase mb-4 tracking-tight">REMITO</h2>
+                        <div className="inline-block text-left">
+                            <p className="text-sm mb-1"><strong>N° Documento:</strong> <span className="font-mono text-base">{activeRem.rem_code || activeRem.numeracion || 'N/A'}</span></p>
+                            <p className="text-sm mb-1"><strong>Fecha Envío:</strong> <span className="font-mono text-base">{new Date(activeRem.fecha_creacion).toLocaleString()}</span></p>
+                            <p className="text-sm"><strong>Estado Actual:</strong> <span className="font-mono text-base">{activeRem.estado}</span></p>
+                        </div>
                     </div>
                 </div>
-            </div>
 
-            <div className="grid grid-cols-2 gap-4 mb-6">
-                <div className="border-2 border-black p-4 rounded-xl bg-slate-50">
-                    <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1">Sale desde (Origen Logístico)</p>
-                    <p className="font-black text-xl text-slate-900">{depositos.find(d=>d.id===activeRem.deposito_origen_id)?.nombre || 'Bodega Principal'}</p>
+                <div className="grid grid-cols-2 gap-4 mb-6">
+                    <div className="border-2 border-black p-4 bg-slate-50">
+                        <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1">Sale desde (Origen Logístico)</p>
+                        <p className="font-black text-xl text-slate-900">{depositos.find(d=>d.id===activeRem.deposito_origen_id)?.nombre || 'Bodega Principal'}</p>
+                    </div>
+                    <div className="border-2 border-black p-4 bg-slate-50">
+                        <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1">Llega a (Destino Físico)</p>
+                        <p className="font-black text-xl text-slate-900">{depositos.find(d=>d.id===activeRem.deposito_destino_id)?.nombre || 'Ubicación'}</p>
+                    </div>
                 </div>
-                <div className="border-2 border-black p-4 rounded-xl bg-slate-50">
-                    <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1">Llega a (Destino Físico)</p>
-                    <p className="font-black text-xl text-slate-900">{depositos.find(d=>d.id===activeRem.deposito_destino_id)?.nombre || 'Ubicación'}</p>
-                </div>
-            </div>
 
-            <table className="w-full mb-10 border-2 border-black">
-               <thead>
-                  <tr className="bg-slate-200 border-b-2 border-black">
-                      <th className="text-center py-3 border-r-2 border-black w-24 text-sm font-black">C. ENV</th>
-                      <th className="text-center py-3 border-r-2 border-black w-24 text-sm font-black">C. REC</th>
-                      <th className="text-left py-3 px-4 border-r-2 border-black text-sm font-black">DESCRIPCIÓN DEL ARTÍCULO</th>
-                      <th className="text-center py-3 text-sm font-black w-32">VARIACIÓN</th>
-                  </tr>
-               </thead>
-               <tbody>
-                  {remitoDetalleItems.map((c:any, idx:number)=>(
-                     <tr key={idx} className="border-b border-black">
-                        <td className="text-center py-4 border-r-2 border-black font-black text-xl">{c.cantidad_enviada}</td>
-                        <td className="text-center py-4 border-r-2 border-black font-black text-xl text-slate-500">{c.cantidad_recibida || '-'}</td>
-                        <td className="text-left py-4 px-4 border-r-2 border-black font-bold uppercase text-slate-800">{c.producto_nombre}</td>
-                        <td className="text-center py-4 font-bold text-xs uppercase bg-slate-50">{c.nombre_variante}</td>
-                     </tr>
-                  ))}
-               </tbody>
-            </table>
-
-            <div className="grid grid-cols-2 gap-24 mt-32 px-10">
-                <div className="border-t-2 border-black text-center pt-2">
-                    <p className="font-black uppercase tracking-widest text-sm">Firma de Emisor</p>
-                    <p className="text-xs text-slate-500 font-medium tracking-wide mt-1">Aclaración y Fecha</p>
-                </div>
-                <div className="border-t-2 border-black text-center pt-2">
-                    <p className="font-black uppercase tracking-widest text-sm">Firma de Recepción (Destino)</p>
-                    <p className="text-xs text-slate-500 font-medium tracking-wide mt-1">Aclaración y DNI</p>
-                </div>
-            </div>
-            
-            <div className="mt-12 text-center border-t border-slate-300 pt-4">
-                 <p className="text-[9px] uppercase font-mono text-slate-400 font-bold tracking-widest">Documento Impreso en WMS Inventario (Módulo de Control y Recepción)</p>
-            </div>
+                <table className="w-full mb-10 border-2 border-black table-fixed">
+                   <thead>
+                      <tr className="bg-slate-200 border-b-2 border-black">
+                          <th className="text-center py-3 border-r-2 border-black w-24 text-xs font-black">C. ENV</th>
+                          <th className="text-center py-3 border-r-2 border-black w-24 text-xs font-black">C. REC</th>
+                          <th className="text-left py-3 px-4 border-r-2 border-black text-xs font-black">DESCRIPCIÓN DEL ARTÍCULO</th>
+                          <th className="text-center py-3 text-xs font-black w-40">VARIACIÓN</th>
+                      </tr>
+                   </thead>
+                   <tbody>
+                      {remitoDetalleItems.map((c:any, idx:number)=>(
+                         <tr key={idx} className="border-b border-black">
+                            <td className="text-center py-4 border-r-2 border-black font-black text-xl">{c.cantidad_enviada}</td>
+                            <td className="text-center py-4 border-r-2 border-black font-black text-xl text-slate-500">{c.cantidad_recibida || '-'}</td>
+                            <td className="text-left py-4 px-4 border-r-2 border-black font-bold uppercase text-slate-800">{c.producto_nombre}</td>
+                            <td className="text-center py-4 font-bold text-xs uppercase bg-slate-50">{c.nombre_variante}</td>
+                         </tr>
+                      ))}
+                   </tbody>
+                </table>
+           </div>
         </div>
     )}
     </>

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowUpRight, ArrowRightLeft, Scan, Box, Search, Trash2, Printer, CheckCircle, Zap, AlertCircle, Clock, Send, ArchiveX } from 'lucide-react';
+import { ArrowUpRight, ArrowRightLeft, Scan, Box, Search, Trash2, Printer, CheckCircle, Zap, AlertCircle, Clock, Send, ArchiveX, ClipboardList } from 'lucide-react';
 import { executeAWSQuery } from '../lib/aws-client';
 import { useAuth } from '../context/AuthContext';
 import { BarcodeScanner } from './ui/BarcodeScanner';
@@ -34,6 +34,7 @@ export function DespachoEgresos({ initialOperationType = 'traslado', initialMode
   
   const [isExecuting, setIsExecuting] = useState(false);
   const [remitoPDFInfo, setRemitoPDFInfo] = useState<any>(null);
+  const [isViewingFullscreenPDF, setIsViewingFullscreenPDF] = useState(false);
 
   // Historial state
   const [historial, setHistorial] = useState<any[]>([]);
@@ -539,25 +540,29 @@ export function DespachoEgresos({ initialOperationType = 'traslado', initialMode
       )}
 
       {/* MODAL REMITO LOTES */}
-      <Modal isOpen={remitoPDFInfo !== null} onClose={()=>setRemitoPDFInfo(null)} title="Impresión de Remito Interno">
+      <Modal isOpen={remitoPDFInfo !== null && !isViewingFullscreenPDF} onClose={()=>setRemitoPDFInfo(null)} title="Remito Generado">
           {remitoPDFInfo && (
               <div className="text-center p-4">
                   <CheckCircle className="w-16 h-16 text-emerald-500 mx-auto mb-4" />
                   <h3 className="text-2xl font-black mb-2">¡Despacho Registrado!</h3>
-                  <button onClick={() => { setTimeout(() => window.print(), 100); }} className="w-full bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-black py-4 rounded-xl flex items-center justify-center gap-2 mt-6">
-                      <Printer className="w-5 h-5"/> IMPRIMIR REMITO OFICIAL
+                  <button onClick={() => { setIsViewingFullscreenPDF(true); }} className="w-full bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-black py-4 rounded-xl flex items-center justify-center gap-2 mt-6">
+                      <ClipboardList className="w-5 h-5"/> VER HOJA REMITO
                   </button>
               </div>
           )}
       </Modal>
 
       {/* GLOBAL PRINT PORTAL */}
-      {remitoPDFInfo && (
-          <div className="hidden print:block text-left p-10 absolute top-0 left-0 w-full min-h-screen bg-white z-[99999] text-black font-sans">
-              <div className="flex justify-between items-start border-2 border-black rounded-xl p-4 relative mb-6">
-                  <div className="absolute top-0 left-1/2 -translate-x-1/2 bg-white border-2 border-black border-t-0 p-2 font-black text-3xl">X</div>
-                  
-                  <div className="w-1/2 pr-6 border-r-2 border-black">
+      {isViewingFullscreenPDF && remitoPDFInfo && (
+          <div className="fixed inset-0 z-[100] bg-slate-400 overflow-y-auto p-4 sm:p-10 flex justify-center">
+              <button onClick={() => { setIsViewingFullscreenPDF(false); setRemitoPDFInfo(null); }} className="fixed top-6 right-6 bg-slate-900 text-white p-4 rounded-full shadow-2xl hover:bg-slate-800 transition-transform hover:scale-110 z-[110]">
+                 <span className="font-black">X CERRAR</span>
+              </button>
+              <div className="w-full max-w-[900px] bg-white text-black font-sans p-10 min-h-screen shadow-2xl relative border border-slate-300">
+                  <div className="flex justify-between items-start border-2 border-black rounded-xl p-4 relative mb-6">
+                      <div className="absolute top-0 left-1/2 -translate-x-1/2 bg-white border-2 border-black border-t-0 p-2 font-black text-3xl">X</div>
+                      
+                      <div className="w-1/2 pr-6 border-r-2 border-black">
                       <h1 className="text-3xl font-black mb-1 leading-tight">DOCUMENTO NO VÁLIDO COMO FACTURA</h1>
                       <p className="font-bold text-lg leading-tight uppercase">SISTEMA INTERNO WMS</p>
                       <p className="text-sm mt-4 tracking-widest font-mono text-slate-600">COMPROBANTE DE TRASLADO FÍSICO</p>
@@ -619,6 +624,7 @@ export function DespachoEgresos({ initialOperationType = 'traslado', initialMode
                    <p className="text-[9px] uppercase font-mono text-slate-400 font-bold tracking-widest">Documento Remito X generado mediante Módulo Despachos WMS</p>
               </div>
           </div>
+        </div>
       )}
     </div>
         <AnimatePresence>
