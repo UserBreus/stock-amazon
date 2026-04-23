@@ -53,7 +53,8 @@ export function CategoryDrillDownModal({
         id: p.id.toString(),
         label: p.nombre,
         sublabel: p.cat_nombre,
-        icon: Network
+        icon: Network,
+        stock: p.stock_total
       }));
     }
 
@@ -82,7 +83,8 @@ export function CategoryDrillDownModal({
                id: p.id.toString(),
                label: p.nombre,
                sublabel: p.sku || 'Matriz',
-               icon: Box
+               icon: Box,
+               stock: p.stock_total
           }));
       }
 
@@ -97,12 +99,14 @@ export function CategoryDrillDownModal({
                icon: Box,
                count: 0,
                exactVariantId: p.id,
-               exactVariantName: p.nombre_variante
+               exactVariantName: p.nombre_variante,
+               exactVariantStock: p.stock_total
             });
          } else {
             const m = maestrosMap.get(p.producto_maestro_id);
             m.exactVariantId = p.id;
             m.exactVariantName = p.nombre_variante;
+            m.exactVariantStock = p.stock_total;
          }
          maestrosMap.get(p.producto_maestro_id).count++;
       });
@@ -113,7 +117,8 @@ export function CategoryDrillDownModal({
                  id: m.exactVariantId.toString(),
                  label: m.label,
                  sublabel: m.exactVariantName ? String(m.exactVariantName) : '',
-                 icon: Box
+                 icon: Box,
+                 stock: m.exactVariantStock
               };
           }
           return {
@@ -163,7 +168,8 @@ export function CategoryDrillDownModal({
         id: p.id.toString(),
         label: p.nombre_variante ? p.nombre_variante : (p.producto_nombre || ''),
         sublabel: `Variante de ${p.producto_nombre}`,
-        icon: Network
+        icon: Network,
+        stock: p.stock_total
       }));
 
   }, [categorias, productos, query, selectedCategoryId, selectedMaestroId, selectedVariantGroup, isGlobalSearch]);
@@ -318,12 +324,12 @@ export function CategoryDrillDownModal({
                           item.type === 'product' && selectedValue === item.id ? "text-blue-900 dark:text-blue-400" : "text-slate-800 dark:text-slate-200"
                         )} style={{ wordBreak: 'break-word' }}>{item.label}</p>
                         {item.sublabel && (
-                          <p className={cn(
-                             "text-[10px] font-semibold mt-1 leading-tight break-words",
-                             typeof item.sublabel === 'string' && item.sublabel.includes('Disp: 0') ? "text-rose-500 dark:text-rose-400 font-black tracking-widest" :
-                             typeof item.sublabel === 'string' && item.sublabel.includes('Disp:') ? "text-emerald-600 dark:text-emerald-500 font-bold tracking-widest" : 
-                             "text-slate-500"
-                          )}>{item.sublabel}</p>
+                          <p className="text-[10px] text-slate-500 font-medium mt-1 leading-tight break-words">{item.sublabel}</p>
+                        )}
+                        {(item as any).stock !== undefined && (
+                          <div className={cn("mt-2 mx-auto sm:max-w-[120px] rounded border px-2 py-1 flex items-center justify-center font-bold tracking-widest uppercase text-[10px]", (item as any).stock > 0 ? "bg-emerald-50 text-emerald-600 border-emerald-200 dark:bg-emerald-900/30 dark:border-emerald-800" : "bg-rose-50 text-rose-600 border-rose-200 dark:bg-rose-900/30 dark:border-rose-800")}>
+                              Disp: {(item as any).stock}
+                          </div>
                         )}
                       </div>
                       
