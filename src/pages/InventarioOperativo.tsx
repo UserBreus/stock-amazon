@@ -574,8 +574,53 @@ export function InventarioOperativo() {
                            
                            <div className="flex flex-col sm:flex-row gap-3">
                                 
-                                <button onClick={() => handleVerDetalles(rem.id, 'EN_TRANSITO')} className="btn-primary flex items-center gap-2 h-11 bg-emerald-600 hover:bg-emerald-700 shadow-emerald-600/20">
+                                <button onClick={(e) => { e.stopPropagation(); handleVerDetalles(rem.id, 'EN_TRANSITO'); }} className="btn-primary flex items-center gap-2 h-11 bg-emerald-600 hover:bg-emerald-700 shadow-emerald-600/20">
                                      <PackageCheck className="w-4 h-4" /> Controlar y Recibir
+                                </button>
+                           </div>
+                       </div>
+                   ))}
+               </div>
+           </div>
+        </motion.div>
+      )}
+
+      {activeTab === 'historial' && (
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl overflow-hidden shadow-sm">
+               <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-900/50">
+                    <h3 className="font-black text-slate-800 dark:text-white text-lg flex items-center gap-2">
+                        <ClipboardList className="w-5 h-5 text-indigo-500" />
+                        Historial de Recepciones
+                    </h3>
+               </div>
+               
+               <div className="divide-y divide-slate-100 dark:divide-slate-800/80">
+                   {remitosHistoricos.length === 0 && (
+                       <div className="py-20 text-center">
+                           <ClipboardList className="w-16 h-16 text-slate-300 dark:text-slate-700 mx-auto mb-4" />
+                           <p className="font-bold text-slate-500 text-lg">No hay historial de recepciones reportado.</p>
+                       </div>
+                   )}
+                   {remitosHistoricos.map(rem => (
+                       <div key={rem.id} onClick={() => handleVerDetalles(rem.id, 'RECIBIDO')} className="p-6 flex flex-col md:flex-row md:items-center justify-between gap-6 hover:bg-slate-50/50 dark:hover:bg-slate-950/50 transition-colors cursor-pointer">
+                           <div className="flex items-center gap-5">
+                               <div className="w-14 h-14 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 rounded-2xl flex items-center justify-center shrink-0">
+                                   <PackageCheck className="w-6 h-6" />
+                               </div>
+                               <div>
+                                   <div className="flex items-center gap-2 mb-1">
+                                       <span className="bg-slate-800 text-white text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded shadow-sm">{rem.numeracion}</span>
+                                       <span className="text-xs font-bold text-slate-500 bg-slate-100 dark:bg-slate-800 px-2 rounded py-0.5">{new Date(rem.fecha_creacion).toLocaleDateString()}</span>
+                                   </div>
+                                   <h4 className="font-black text-slate-900 dark:text-white text-lg">Origen: {rem.origen_nombre}</h4>
+                                   <p className="text-sm font-bold text-slate-500">Contiene {rem.total_items} artículos registrados.</p>
+                               </div>
+                           </div>
+                           
+                           <div className="flex flex-col sm:flex-row gap-3">
+                                <button onClick={(e) => { e.stopPropagation(); handleVerDetalles(rem.id, 'RECIBIDO'); }} className="btn-secondary flex items-center gap-2 h-11">
+                                     <Search className="w-4 h-4" /> Ver Detalles
                                 </button>
                            </div>
                        </div>
