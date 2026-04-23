@@ -216,8 +216,8 @@ export function DespachoEgresos({ initialOperationType = 'traslado', initialMode
               const remitoCode = 'REM-' + Date.now().toString().slice(-6) + Math.floor(Math.random()*100).toString();
               const destClean = Number(destinoId);
               queries.push(`
-                  INSERT INTO wms_remitos_internos (codigo_remito, destino_id, usuario_id) 
-                  VALUES ('${remitoCode}', ${destClean}, '${(user as any)?.id || ''}');
+                  INSERT INTO wms_remitos_internos (numeracion, deposito_origen_id, deposito_destino_id, creado_por, estado) 
+                  VALUES ('${remitoCode}', ${origenId}, ${destClean}, '${(user as any)?.id || ''}', 'EN_TRANSITO');
                   DECLARE @RemId INT = SCOPE_IDENTITY();
               `);
               remitoId = '@RemId';
@@ -314,7 +314,7 @@ export function DespachoEgresos({ initialOperationType = 'traslado', initialMode
               }
           }
 
-          if (isTransfer) { queries.push(`SELECT codigo_remito as rem_code FROM wms_remitos_internos WHERE id = @RemId;`); }
+          if (isTransfer) { queries.push(`SELECT numeracion as rem_code FROM wms_remitos_internos WHERE id = @RemId;`); }
 
           const executeRes = await executeAWSQuery(`BEGIN TRY BEGIN TRANSACTION; ${queries.join('\n')} COMMIT TRANSACTION; END TRY BEGIN CATCH ROLLBACK TRANSACTION; THROW; END CATCH`);
 
