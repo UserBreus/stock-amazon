@@ -132,8 +132,9 @@ export function DespachoEgresos({ initialOperationType = 'traslado', initialMode
       try {
           const catRes = await executeAWSQuery("SELECT id, nombre FROM Stock_Categorias ORDER BY nombre");
           const prodRes = await executeAWSQuery(`
-              SELECT v.id, v.nombre_variante, 
-                     CAST(v.nombre_variante AS VARCHAR(100)) + ' (Disp: ' + CAST((SELECT SUM(cantidad_actual) FROM Stock_Etiquetas WHERE variante_id = v.id AND deposito_id = ${origenId} AND estado = 'activo') AS VARCHAR(50)) + ')' as nombre,
+              SELECT v.id, 
+                     CAST(v.nombre_variante AS VARCHAR(100)) + ' - Disp: ' + CAST((SELECT CAST(SUM(cantidad_actual) AS INT) FROM Stock_Etiquetas WHERE variante_id = v.id AND deposito_id = ${origenId} AND estado = 'activo') AS VARCHAR(50)) as nombre_variante,
+                     CAST(v.nombre_variante AS VARCHAR(100)) + ' - Disp: ' + CAST((SELECT CAST(SUM(cantidad_actual) AS INT) FROM Stock_Etiquetas WHERE variante_id = v.id AND deposito_id = ${origenId} AND estado = 'activo') AS VARCHAR(50)) as nombre,
                      pm.id as producto_maestro_id, pm.nombre as producto_nombre, pm.categoria_id 
               FROM Stock_Variantes v
               INNER JOIN Stock_Productos_Maestros pm ON v.producto_maestro_id = pm.id
