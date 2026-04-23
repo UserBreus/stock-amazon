@@ -133,13 +133,13 @@ export function DespachoEgresos({ initialOperationType = 'traslado', initialMode
           const catRes = await executeAWSQuery("SELECT id, nombre FROM Stock_Categorias ORDER BY nombre");
           const prodRes = await executeAWSQuery(`
               SELECT v.id, 
-                     CAST(v.nombre_variante AS VARCHAR(100)) + ' - Disp: ' + CAST((SELECT CAST(SUM(cantidad_actual) AS INT) FROM Stock_Etiquetas WHERE variante_id = v.id AND deposito_id = ${origenId} AND estado = 'activo') AS VARCHAR(50)) as nombre_variante,
-                     CAST(v.nombre_variante AS VARCHAR(100)) + ' - Disp: ' + CAST((SELECT CAST(SUM(cantidad_actual) AS INT) FROM Stock_Etiquetas WHERE variante_id = v.id AND deposito_id = ${origenId} AND estado = 'activo') AS VARCHAR(50)) as nombre,
+                     CAST(v.nombre_variante AS VARCHAR(100)) + ' - Disp: ' + COALESCE(CAST((SELECT CAST(SUM(cantidad_actual) AS INT) FROM Stock_Etiquetas WHERE variante_id = v.id AND deposito_id = ${origenId} AND estado = 'activo') AS VARCHAR(50)), '0') as nombre_variante,
+                     CAST(v.nombre_variante AS VARCHAR(100)) + ' - Disp: ' + COALESCE(CAST((SELECT CAST(SUM(cantidad_actual) AS INT) FROM Stock_Etiquetas WHERE variante_id = v.id AND deposito_id = ${origenId} AND estado = 'activo') AS VARCHAR(50)), '0') as nombre,
                      pm.id as producto_maestro_id, pm.nombre as producto_nombre, pm.categoria_id 
               FROM Stock_Variantes v
               INNER JOIN Stock_Productos_Maestros pm ON v.producto_maestro_id = pm.id
               WHERE EXISTS (
-                 SELECT 1 FROM Stock_Etiquetas e WHERE e.variante_id = v.id AND e.deposito_id = ${origenId} AND e.cantidad_actual > 0 AND e.estado = 'activo'
+                 SELECT 1 FROM Stock_Etiquetas e WHERE e.variante_id = v.id AND e.deposito_id = ${origenId} AND e.estado = 'activo'
               )
           `);
           setCatalogCategorias(catRes || []);
@@ -368,22 +368,31 @@ export function DespachoEgresos({ initialOperationType = 'traslado', initialMode
                           {cart.length === 0 ? ( <div className="h-full flex flex-col justify-center items-center opacity-40"><Box className="w-12 h-12 mb-2"/><p className="font-bold">Carrito Vacío</p></div> ) : (
                               <div className="space-y-3">
                                   {cart.map((item, idx) => (
-                                     <div key={idx} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-xl flex items-center shadow-sm">
-                                         <div className="flex-1 min-w-0">
-                                            <div className="flex items-center gap-2"><h4 className="font-black truncate">{item.producto_nombre}</h4><span className="bg-slate-100 dark:bg-slate-800 px-2 rounded text-[10px] font-bold">{item.nombre_variante}</span></div>
-                                            <p className="text-[10px] font-mono text-slate-400 mt-1 uppercase tracking-widest">{item.codigo_barras}</p>
+                                     <div key={idx} className={cn("border p-4 rounded-xl flex items-center shadow-sm flex-col gap-3 transition-colors", Number(item.cantidad_a_extraer) > item.cantidad_actual ? "bg-rose-50 dark:bg-rose-950/20 border-rose-300 dark:border-rose-900" : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800")}>
+                                         <div className="w-full flex items-center">
+                                             <div className="flex-1 min-w-0">
+                                                <div className="flex items-center gap-2"><h4 className="font-black truncate">{item.producto_nombre}</h4><span className="bg-slate-100 dark:bg-slate-800 px-2 rounded text-[10px] font-bold">{item.nombre_variante}</span></div>
+                                                <p className="text-[10px] font-mono text-slate-400 mt-1 uppercase tracking-widest">{item.codigo_barras}</p>
+                                             </div>
+                                             <div className={cn("flex-shrink-0 mx-4 lg:mx-8 text-center px-3 py-1 rounded-lg border", Number(item.cantidad_a_extraer) > item.cantidad_actual ? "bg-rose-200 border-rose-300 dark:bg-rose-900/30" : "bg-emerald-50 dark:bg-emerald-900/30 border-emerald-100 dark:border-emerald-800/50")}>
+                                                <p className={cn("text-[9px] uppercase font-black tracking-widest", Number(item.cantidad_a_extraer) > item.cantidad_actual ? "text-rose-600 dark:text-rose-400" : "text-emerald-600 dark:text-emerald-400")}>Disponible</p>
+                                                <p className={cn("text-lg font-black leading-none", Number(item.cantidad_a_extraer) > item.cantidad_actual ? "text-rose-700 dark:text-rose-300" : "text-emerald-700 dark:text-emerald-300")}>{item.cantidad_actual}</p>
+                                             </div>
+                                             <div className="flex items-center gap-2">
+                                                <input type="number" step="0.01" max={item.cantidad_actual} value={item.cantidad_a_extraer} onChange={e=>{
+                                                    const v = e.target.value === '' ? '' : Number(e.target.value);
+                                                    setCart(cart.map(c=>c.id===item.id?{...c,cantidad_a_extraer:v}:c));
+                                                }} className={cn("w-20 text-center font-black rounded-lg py-2 border focus:outline-none", Number(item.cantidad_a_extraer) > item.cantidad_actual ? "text-rose-600 bg-rose-50 border-rose-300 focus:ring-2 focus:ring-rose-500" : "text-emerald-600 bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 focus:ring-2 focus:ring-emerald-500")} />
+                                                <button onClick={() => setCart(cart.filter(c=>c.id!==item.id))} className="p-3 bg-red-50 text-red-500 rounded-lg hover:bg-red-500 hover:text-white"><Trash2 className="w-4 h-4"/></button>
+                                             </div>
                                          </div>
-                                         <div className="flex-shrink-0 mx-4 lg:mx-8 text-center bg-emerald-50 dark:bg-emerald-900/30 px-3 py-1 rounded-lg border border-emerald-100 dark:border-emerald-800/50">
-                                            <p className="text-[9px] uppercase font-black tracking-widest text-emerald-600 dark:text-emerald-400">Disponible</p>
-                                            <p className="text-lg font-black text-emerald-700 dark:text-emerald-300 leading-none">{item.cantidad_actual}</p>
-                                         </div>
-                                         <div className="flex items-center gap-2">
-                                            <input type="number" step="0.01" max={item.cantidad_actual} value={item.cantidad_a_extraer} onChange={e=>{
-                                                const v = e.target.value === '' ? '' : Number(e.target.value);
-                                                setCart(cart.map(c=>c.id===item.id?{...c,cantidad_a_extraer:v}:c));
-                                            }} className="w-20 text-center font-black text-rose-600 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg py-2" />
-                                            <button onClick={() => setCart(cart.filter(c=>c.id!==item.id))} className="p-3 bg-red-50 text-red-500 rounded-lg hover:bg-red-500 hover:text-white"><Trash2 className="w-4 h-4"/></button>
-                                         </div>
+                                         {Number(item.cantidad_a_extraer) > item.cantidad_actual && (
+                                             <div className="w-full text-right mt-1">
+                                                 <span className="bg-rose-100 text-rose-700 dark:bg-rose-900/50 dark:text-rose-200 text-xs font-bold px-3 py-1.5 rounded border border-rose-200 dark:border-rose-800">
+                                                     ⚠️ Operación no viable: No puedes retirar más unidades de la disponibilidad ({item.cantidad_actual} uds limitadas).
+                                                 </span>
+                                             </div>
+                                         )}
                                      </div>
                                   ))}
                               </div>
@@ -430,7 +439,7 @@ export function DespachoEgresos({ initialOperationType = 'traslado', initialMode
                             </div>
                          )}
 
-                         <button onClick={executeBatchOperation} disabled={isExecuting || cart.length === 0} className={cn("w-full text-white font-black py-4 rounded-xl shadow-lg disabled:opacity-50 transition-colors", operationType === 'traslado' ? "bg-indigo-600 hover:bg-indigo-700" : "bg-rose-600 hover:bg-rose-700")}>EJECUTAR ORDEN</button>
+                         <button onClick={executeBatchOperation} disabled={isExecuting || cart.length === 0 || cart.some(c => Number(c.cantidad_a_extraer) > c.cantidad_actual)} className={cn("w-full text-white font-black py-4 rounded-xl shadow-lg disabled:opacity-50 transition-colors", operationType === 'traslado' ? "bg-indigo-600 hover:bg-indigo-700" : "bg-rose-600 hover:bg-rose-700")}>EJECUTAR ORDEN</button>
                      </div>
                   </div>
               </motion.div>

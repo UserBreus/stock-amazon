@@ -318,7 +318,12 @@ export function CategoryDrillDownModal({
                           item.type === 'product' && selectedValue === item.id ? "text-blue-900 dark:text-blue-400" : "text-slate-800 dark:text-slate-200"
                         )} style={{ wordBreak: 'break-word' }}>{item.label}</p>
                         {item.sublabel && (
-                          <p className="text-[10px] text-slate-500 font-semibold mt-1 leading-tight break-words">{item.sublabel}</p>
+                          <p className={cn(
+                             "text-[10px] font-semibold mt-1 leading-tight break-words",
+                             typeof item.sublabel === 'string' && item.sublabel.includes('Disp: 0') ? "text-rose-500 dark:text-rose-400 font-black tracking-widest" :
+                             typeof item.sublabel === 'string' && item.sublabel.includes('Disp:') ? "text-emerald-600 dark:text-emerald-500 font-bold tracking-widest" : 
+                             "text-slate-500"
+                          )}>{item.sublabel}</p>
                         )}
                       </div>
                       
