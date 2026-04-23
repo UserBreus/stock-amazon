@@ -229,8 +229,16 @@ export function DespachoEgresos({ initialOperationType = 'traslado', initialMode
           const opNameOut = isTransfer ? 'traslado_salida' : 'egreso_final';
           const origenFijoSQL = origenId; 
           let queryVarCounter = 0;
+          const pdfItemsExtracted: any[] = [];
 
           const pushQueriesForLot = (loteId: number, loteCodigo: string, allocQty: number, initialLoteQty: number, info: any) => {
+              pdfItemsExtracted.push({
+                 id: loteId + '-' + Date.now() + Math.random(), 
+                 codigo_barras: loteCodigo,
+                 cantidad_a_extraer: allocQty,
+                 producto_nombre: info.producto_nombre,
+                 nombre_variante: info.nombre_variante
+              });
               if (allocQty === initialLoteQty) {
                   if (isTransfer) {
                       queries.push(`
@@ -318,10 +326,15 @@ export function DespachoEgresos({ initialOperationType = 'traslado', initialMode
 
           const executeRes = await executeAWSQuery(`BEGIN TRY BEGIN TRANSACTION; ${queries.join('\n')} COMMIT TRANSACTION; END TRY BEGIN CATCH ROLLBACK TRANSACTION; THROW; END CATCH`);
 
-          // Always set remito for Printing Receipt
-          const opCode = isTransfer ? (executeRes?.[0]?.rem_code || 'REM-0000') : ('BAJA-' + Date.now().toString().slice(-6));
-          const opDestino = isTransfer ? (depositos.find(d => d.id.toString() === destinoId)?.nombre || 'Ubicación') : 'Consumido / Retiro Final';
-          setRemitoPDFInfo({ cart: [...cart], destino: opDestino, codigo: opCode, fecha: new Date().toLocaleString(), nuevasEtiquetas: labelsToPrint });
+          setRemitoPDFInfo({ 
+             cart: pdfItemsExtracted, 
+             origen: depositos.find(d => d.id.toString() === origenId)?.nombre || 'Bodega Principal',
+             destino: isTransfer ? (depositos.find(d => d.id.toString() === destinoId)?.nombre || 'Ubicación') : 'EGRESO OPERATIVO / RETIRO', 
+             codigo: isTransfer && Array.isArray(executeRes) && executeRes.length>0 ? executeRes[0].rem_code : `EXT-${Date.now()}`, 
+             fecha: new Date().toLocaleString(), 
+             nuevasEtiquetas: labelsToPrint 
+          });
+          setShowPDF(true);
 
           setCart([]);
           toast.success("Operación ejecutada con éxito.");
