@@ -111,7 +111,7 @@ export function DespachoEgresos({ initialOperationType = 'traslado', initialMode
             } else if (cart.find(c => c.id === etq.id)) {
                toast.error("La etiqueta ya está en la bandeja");
             } else {
-               setCart([{...etq, isBulk: false, cantidad_a_extraer: etq.cantidad_actual}, ...cart]);
+               setCart([{...etq, isBulk: false, cantidad_a_extraer: ''}, ...cart]);
                toast.success("Lote cargado");
             }
          } else {
@@ -176,7 +176,7 @@ export function DespachoEgresos({ initialOperationType = 'traslado', initialMode
                     producto_nombre: bulkItem.producto_nombre,
                     nombre_variante: bulkItem.nombre_variante,
                     cantidad_actual: bulkItem.cantidad_total,
-                    cantidad_a_extraer: bulkItem.cantidad_total,
+                    cantidad_a_extraer: '',
                     deposito_id: origenId
                  }, ...cart]);
                  toast.success("Volumen de producto agregado al carrito");
@@ -200,7 +200,7 @@ export function DespachoEgresos({ initialOperationType = 'traslado', initialMode
       if(cart.length === 0) return toast.error("La bandeja está vacía.");
       if(!origenId) return toast.error("Seleccione un Origen Logístico.");
       if(operationType === 'traslado' && !destinoId) return toast.error("Para traslados, seleccione el destino.");
-      if(cart.some(c => c.cantidad_a_extraer <= 0 || c.cantidad_a_extraer > c.cantidad_actual)) return toast.error("Verifique las cantidades.");
+      if(cart.some(c => !c.cantidad_a_extraer || Number(c.cantidad_a_extraer) <= 0 || Number(c.cantidad_a_extraer) > c.cantidad_actual)) return toast.error("Verifique las cantidades cargadas para extraer.");
 
       setIsExecuting(true);
       try {
@@ -372,7 +372,7 @@ export function DespachoEgresos({ initialOperationType = 'traslado', initialMode
                                          </div>
                                          <div className="flex items-center gap-2">
                                             <input type="number" step="0.01" max={item.cantidad_actual} value={item.cantidad_a_extraer} onChange={e=>{
-                                                const v = Number(e.target.value);
+                                                const v = e.target.value === '' ? '' : Number(e.target.value);
                                                 setCart(cart.map(c=>c.id===item.id?{...c,cantidad_a_extraer:v}:c));
                                             }} className="w-20 text-center font-black text-rose-600 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg py-2" />
                                             <button onClick={() => setCart(cart.filter(c=>c.id!==item.id))} className="p-3 bg-red-50 text-red-500 rounded-lg hover:bg-red-500 hover:text-white"><Trash2 className="w-4 h-4"/></button>
