@@ -563,7 +563,7 @@ export function DespachoEgresos({ initialOperationType = 'traslado', initialMode
                  <span className="font-black text-xs uppercase tracking-widest">X Cerrar</span>
               </button>
             </div>
-            <div className="w-full max-w-[900px] bg-white text-slate-800 font-sans p-12 min-h-[1056px] shadow-2xl relative border border-slate-100 rounded-3xl my-10 flex flex-col print:shadow-none print:border-none print:m-0 print:p-0 print:w-full print:max-w-full print:rounded-none">
+            <div className="w-full max-w-[900px] bg-white text-slate-800 font-sans p-12 min-h-[1056px] shadow-2xl relative border border-slate-100 rounded-3xl my-10 flex flex-col print:block print:shadow-none print:border-none print:m-0 print:p-0 print:w-full print:max-w-full print:rounded-none">
                 <div className="flex justify-between items-start border-b border-slate-100 pb-8 mb-8 relative">
                     <div className="w-1/2 pr-6">
                         <h1 className="text-4xl font-black mb-2 tracking-tighter text-slate-900 leading-none">REMITO DE SALIDA</h1>
@@ -602,26 +602,26 @@ export function DespachoEgresos({ initialOperationType = 'traslado', initialMode
                     <table className="w-full text-left">
                        <thead>
                           <tr className="border-b border-slate-200">
-                              <th className="py-4 px-6 w-24 text-[10px] uppercase tracking-widest text-slate-400 font-bold text-center border-r border-slate-100">CANT.</th>
-                              <th className="py-4 px-6 w-32 text-[10px] uppercase tracking-widest text-slate-400 font-bold text-center border-r border-slate-100">LOTE / ID</th>
-                              <th className="py-4 px-6 text-[10px] uppercase tracking-widest text-slate-400 font-bold border-r border-slate-100">ARTÍCULO / DESCRIPCIÓN</th>
-                              <th className="py-4 px-6 text-[10px] uppercase tracking-widest text-slate-400 font-bold text-center w-32">VARIACIÓN</th>
+                              <th className="py-4 px-6 print:py-1 print:px-2 print:text-[9px] w-24 text-[10px] uppercase tracking-widest text-slate-400 font-bold text-center border-r border-slate-100">CANT.</th>
+                              <th className="py-4 px-6 print:py-1 print:px-2 print:text-[9px] w-32 text-[10px] uppercase tracking-widest text-slate-400 font-bold text-center border-r border-slate-100">LOTE / ID</th>
+                              <th className="py-4 px-6 print:py-1 print:px-2 print:text-[9px] text-[10px] uppercase tracking-widest text-slate-400 font-bold border-r border-slate-100">ARTÍCULO / DESCRIPCIÓN</th>
+                              <th className="py-4 px-6 print:py-1 print:px-2 print:text-[9px] text-[10px] uppercase tracking-widest text-slate-400 font-bold text-center w-32">VARIACIÓN</th>
                           </tr>
                        </thead>
                        <tbody className="divide-y divide-slate-100">
                           {remitoPDFInfo.cart.map((c:any, idx:number)=>(
                              <tr key={c.id + '-' + idx} className="bg-white hover:bg-slate-50 transition-colors">
-                                <td className="text-center py-4 px-6 border-r border-slate-100 font-black text-lg text-slate-700">{c.cantidad_a_extraer}</td>
-                                <td className="text-center py-4 px-6 border-r border-slate-100 font-mono font-bold text-xs tracking-tighter text-slate-500">{c.codigo_barras}</td>
-                                <td className="py-4 px-6 border-r border-slate-100 font-black tracking-tight text-slate-800">{c.producto_nombre}</td>
-                                <td className="text-center py-4 px-6 font-bold text-[10px] uppercase bg-slate-50/50 tracking-widest text-slate-500">{c.nombre_variante}</td>
+                                <td className="text-center py-4 px-6 print:py-1 print:text-[11px] border-r border-slate-100 font-black text-lg print:text-sm text-slate-700">{c.cantidad_a_extraer}</td>
+                                <td className="text-center py-4 px-6 print:py-1 print:text-[11px] border-r border-slate-100 font-mono font-bold text-xs tracking-tighter text-slate-500">{c.codigo_barras}</td>
+                                <td className="py-4 px-6 print:py-1 print:px-2 print:text-[11px] border-r border-slate-100 font-black tracking-tight text-slate-800">{c.producto_nombre}</td>
+                                <td className="text-center py-4 px-6 print:py-1 print:text-[11px] font-bold text-[10px] uppercase bg-slate-50/50 tracking-widest text-slate-500">{c.nombre_variante}</td>
                              </tr>
                           ))}
                        </tbody>
                     </table>
                 </div>
 
-                <div className="grid grid-cols-2 gap-24 mt-auto pt-20 px-10">
+                <div className="grid grid-cols-2 gap-24 mt-auto print:mt-10 pt-20 print:pt-6 px-10">
                     <div className="border-t border-dashed border-slate-300 text-center pt-4">
                         <p className="font-black uppercase tracking-widest text-xs text-slate-800">Firma de Entrega (Origen)</p>
                         <p className="text-[10px] text-slate-400 font-bold tracking-widest mt-1">ACLARACIÓN Y DNI</p>
