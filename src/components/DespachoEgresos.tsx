@@ -568,8 +568,8 @@ export function DespachoEgresos({ initialOperationType = 'traslado', initialMode
                             </tr>
                          </thead>
                          <tbody>
-                            {remitoPDFInfo.cart.map((c:any)=>(
-                               <tr key={c.codigo_barras} className="border-b border-black">
+                            {remitoPDFInfo.cart.map((c:any, idx:number)=>(
+                               <tr key={c.id + '-' + idx} className="border-b border-black">
                                   <td className="text-center py-4 border-r-2 border-black font-black text-xl">{c.cantidad_a_extraer}</td>
                                   <td className="text-center py-4 border-r-2 border-black font-mono font-bold text-sm tracking-tighter">{c.codigo_barras}</td>
                                   <td className="text-left py-4 px-4 border-r-2 border-black font-bold uppercase text-slate-800">{c.producto_nombre}</td>
