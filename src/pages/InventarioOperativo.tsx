@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Box, Send, Trash2, PlusCircle, ShoppingCart, MapPin, Search, ArrowDownRight, PackageCheck, AlertCircle, ScanBarcode, ArrowRight, ShieldCheck, ClipboardList, MinusCircle, Truck } from 'lucide-react';
+import { Box, Send, Trash2, PlusCircle, ShoppingCart, MapPin, Search, ArrowDownRight, PackageCheck, AlertCircle, ScanBarcode, ArrowRight, ShieldCheck, ClipboardList, MinusCircle, Truck, Printer } from 'lucide-react';
 import { executeAWSQuery } from '../lib/aws-client';
 import { cn } from '../lib/utils';
 import { ModalSelector } from '../components/ui/ModalSelector';
@@ -341,8 +341,12 @@ export function InventarioOperativo() {
   };
 
 
+  const activeRem = (remitosPendientes.find(r => r.id.toString() === selectedActiveRemitoId) || remitosHistoricos.find(r => r.id.toString() === selectedActiveRemitoId)) as any;
+
   return (
-    <div className="space-y-8 max-w-7xl mx-auto">
+    <>
+    <div className="space-y-8 max-w-7xl mx-auto print:hidden">
+
       {/* HEADER DE MI SECTOR */}
       <div className="card-nexus p-8 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl relative overflow-hidden">
         <div className="absolute top-0 right-0 p-10 opacity-5 pointer-events-none">
@@ -655,10 +659,15 @@ export function InventarioOperativo() {
                      ))
                  )}
                  
-                 <div className="flex gap-3 pt-4 mt-6 border-t border-slate-200 dark:border-slate-800">
-                     <button onClick={() => { setRemitoDetalleItems(null); setSelectedActiveRemitoId(null); setSelectedRemitoEstado(null); }} className="flex-1 bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-white font-black py-4 rounded-xl">Cancelar</button>
+                 <div className="flex gap-3 pt-4 mt-6 border-t border-slate-200 dark:border-slate-800 flex-wrap">
+                     {activeRem && (
+                        <button onClick={() => { setTimeout(() => window.print(), 100); }} className="flex-none bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-black py-4 px-6 rounded-xl flex items-center justify-center gap-2">
+                            <Printer className="w-5 h-5"/> IMPRIMIR
+                        </button>
+                     )}
+                     <button onClick={() => { setRemitoDetalleItems(null); setSelectedActiveRemitoId(null); setSelectedRemitoEstado(null); }} className="flex-1 min-w-[120px] bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-white font-black py-4 rounded-xl">Cerrar</button>
                      {selectedRemitoEstado === 'EN_TRANSITO' && remitoDetalleItems.length > 0 && (
-                         <button onClick={handleProcesarRecepcion} disabled={isReceiving} className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white font-black py-4 rounded-xl disabled:opacity-50">
+                         <button onClick={handleProcesarRecepcion} disabled={isReceiving} className="flex-1 min-w-[200px] bg-emerald-600 hover:bg-emerald-500 text-white font-black py-4 rounded-xl disabled:opacity-50">
                              {isReceiving ? 'PROCESANDO...' : 'SÍ, INGRESAR STOCK'}
                          </button>
                      )}
@@ -676,5 +685,74 @@ export function InventarioOperativo() {
          options={depositos.map(d => ({ value: d.id.toString(), label: d.nombre, icon: MapPin }))}
       />
     </div>
+
+    {/* GLOBAL PRINT PORTAL - COPIA AISLADA PARA RECEPCION */}
+    {activeRem && remitoDetalleItems && (
+        <div className="hidden print:block w-full bg-white text-black font-sans p-8">
+            <div className="flex justify-between items-start border-2 border-black rounded-xl p-4 relative mb-6">
+                <div className="w-1/2 pr-6 border-r-2 border-black">
+                    <h1 className="text-3xl font-black mb-1 leading-tight">DOCUMENTO NO VÁLIDO COMO FACTURA</h1>
+                    <p className="font-bold text-lg leading-tight uppercase">SISTEMA INTERNO WMS</p>
+                    <p className="text-sm mt-4 tracking-widest font-mono text-slate-600">COMPROBANTE DE MOVIMIENTO FÍSICO</p>
+                </div>
+                <div className="w-1/2 pl-6 text-right">
+                    <h2 className="text-3xl font-black uppercase mb-4 tracking-tight">REMITO</h2>
+                    <div className="inline-block text-left">
+                        <p className="text-sm mb-1"><strong>N° Documento:</strong> <span className="font-mono text-base">{activeRem.rem_code || activeRem.numeracion || 'N/A'}</span></p>
+                        <p className="text-sm mb-1"><strong>Fecha Envío:</strong> <span className="font-mono text-base">{new Date(activeRem.fecha_creacion).toLocaleString()}</span></p>
+                        <p className="text-sm"><strong>Estado Actual:</strong> <span className="font-mono text-base">{activeRem.estado}</span></p>
+                    </div>
+                </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4 mb-6">
+                <div className="border-2 border-black p-4 rounded-xl bg-slate-50">
+                    <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1">Sale desde (Origen Logístico)</p>
+                    <p className="font-black text-xl text-slate-900">{depositos.find(d=>d.id===activeRem.deposito_origen_id)?.nombre || 'Bodega Principal'}</p>
+                </div>
+                <div className="border-2 border-black p-4 rounded-xl bg-slate-50">
+                    <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1">Llega a (Destino Físico)</p>
+                    <p className="font-black text-xl text-slate-900">{depositos.find(d=>d.id===activeRem.deposito_destino_id)?.nombre || 'Ubicación'}</p>
+                </div>
+            </div>
+
+            <table className="w-full mb-10 border-2 border-black">
+               <thead>
+                  <tr className="bg-slate-200 border-b-2 border-black">
+                      <th className="text-center py-3 border-r-2 border-black w-24 text-sm font-black">C. ENV</th>
+                      <th className="text-center py-3 border-r-2 border-black w-24 text-sm font-black">C. REC</th>
+                      <th className="text-left py-3 px-4 border-r-2 border-black text-sm font-black">DESCRIPCIÓN DEL ARTÍCULO</th>
+                      <th className="text-center py-3 text-sm font-black w-32">VARIACIÓN</th>
+                  </tr>
+               </thead>
+               <tbody>
+                  {remitoDetalleItems.map((c:any, idx:number)=>(
+                     <tr key={idx} className="border-b border-black">
+                        <td className="text-center py-4 border-r-2 border-black font-black text-xl">{c.cantidad_enviada}</td>
+                        <td className="text-center py-4 border-r-2 border-black font-black text-xl text-slate-500">{c.cantidad_recibida || '-'}</td>
+                        <td className="text-left py-4 px-4 border-r-2 border-black font-bold uppercase text-slate-800">{c.producto_nombre}</td>
+                        <td className="text-center py-4 font-bold text-xs uppercase bg-slate-50">{c.nombre_variante}</td>
+                     </tr>
+                  ))}
+               </tbody>
+            </table>
+
+            <div className="grid grid-cols-2 gap-24 mt-32 px-10">
+                <div className="border-t-2 border-black text-center pt-2">
+                    <p className="font-black uppercase tracking-widest text-sm">Firma de Emisor</p>
+                    <p className="text-xs text-slate-500 font-medium tracking-wide mt-1">Aclaración y Fecha</p>
+                </div>
+                <div className="border-t-2 border-black text-center pt-2">
+                    <p className="font-black uppercase tracking-widest text-sm">Firma de Recepción (Destino)</p>
+                    <p className="text-xs text-slate-500 font-medium tracking-wide mt-1">Aclaración y DNI</p>
+                </div>
+            </div>
+            
+            <div className="mt-12 text-center border-t border-slate-300 pt-4">
+                 <p className="text-[9px] uppercase font-mono text-slate-400 font-bold tracking-widest">Documento Impreso en WMS Inventario (Módulo de Control y Recepción)</p>
+            </div>
+        </div>
+    )}
+    </>
   );
 }

@@ -245,6 +245,8 @@ export function DespachoEgresos({ initialOperationType = 'traslado', initialMode
                           UPDATE Stock_Etiquetas SET deposito_id = ${destinoId} WHERE id = ${loteId};
                           INSERT INTO Stock_Movimientos (etiqueta_id, tipo_movimiento, cantidad_afectada, deposito_origen_id, deposito_destino_id, remito_id, usuario_id)
                           VALUES (${loteId}, '${opNameOut}', ${allocQty}, ${origenFijoSQL}, ${destinoId}, @RemId, '${(user as any)?.id || ''}');
+                          INSERT INTO wms_remitos_internos_items (remito_id, variante_id, cantidad_enviada, etiqueta_generada_id, estado)
+                          VALUES (@RemId, ${info.variante_id}, ${allocQty}, ${loteId}, 'PENDIENTE');
                       `);
                   } else {
                       queries.push(`
@@ -268,6 +270,8 @@ export function DespachoEgresos({ initialOperationType = 'traslado', initialMode
                           VALUES (@NewLote_${queryVarCounter}, 'fraccionamiento_ingreso', ${allocQty}, ${origenFijoSQL}, ${destinoId}, @RemId, '${(user as any)?.id || ''}');
                           INSERT INTO Stock_Movimientos (etiqueta_id, tipo_movimiento, cantidad_afectada, deposito_origen_id, deposito_destino_id, remito_id, usuario_id)
                           VALUES (${loteId}, 'fraccionamiento_salida', ${allocQty}, ${origenFijoSQL}, ${destinoId}, @RemId, '${(user as any)?.id || ''}');
+                          INSERT INTO wms_remitos_internos_items (remito_id, variante_id, cantidad_enviada, etiqueta_generada_id, estado)
+                          VALUES (@RemId, ${info.variante_id}, ${allocQty}, @NewLote_${queryVarCounter}, 'PENDIENTE');
                       `);
                   } else {
                       queries.push(`
