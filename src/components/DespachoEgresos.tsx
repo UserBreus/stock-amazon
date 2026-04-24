@@ -356,7 +356,6 @@ export function DespachoEgresos({ initialOperationType = 'traslado', initialMode
           {[
               { id: 'lote', icon: Box, label: 'Modo Multi-Lote (Remito)' },
               { id: 'solicitudes', icon: Send, label: 'Integración Solicitudes' },
-              { id: 'historial', icon: Clock, label: 'Historial y Analítica' },
           ].map(tab => (
               <button 
                  key={tab.id} onClick={() => setMode(tab.id as any)}
@@ -475,56 +474,7 @@ export function DespachoEgresos({ initialOperationType = 'traslado', initialMode
               </motion.div>
           )}
 
-          {/* HISTORIAL Y ANALÍTICA */}
-          {mode === 'historial' && (
-              <motion.div initial={{opacity:0}} animate={{opacity:1}} className="space-y-6">
-                  <div className="flex justify-between items-center mb-6">
-                      <h3 className="font-black text-lg">Historial de Salidas y Traslados ({historial.length})</h3>
-                      <button onClick={fetchHistorial} className="text-xs font-bold bg-slate-100 dark:bg-slate-800 px-4 py-2 rounded-full">Refrescar Trazabilidad</button>
-                  </div>
-                  
-                  <div className="overflow-x-auto">
-                     <table className="w-full text-left text-sm border-collapse">
-                        <thead>
-                           <tr className="border-b border-slate-200 dark:border-slate-800 text-[10px] uppercase font-black text-slate-500 tracking-widest bg-slate-50 dark:bg-slate-950">
-                              <th className="py-3 px-4">Fecha/Operación</th>
-                              <th className="py-3 px-4">Producto (SKU)</th>
-                              <th className="py-3 px-4 text-center">Cant.</th>
-                              <th className="py-3 px-4">Destino de Salida</th>
-                              <th className="py-3 px-4 text-center">Alerta Reposición</th>
-                           </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                           {historial.map(h => (
-                               <tr key={h.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-900/30 transition-colors">
-                                  <td className="py-4 px-4 whitespace-nowrap">
-                                      <p className="font-mono text-xs dark:text-slate-300">{new Date(h.fecha).toLocaleString()}</p>
-                                      <p className={cn("text-[10px] font-black uppercase mt-1", h.tipo_movimiento.includes('salida') ? 'text-indigo-500' : 'text-rose-500')}>{h.tipo_movimiento}</p>
-                                  </td>
-                                  <td className="py-4 px-4">
-                                      <p className="font-bold text-slate-900 dark:text-white">{h.producto_nombre}</p>
-                                      <p className="text-xs text-slate-500 font-mono">{h.codigo_barras}</p>
-                                  </td>
-                                  <td className="py-4 px-4 text-center font-black text-lg">{h.cantidad_afectada}</td>
-                                  <td className="py-4 px-4 font-medium text-slate-700 dark:text-slate-400">
-                                      <span className="flex items-center gap-2"><ArrowRightLeft className="w-3 h-3"/> Hacia {h.des_nombre || 'N/A'}</span>
-                                  </td>
-                                  <td className="py-4 px-4 text-center">
-                                      {h.alert_saldo_destino === null || h.alert_saldo_destino === undefined ? (
-                                         <span className="text-slate-400/50">-</span>
-                                      ) : h.alert_saldo_destino <= 0 ? (
-                                         <span className="bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 px-3 py-1 rounded-lg text-xs font-black uppercase inline-flex items-center gap-1"><AlertCircle className="w-3 h-3"/> AGOTADO EN DESTINO</span>
-                                      ) : (
-                                         <span className="text-emerald-500 font-bold text-xs">{h.alert_saldo_destino} Stock Restante</span>
-                                      )}
-                                  </td>
-                               </tr>
-                           ))}
-                        </tbody>
-                     </table>
-                  </div>
-              </motion.div>
-          )}
+          {/* HISTORIAL REMOVED IN FAVOR OF GLOBAL SYSTEM */}
 
       </div>
       

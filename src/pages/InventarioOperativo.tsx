@@ -8,6 +8,7 @@ import { Modal } from '../components/ui/Modal';
 import { CategoryDrillDownModal } from '../components/ui/CategoryDrillDownModal';
 import { useAuth } from '../context/AuthContext';
 import toast from 'react-hot-toast';
+import { printRemito } from '../lib/printRemito';
 
 export function InventarioOperativo() {
   const { user, isGerente, isAdminStock } = useAuth();
@@ -40,6 +41,8 @@ export function InventarioOperativo() {
   const [catalogProductos, setCatalogProductos] = useState<any[]>([]);
   const [isCatalogOpen, setIsCatalogOpen] = useState(false);
   const [isRequesting, setIsRequesting] = useState(false);
+  const [solicitudesEnviadas, setSolicitudesEnviadas] = useState<any[]>([]);
+  const [solicitudSubTab, setSolicitudSubTab] = useState<'nueva' | 'historial'>('nueva');
 
   // Modal selector de sector para supers
   const [isSectorModalOpen, setIsSectorModalOpen] = useState(false);
@@ -89,7 +92,7 @@ export function InventarioOperativo() {
   const fetchDataRelacional = async () => {
     if (!sectorSeleccionado) return;
     try {
-      const [etiqRes, remitosRes, historialRes] = await Promise.all([
+      const [etiqRes, remitosRes, historialRes, solRes] = await Promise.all([
         executeAWSQuery(`
           SELECT e.*, p.nombre as producto_nombre, v.nombre_variante as producto_sku, p.unidad_base as unidad, c.nombre as familia_nombre
           FROM Stock_Etiquetas e
@@ -114,11 +117,18 @@ export function InventarioOperativo() {
           LEFT JOIN Stock_Depositos d_origen ON r.deposito_origen_id = d_origen.id
           WHERE r.deposito_destino_id = ${sectorSeleccionado} AND r.estado = 'RECIBIDO'
           ORDER BY r.fecha_creacion DESC
+        `),
+        executeAWSQuery(`
+          SELECT TOP 30 id, numeracion, estado, fecha_creacion
+          FROM wms_solicitudes
+          WHERE deposito_solicitante_id = ${sectorSeleccionado}
+          ORDER BY fecha_creacion DESC
         `)
       ]);
       setEtiquetasLocales(etiqRes || []);
       setRemitosPendientes(remitosRes || []);
       setRemitosHistoricos(historialRes || []);
+      setSolicitudesEnviadas(solRes || []);
     } catch (e) { 
         console.error(e); 
     } finally { 
@@ -170,7 +180,7 @@ export function InventarioOperativo() {
                
                WHILE @@FETCH_STATUS = 0
                BEGIN
-                  INSERT INTO Stock_Etiquetas (codigo_barras, variante_id, deposito_id, cantidad_inicial, cantidad_actual, estado)
+                  INSERT INTO Stock_Etiquetas (codigo_variante, variante_id, deposito_id, cantidad_inicial, cantidad_actual, estado)
                   VALUES (CONVERT(varchar(255), NEWID()), CAST(@ItemVarId AS varchar), @ItemDestino, @ItemQty, @ItemQty, 'activo');
                   
                   SET @NuevoLoteId = SCOPE_IDENTITY();
@@ -241,20 +251,24 @@ export function InventarioOperativo() {
               
               if (cantToReceive > 0) {
                   queries.push(`
-                      DECLARE @NuevoLote_${i} INT;
-                      INSERT INTO Stock_Etiquetas (codigo_barras, variante_id, deposito_id, cantidad_inicial, cantidad_actual, estado)
-                      VALUES (CONVERT(varchar(255), NEWID()), ${item.variante_id}, @RemitoDestino, ${cantToReceive}, ${cantToReceive}, 'activo');
-                      
-                      SET @NuevoLote_${i} = SCOPE_IDENTITY();
+                      UPDATE Stock_Etiquetas 
+                      SET estado = 'activo', cantidad_actual = ${cantToReceive}
+                      WHERE id = ${item.etiqueta_generada_id};
                       
                       INSERT INTO Stock_Movimientos (etiqueta_id, tipo_movimiento, cantidad_afectada, deposito_destino_id)
-                      VALUES (@NuevoLote_${i}, 'traslado_ingreso', ${cantToReceive}, @RemitoDestino);
+                      VALUES (${item.etiqueta_generada_id}, 'recepcion_confirmada', ${cantToReceive}, @RemitoDestino);
                       
                       UPDATE wms_remitos_internos_items SET estado = 'RECIBIDO_OK', cantidad_recibida = ${cantToReceive} WHERE id = ${item.id};
                   `);
               } else {
                   // Received nothing of this line
-                  queries.push(`UPDATE wms_remitos_internos_items SET estado = 'CANCELADO', cantidad_recibida = 0 WHERE id = ${item.id};`);
+                  queries.push(`
+                      UPDATE Stock_Etiquetas 
+                      SET estado = 'extraviado', cantidad_actual = 0
+                      WHERE id = ${item.etiqueta_generada_id};
+                      
+                      UPDATE wms_remitos_internos_items SET estado = 'CANCELADO', cantidad_recibida = 0 WHERE id = ${item.id};
+                  `);
               }
           }
           
@@ -281,16 +295,27 @@ export function InventarioOperativo() {
   const openCatalog = async () => {
       try {
           const res = await executeAWSQuery(`
-              SELECT c.id as cat_id, c.nombre as cat_name, 
-                     c.id as fam_id, c.nombre as fam_name, 
-                     p.id as prod_id, p.nombre as prod_name, p.codigo_sku as prod_sku, p.requiere_lote,
-                     v.id as var_id, v.nombre_variante as var_name, v.codigo_barras as var_sku
+              SELECT
+                v.id as id,
+                v.nombre_variante,
+                v.codigo_variante as var_sku,
+                p.id as producto_maestro_id,
+                p.nombre as producto_nombre,
+                p.nombre as nombre,
+                c.id as categoria_id,
+                c.nombre as cat_nombre,
+                ISNULL((
+                  SELECT SUM(e.cantidad_actual)
+                  FROM Stock_Etiquetas e
+                  WHERE e.variante_id = v.id AND e.estado = 'activo'
+                ), 0) as stock_total
               FROM Stock_Variantes v
               INNER JOIN Stock_Productos_Maestros p ON v.producto_maestro_id = p.id
               LEFT JOIN Stock_Categorias c ON p.categoria_id = c.id
+              ORDER BY c.nombre ASC, p.nombre ASC, v.nombre_variante ASC
           `);
           if (res) {
-              const cats = Array.from(new Set(res.map((r:any) => JSON.stringify({ id: r.cat_id, nombre: r.cat_name })))).map((s:any) => JSON.parse(s));
+              const cats = Array.from(new Set(res.map((r:any) => JSON.stringify({ id: r.categoria_id?.toString(), nombre: r.cat_nombre })))).map((s:any) => JSON.parse(s)).filter((c:any) => c.id);
               setCatalogCategorias(cats);
               setCatalogProductos(res);
               setIsCatalogOpen(true);
@@ -333,7 +358,8 @@ export function InventarioOperativo() {
           await executeAWSQuery(`BEGIN TRY BEGIN TRANSACTION; ${queries.join('\n')} COMMIT TRANSACTION; END TRY BEGIN CATCH ROLLBACK TRANSACTION; THROW; END CATCH`);
           toast.success("¡Solicitud enviada a la Central Logística!");
           setSolicitudCart([]);
-          setActiveTab('recepcion' as any);
+          setSolicitudSubTab('historial');
+          fetchDataRelacional();
       } catch (err:any) {
           toast.error("Fallo al enviar solicitud: " + err.message);
       } finally {
@@ -631,7 +657,161 @@ export function InventarioOperativo() {
         </motion.div>
       )}
 
-      {/* MODAL DE CONSUMO */}
+      {/* TAB PEDIR INSUMOS */}
+      {activeTab === 'solicitar' && (
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-5">
+
+          {/* Sub-navegación estilo ERP */}
+          <div className="flex gap-3">
+            <button
+              onClick={() => setSolicitudSubTab('nueva')}
+              className={`flex-1 flex flex-col items-center justify-center gap-2 p-5 rounded-2xl border-2 transition-all font-black ${
+                solicitudSubTab === 'nueva'
+                  ? 'bg-indigo-600 border-indigo-600 text-white shadow-xl shadow-indigo-500/20'
+                  : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-500 hover:border-indigo-300 hover:text-indigo-600'
+              }`}
+            >
+              <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${solicitudSubTab === 'nueva' ? 'bg-white/20' : 'bg-slate-100 dark:bg-slate-800'}`}>
+                <PlusCircle className="w-5 h-5" />
+              </div>
+              <span className="text-sm uppercase tracking-widest">Nueva Solicitud</span>
+              {solicitudCart.length > 0 && (
+                <span className={`text-xs px-2 py-0.5 rounded-full font-black ${solicitudSubTab === 'nueva' ? 'bg-white/20 text-white' : 'bg-indigo-100 text-indigo-700'}`}>
+                  {solicitudCart.length} en carrito
+                </span>
+              )}
+            </button>
+
+            <button
+              onClick={() => setSolicitudSubTab('historial')}
+              className={`flex-1 flex flex-col items-center justify-center gap-2 p-5 rounded-2xl border-2 transition-all font-black ${
+                solicitudSubTab === 'historial'
+                  ? 'bg-slate-800 border-slate-800 text-white dark:bg-white dark:border-white dark:text-slate-900 shadow-xl shadow-slate-500/10'
+                  : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-500 hover:border-slate-400'
+              }`}
+            >
+              <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${solicitudSubTab === 'historial' ? 'bg-white/20 dark:bg-slate-900/20' : 'bg-slate-100 dark:bg-slate-800'}`}>
+                <ClipboardList className="w-5 h-5" />
+              </div>
+              <span className="text-sm uppercase tracking-widest">Mis Solicitudes</span>
+              {solicitudesEnviadas.length > 0 && (
+                <span className={`text-xs px-2 py-0.5 rounded-full font-black ${solicitudSubTab === 'historial' ? 'bg-white/20 text-white dark:bg-slate-900/20 dark:text-slate-900' : 'bg-slate-100 text-slate-600'}`}>
+                  {solicitudesEnviadas.length} enviadas
+                </span>
+              )}
+            </button>
+          </div>
+
+          {/* PANEL: Nueva Solicitud */}
+          {solicitudSubTab === 'nueva' && (
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl overflow-hidden shadow-sm">
+              <div className="p-6 border-b border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 flex items-center justify-between">
+                <div>
+                  <h3 className="font-black text-slate-800 dark:text-white text-lg">Nueva Solicitud de Insumos</h3>
+                  <p className="text-xs text-slate-500 mt-0.5">Seleccioná los artículos que necesitás y enviá la solicitud a Logística Central.</p>
+                </div>
+                <button
+                  onClick={openCatalog}
+                  className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm px-4 py-2.5 rounded-xl transition-all shadow-md shadow-indigo-600/20 shrink-0"
+                >
+                  <PlusCircle className="w-4 h-4" /> Agregar Artículo
+                </button>
+              </div>
+
+              <div className="p-6">
+                {solicitudCart.length === 0 ? (
+                  <div className="py-16 text-center border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-2xl">
+                    <PlusCircle className="w-12 h-12 text-slate-300 dark:text-slate-700 mx-auto mb-3" />
+                    <p className="font-bold text-slate-500">El carrito está vacío.</p>
+                    <p className="text-sm text-slate-400 mt-1">Hacé clic en "Agregar Artículo" para buscar insumos del catálogo.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {solicitudCart.map((item, idx) => (
+                      <div key={idx} className="flex items-center justify-between gap-4 bg-slate-50 dark:bg-slate-950 rounded-xl p-4 border border-slate-100 dark:border-slate-800">
+                        <div className="flex-1 min-w-0">
+                          <p className="font-black text-slate-800 dark:text-white text-sm leading-tight truncate">{item.prod_name}</p>
+                          <p className="text-xs text-slate-500 mt-0.5 truncate">{item.var_name}</p>
+                        </div>
+                        <div className="flex items-center gap-3 shrink-0">
+                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest hidden sm:block">Cant.</label>
+                          <input
+                            type="number" min="1" step="1"
+                            value={item.cantidad}
+                            onChange={e => setSolicitudCart(solicitudCart.map((c, i) => i === idx ? {...c, cantidad: Number(e.target.value)} : c))}
+                            className="w-20 text-center font-black text-lg bg-white dark:bg-slate-900 border border-indigo-300 rounded-lg p-1.5 focus:ring-2 focus:ring-indigo-500 outline-none"
+                          />
+                          <button onClick={() => setSolicitudCart(solicitudCart.filter((_, i) => i !== idx))} className="w-8 h-8 flex items-center justify-center text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors">
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+
+                    <button
+                      onClick={enviarSolicitud}
+                      disabled={isRequesting || solicitudCart.length === 0}
+                      className="w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white font-black py-4 rounded-xl disabled:opacity-40 transition-all shadow-lg shadow-emerald-600/20 mt-4 uppercase tracking-widest text-sm"
+                    >
+                      <Send className="w-4 h-4" />
+                      {isRequesting ? 'Enviando solicitud...' : `Enviar Solicitud a Logística (${solicitudCart.length} ítem${solicitudCart.length > 1 ? 's' : ''})`}
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* PANEL: Mis Solicitudes Enviadas */}
+          {solicitudSubTab === 'historial' && (
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl overflow-hidden shadow-sm">
+              <div className="p-6 border-b border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50">
+                <h3 className="font-black text-slate-800 dark:text-white text-lg flex items-center gap-2">
+                  <ClipboardList className="w-5 h-5 text-slate-500" />
+                  Mis Solicitudes Enviadas
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">Seguí el estado de tus solicitudes enviadas a Logística Central.</p>
+              </div>
+              <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                {solicitudesEnviadas.length === 0 ? (
+                  <div className="py-16 text-center">
+                    <ClipboardList className="w-12 h-12 text-slate-300 dark:text-slate-700 mx-auto mb-3" />
+                    <p className="text-slate-400 font-bold">No has enviado solicitudes todavía.</p>
+                    <button onClick={() => setSolicitudSubTab('nueva')} className="mt-4 text-indigo-600 font-bold text-sm hover:underline">
+                      Crear primera solicitud →
+                    </button>
+                  </div>
+                ) : (
+                  solicitudesEnviadas.map(sol => (
+                    <div key={sol.id} className="p-5 flex items-center justify-between gap-4 hover:bg-slate-50/50 dark:hover:bg-slate-950/50 transition-colors">
+                      <div className="flex items-center gap-4">
+                        <div className={cn("w-11 h-11 rounded-xl flex items-center justify-center shrink-0",
+                          sol.estado === 'PENDIENTE' ? 'bg-amber-50 dark:bg-amber-900/20 text-amber-600' :
+                          sol.estado === 'APROBADA'  ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600' :
+                          'bg-slate-100 dark:bg-slate-800 text-slate-500'
+                        )}>
+                          {sol.estado === 'APROBADA' ? <CheckCircle className="w-5 h-5" /> : <ClipboardList className="w-5 h-5" />}
+                        </div>
+                        <div>
+                          <p className="font-black text-slate-800 dark:text-white text-sm">{sol.numeracion}</p>
+                          <p className="text-xs text-slate-500">{new Date(sol.fecha_creacion).toLocaleDateString('es-AR', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' })}</p>
+                        </div>
+                      </div>
+                      <span className={cn("px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-widest",
+                        sol.estado === 'PENDIENTE' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' :
+                        sol.estado === 'APROBADA'  ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' :
+                        'bg-slate-100 text-slate-600 dark:bg-slate-800'
+                      )}>{sol.estado}</span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
+        </motion.div>
+      )}
+
+            {/* MODAL DE CONSUMO */}
       <AnimatePresence>
           {bajaEtiqueta && (
              <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -705,15 +885,15 @@ export function InventarioOperativo() {
                      ))
                  )}
                  
-                 <div className="flex gap-3 pt-4 mt-6 border-t border-slate-200 dark:border-slate-800 flex-wrap">
+                 <div className="sticky -bottom-8 mt-6 -mx-8 -mb-8 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border-t border-slate-200 dark:border-slate-800 p-4 px-8 flex gap-3 flex-wrap shadow-[0_-15px_30px_-15px_rgba(0,0,0,0.1)] z-10">
                      {activeRem && (
-                        <button onClick={() => { setIsViewingFullscreenPDF(true); }} className="flex-none bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-black py-4 px-6 rounded-xl flex items-center justify-center gap-2">
+                        <button onClick={() => { setIsViewingFullscreenPDF(true); }} className="flex-none bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-bold text-sm py-2 px-4 rounded-lg flex items-center justify-center gap-2 hover:-translate-y-0.5 transition-transform shadow-lg">
                             <ClipboardList className="w-5 h-5"/> VER HOJA REMITO
                         </button>
                      )}
-                     <button onClick={() => { setRemitoDetalleItems(null); setSelectedActiveRemitoId(null); setSelectedRemitoEstado(null); }} className="flex-1 min-w-[120px] bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-white font-black py-4 rounded-xl">Cerrar</button>
+                     <button onClick={() => { setRemitoDetalleItems(null); setSelectedActiveRemitoId(null); setSelectedRemitoEstado(null); }} className="flex-1 min-w-[100px] bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-white font-bold text-sm py-2 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors">Cerrar</button>
                      {selectedRemitoEstado === 'EN_TRANSITO' && remitoDetalleItems.length > 0 && (
-                         <button onClick={handleProcesarRecepcion} disabled={isReceiving} className="flex-1 min-w-[200px] bg-emerald-600 hover:bg-emerald-500 text-white font-black py-4 rounded-xl disabled:opacity-50">
+                         <button onClick={handleProcesarRecepcion} disabled={isReceiving} className="flex-1 min-w-[160px] bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm py-2 rounded-lg disabled:opacity-50 shadow-md shadow-emerald-600/30 transition-all hover:shadow-lg hover:-translate-y-0.5">
                              {isReceiving ? 'PROCESANDO...' : 'SÍ, INGRESAR STOCK'}
                          </button>
                      )}
@@ -733,93 +913,139 @@ export function InventarioOperativo() {
     </div>
 
     {isViewingFullscreenPDF && activeRem && (
-        <div id="print-root" className="fixed inset-0 z-[100] bg-slate-800/90 backdrop-blur-sm overflow-y-auto p-4 sm:p-10 flex justify-center print:static print:w-full print:bg-white print:p-0 print:block">
-            <div className="hide-on-print fixed top-6 right-6 flex gap-4 z-[110]">
-              <button onClick={() => { setTimeout(() => window.print(), 100); }} className="bg-indigo-600 text-white p-4 rounded-full shadow-2xl hover:bg-indigo-700 transition-transform hover:scale-110 flex items-center justify-center">
+        <div className="fixed inset-0 z-[100] bg-slate-800/90 backdrop-blur-sm overflow-y-auto p-4 sm:p-10 flex flex-col items-center gap-8 hide-scrollbar">
+            <div className="fixed top-6 right-6 flex gap-4 z-[110]">
+              <button
+                onClick={() => {
+                  const items = remitoDetalleItems || [];
+                  const origen = depositos.find((d:any) => d.id === activeRem.deposito_origen_id)?.nombre || 'Bodega Principal';
+                  const destino = depositos.find((d:any) => d.id === activeRem.deposito_destino_id)?.nombre || 'Ubicación';
+                  printRemito(items, {
+                    codigo: activeRem.rem_code || activeRem.numeracion || 'N/A',
+                    fecha: new Date(activeRem.fecha_creacion).toLocaleString(),
+                    estado: activeRem.estado || 'EN_TRANSITO',
+                    origen,
+                    destino,
+                  }, 'recepcion');
+                }}
+                className="bg-indigo-600 text-white p-4 rounded-full shadow-2xl hover:bg-indigo-700 transition-transform hover:scale-110 flex items-center justify-center"
+              >
                  <span className="font-black text-xs uppercase tracking-widest flex items-center gap-2"><Printer className="w-4 h-4"/> Imprimir Hoja</span>
               </button>
               <button onClick={() => { setIsViewingFullscreenPDF(false); }} className="bg-white text-slate-900 p-4 rounded-full shadow-2xl hover:bg-slate-200 transition-transform hover:scale-110 flex items-center justify-center">
                  <span className="font-black text-xs uppercase tracking-widest">X Cerrar</span>
               </button>
             </div>
-            <div className="w-full max-w-[900px] bg-white text-slate-800 font-sans p-12 min-h-[1056px] shadow-2xl relative border border-slate-100 rounded-3xl my-10 flex flex-col print:block print:shadow-none print:border-none print:m-0 print:p-0 print:w-full print:max-w-full print:rounded-none">
-                <div className="flex justify-between items-start border-b border-slate-100 pb-8 mb-8 relative">
-                    <div className="w-1/2 pr-6">
-                        <h1 className="text-4xl font-black mb-2 tracking-tighter text-slate-900 leading-none">REMITO DE MOVIMIENTO</h1>
-                        <p className="font-bold text-sm text-slate-400 uppercase tracking-widest">SISTEMA LOGÍSTICO INTERNO · WMS</p>
-                    </div>
-                    <div className="w-1/2 pl-6 text-right">
-                        <div className="inline-block text-left bg-slate-50 p-5 rounded-2xl border border-slate-100 w-full">
-                            <div className="flex justify-between mb-3 border-b border-slate-100 pb-3">
-                                <span className="text-xs uppercase font-bold text-slate-400 tracking-widest">N° Documento</span>
-                                <span className="font-mono font-black text-slate-700">{activeRem.rem_code || activeRem.numeracion || 'N/A'}</span>
+            
+            <div className="w-full flex flex-col items-center gap-12">
+                {(remitoDetalleItems && remitoDetalleItems.length > 0 ? remitoDetalleItems.reduce((acc:any[], curr:any, i:number) => { if (i % 30 === 0) acc.push([]); acc[acc.length - 1].push(curr); return acc; }, []) : [[]]).map((pageItems:any[], pageIndex:number, pagesArray:any[]) => (
+                    <div key={pageIndex} className="w-[794px] min-h-[1123px] bg-white text-slate-800 font-sans p-10 shadow-2xl relative border border-slate-100 flex flex-col shrink-0">
+                        <div className="flex justify-between items-start border-b border-slate-100 pb-5 mb-5 relative">
+                            <div className="w-1/2 pr-6">
+                                <h1 className="text-3xl font-black mb-1 tracking-tighter text-slate-900 leading-none">REMITO DE MOVIMIENTO</h1>
+                                <p className="font-bold text-xs text-slate-400 uppercase tracking-widest">SISTEMA LOGÍSTICO INTERNO · WMS</p>
                             </div>
-                            <div className="flex justify-between mb-3 border-b border-slate-100 pb-3">
-                                <span className="text-xs uppercase font-bold text-slate-400 tracking-widest">Fecha Operación</span>
-                                <span className="font-mono font-bold text-slate-700">{new Date(activeRem.fecha_creacion).toLocaleString()}</span>
-                            </div>
-                            <div className="flex justify-between">
-                                <span className="text-xs uppercase font-bold text-slate-400 tracking-widest">Estado</span>
-                                <span className="font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md text-xs">{activeRem.estado}</span>
+                            <div className="w-1/2 pl-6 text-right">
+                                <div className="inline-block text-left bg-slate-50 p-4 rounded-xl border border-slate-100 w-full">
+                                    <div className="flex justify-between mb-2 border-b border-slate-100 pb-2">
+                                        <span className="text-[10px] uppercase font-bold text-slate-400 tracking-widest">N° Documento</span>
+                                        <span className="font-mono font-black text-slate-700 text-sm">{activeRem.rem_code || activeRem.numeracion || 'N/A'}</span>
+                                    </div>
+                                    <div className="flex justify-between mb-2 border-b border-slate-100 pb-2">
+                                        <span className="text-[10px] uppercase font-bold text-slate-400 tracking-widest">Fecha Operación</span>
+                                        <span className="font-mono font-bold text-slate-700 text-xs">{new Date(activeRem.fecha_creacion).toLocaleString()}</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                        <span className="text-[10px] uppercase font-bold text-slate-400 tracking-widest">Estado</span>
+                                        <span className="font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded text-[10px]">{activeRem.estado}</span>
+                                    </div>
+                                </div>
                             </div>
                         </div>
-                    </div>
-                </div>
 
-                <div className="grid grid-cols-2 gap-6 mb-8">
-                    <div className="border border-slate-100 p-6 rounded-2xl bg-white shadow-[0_0_40px_-15px_rgba(0,0,0,0.05)]">
-                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-2"><ArrowUpRight className="w-3 h-3 text-rose-400"/> Sale desde (Origen Logístico)</p>
-                        <p className="font-black text-2xl text-slate-800 leading-tight">{depositos.find(d=>d.id===activeRem.deposito_origen_id)?.nombre || 'Bodega Principal'}</p>
-                    </div>
-                    <div className="border border-slate-100 p-6 rounded-2xl bg-white shadow-[0_0_40px_-15px_rgba(0,0,0,0.05)]">
-                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-2"><ArrowRightLeft className="w-3 h-3 text-indigo-400"/> Llega a (Destino Físico)</p>
-                        <p className="font-black text-2xl text-slate-800 leading-tight">{depositos.find(d=>d.id===activeRem.deposito_destino_id)?.nombre || 'Ubicación'}</p>
-                    </div>
-                </div>
+                        <div className="grid grid-cols-2 gap-4 mb-5">
+                            <div className="border border-slate-100 p-4 rounded-xl bg-white shadow-sm">
+                                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1 flex items-center gap-1"><ArrowUpRight className="w-3 h-3 text-rose-400"/> Sale desde (Origen Logístico)</p>
+                                <p className="font-black text-lg text-slate-800 leading-tight">{depositos.find((d:any)=>d.id===activeRem.deposito_origen_id)?.nombre || 'Bodega Principal'}</p>
+                            </div>
+                            <div className="border border-slate-100 p-4 rounded-xl bg-white shadow-sm">
+                                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1 flex items-center gap-1"><ArrowRightLeft className="w-3 h-3 text-indigo-400"/> Llega a (Destino Físico)</p>
+                                <p className="font-black text-lg text-slate-800 leading-tight">{depositos.find((d:any)=>d.id===activeRem.deposito_destino_id)?.nombre || 'Ubicación'}</p>
+                            </div>
+                        </div>
 
-                <div className="bg-slate-50/50 rounded-2xl border border-slate-100 overflow-hidden mb-16">
-                    <table className="w-full text-left">
-                       <thead>
-                          <tr className="border-b border-slate-200">
-                              <th className="py-4 px-6 print:py-1 print:px-2 print:text-[9px] w-24 text-[10px] uppercase tracking-widest text-slate-400 font-bold text-center border-r border-slate-100">C. ENV</th>
-                              <th className="py-4 px-6 print:py-1 print:px-2 print:text-[9px] w-24 text-[10px] uppercase tracking-widest text-slate-400 font-bold text-center border-r border-slate-100">C. REC</th>
-                              <th className="py-4 px-6 print:py-1 print:px-2 print:text-[9px] text-[10px] uppercase tracking-widest text-slate-400 font-bold border-r border-slate-100">ARTÍCULO / DESCRIPCIÓN</th>
-                              <th className="py-4 px-6 print:py-1 print:px-2 print:text-[9px] text-[10px] uppercase tracking-widest text-slate-400 font-bold text-center w-40">VAR / LOTE</th>
-                          </tr>
-                       </thead>
-                       <tbody className="divide-y divide-slate-100">
-                          {remitoDetalleItems.map((c:any, idx:number)=>(
-                             <tr key={idx} className="bg-white hover:bg-slate-50 transition-colors">
-                                <td className="text-center py-4 px-6 print:py-1 print:text-[11px] border-r border-slate-100 font-black text-lg print:text-sm text-slate-700">{c.cantidad_enviada}</td>
-                                <td className="text-center py-4 px-6 print:py-1 print:text-[11px] border-r border-slate-100 font-black text-lg print:text-sm text-emerald-600">{c.cantidad_recibida || '-'}</td>
-                                <td className="py-4 px-6 print:py-1 print:px-2 print:text-[11px] border-r border-slate-100 font-black tracking-tight text-slate-800">{c.producto_nombre}</td>
-                                <td className="text-center py-4 px-6 print:py-1 print:text-[11px] font-bold text-[10px] uppercase bg-slate-50/50 tracking-widest text-slate-500">{c.nombre_variante}</td>
-                             </tr>
-                          ))}
-                       </tbody>
-                    </table>
-                </div>
+                        <div className="bg-slate-50/50 rounded-xl border border-slate-100 overflow-hidden mb-auto">
+                            <table className="w-full text-left">
+                               <thead>
+                                  <tr className="border-b border-slate-200 bg-slate-50">
+                                      <th className="py-2 px-3 text-[9px] uppercase tracking-widest text-slate-500 font-black border-r border-slate-100 text-center w-24">C. ENV</th>
+                                      <th className="py-2 px-3 text-[9px] uppercase tracking-widest text-slate-500 font-black border-r border-slate-100 text-center w-24">C. REC</th>
+                                      <th className="py-2 px-3 text-[9px] uppercase tracking-widest text-slate-500 font-black border-r border-slate-100">ARTÍCULO / DESCRIPCIÓN</th>
+                                      <th className="py-2 px-3 text-[9px] uppercase tracking-widest text-slate-500 font-black text-center w-40">VAR / LOTE</th>
+                                  </tr>
+                               </thead>
+                               <tbody className="divide-y divide-slate-100">
+                                  {pageItems.map((c:any, idx:number)=>(
+                                     <tr key={idx} className="bg-white hover:bg-slate-50">
+                                        <td className="text-center py-1.5 px-3 border-r border-slate-100 font-black text-[11px] text-slate-700">{c.cantidad_enviada}</td>
+                                        <td className="text-center py-1.5 px-3 border-r border-slate-100 font-black text-[11px] text-emerald-600">{c.cantidad_recibida || '-'}</td>
+                                        <td className="py-1.5 px-3 border-r border-slate-100 font-bold tracking-tight text-slate-800 text-[11px]">{c.producto_nombre}</td>
+                                        <td className="text-center py-1.5 px-2 font-bold text-[9px] uppercase tracking-widest text-slate-500">{c.nombre_variante}</td>
+                                     </tr>
+                                  ))}
+                               </tbody>
+                            </table>
+                        </div>
 
-                <div className="grid grid-cols-2 gap-24 mt-auto print:mt-10 pt-20 print:pt-6 px-10">
-                    <div className="border-t border-dashed border-slate-300 text-center pt-4">
-                        <p className="font-black uppercase tracking-widest text-xs text-slate-800">Firma de Entrega (Origen)</p>
-                        <p className="text-[10px] text-slate-400 font-bold tracking-widest mt-1">ACLARACIÓN Y DNI</p>
+                        <div className="grid grid-cols-2 gap-16 mt-6 pt-6 px-6">
+                            <div className="border-t border-dashed border-slate-300 text-center pt-2">
+                                <p className="font-black uppercase tracking-widest text-[10px] text-slate-800">Firma de Entrega (Origen)</p>
+                                <p className="text-[8px] text-slate-400 font-bold tracking-widest mt-0.5">ACLARACIÓN Y DNI</p>
+                            </div>
+                            <div className="border-t border-dashed border-slate-300 text-center pt-2">
+                                <p className="font-black uppercase tracking-widest text-[10px] text-slate-800">Firma de Recepción (Destino)</p>
+                                <p className="text-[8px] text-slate-400 font-bold tracking-widest mt-0.5">ACLARACIÓN Y FECHA</p>
+                            </div>
+                        </div>
+                        
+                        <div className="mt-6 pt-3 flex justify-between items-center opacity-40 px-6">
+                             <p className="text-[9px] uppercase font-mono text-slate-900 font-bold tracking-widest flex items-center gap-1.5">
+                                <CheckCircle className="w-3 h-3" />
+                                WMS · DOC. DIGITAL
+                             </p>
+                             <p className="text-[9px] uppercase font-mono text-slate-900 font-bold tracking-widest">
+                                HOJA {pageIndex + 1} DE {pagesArray.length}
+                             </p>
+                        </div>
                     </div>
-                    <div className="border-t border-dashed border-slate-300 text-center pt-4">
-                        <p className="font-black uppercase tracking-widest text-xs text-slate-800">Firma de Recepción (Destino)</p>
-                        <p className="text-[10px] text-slate-400 font-bold tracking-widest mt-1">ACLARACIÓN Y FECHA</p>
-                    </div>
-                </div>
-                
-                <div className="mt-16 text-center pt-6 opacity-30">
-                     <p className="text-[10px] uppercase font-mono text-slate-900 font-bold tracking-widest flex items-center justify-center gap-2">
-                        <CheckCircle className="w-3 h-3" />
-                        WMS INVENTARIO · DOCUMENTO GENERADO ELECTRÓNICAMENTE
-                     </p>
-                </div>
+                ))}
             </div>
         </div>
     )}
+
+
+    
+      {/* MODAL CATÁLOGO PARA PEDIR INSUMOS */}
+      <CategoryDrillDownModal
+        isOpen={isCatalogOpen}
+        onClose={() => setIsCatalogOpen(false)}
+        title="Seleccionar Insumos para Solicitar"
+        categorias={catalogCategorias}
+        productos={catalogProductos}
+        closeOnSelect={false}
+        onSelect={(varId: string) => {
+          const found = catalogProductos.find((p: any) => String(p.id) === String(varId));
+          if (!found) return;
+          if (!solicitudCart.find((c: any) => String(c.id) === String(varId))) {
+            const cartItem = { ...found, var_id: found.id, prod_name: found.producto_nombre, var_name: found.nombre_variante, cantidad: 1 };
+            setSolicitudCart(prev => [...prev, cartItem]);
+            toast.success((found.nombre_variante || found.producto_nombre) + ' agregado');
+          } else {
+            toast.error('Esta variante ya está en la solicitud');
+          }
+        }}
+      />
+
     </>
   );
 }

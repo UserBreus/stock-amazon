@@ -4,9 +4,10 @@ import {
   Plus, Scan, AlertCircle, ArchiveRestore, Printer, Search, CreditCard, Activity, 
   Box, ArrowUpRight, ChevronDown, ChevronRight, Layers, Receipt, Network, X, 
   Package, ShoppingCart, ListChecks, Tags, Camera, ArrowDownToLine, 
-  ArrowRightLeft, ArrowUpFromLine, LayoutDashboard, History, ScanBarcode, ArrowLeft 
+  ArrowRightLeft, ArrowUpFromLine, LayoutDashboard, History, MapPin, Send, ClipboardList, CheckCircle, PackageCheck, ScanBarcode, ArrowLeft, User 
 } from 'lucide-react';
 import { executeAWSQuery } from '../lib/aws-client';
+import { printRemito } from '../lib/printRemito';
 import { cn } from '../lib/utils';
 import { Modal } from '../components/ui/Modal';
 import { BarcodeScanner } from '../components/ui/BarcodeScanner';
@@ -14,13 +15,15 @@ import { useAuth } from '../context/AuthContext';
 import { DespachoEgresos } from '../components/DespachoEgresos';
 import { RecepcionAuditoria } from '../components/RecepcionAuditoria';
 
+import toast from 'react-hot-toast';
+
 export function InventarioGerencial() {
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
 
   // Tabs Visuales Originales
   const [activeTab, setActiveTab] = useState<'panel' | 'inventario' | 'historial' | 'catalogo' | 'compras'>('panel');
-  const [panelView, setPanelView] = useState<'hub' | 'ingreso' | 'traslado' | 'retiro' | 'etiquetas'>('hub');
+  const [panelView, setPanelView] = useState<'hub' | 'ingreso' | 'traslado' | 'retiro' | 'etiquetas' | 'solicitudes'>('hub');
 
   // Stock and Filters
   const [stockConsolidado, setStockConsolidado] = useState<any[]>([]);
@@ -30,7 +33,25 @@ export function InventarioGerencial() {
   const [comprasPendientes, setComprasPendientes] = useState<any[]>([]);
 
   const [warehouseFilterId, setWarehouseFilterId] = useState<string | null>(null);
+  const [globalHistorial, setGlobalHistorial] = useState<any[]>([]);
+  const [selectedHistorialRemito, setSelectedHistorialRemito] = useState<any>(null);
+  const [historialSearch, setHistorialSearch] = useState('');
+  const [historialDate, setHistorialDate] = useState('');
+  const [historialLoaded, setHistorialLoaded] = useState(false);
   const filterRef = useRef<string | null>(null);
+
+  // Solicitudes & Historial Global states restored
+  const [solicitudes, setSolicitudes] = useState<any[]>([]);
+  const [solicitudItems, setSolicitudItems] = useState<{ [key: string]: any[] }>({});
+  const [selectedModalSol, setSelectedModalSol] = useState<any>(null);
+  const [solicitudOrigenSel, setSolicitudOrigenSel] = useState<{ [solId: number]: string[] }>({});
+  const [isSubModalOriginOpen, setIsSubModalOriginOpen] = useState(false);
+  const [stockCoverage, setStockCoverage] = useState<Record<number, {status: "FULL"|"PARTIAL"|"NONE"}>>({});
+  const [isLoadingCoverage, setIsLoadingCoverage] = useState(false);
+  const [remitoPDFInfo, setRemitoPDFInfo] = useState<any>(null);
+  const [isViewingFullscreenPDF, setIsViewingFullscreenPDF] = useState(false);
+  const [enviandoSolicitud, setEnviandoSolicitud] = useState<string | null>(null);
+
 
   const [filterMode, setFilterMode] = useState<'all' | 'activos' | 'inactivos'>('activos');
   const [searchQuery, setSearchQuery] = useState('');
@@ -60,6 +81,219 @@ export function InventarioGerencial() {
 
   const toggleRow = (id: string) => {
     setExpandedRows(prev => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  
+  const fetchGlobalSolicitudes = async () => {
+      try {
+          const res = await executeAWSQuery(`
+              SELECT s.*, d.nombre as sector_nombre, u.nombre_completo as operario_nombre 
+              FROM wms_solicitudes s
+              LEFT JOIN Stock_Depositos d ON s.deposito_solicitante_id = d.id
+              LEFT JOIN Usuarios u ON CAST(u.id AS VARCHAR(255)) = CAST(s.creado_por AS VARCHAR(255))
+              WHERE s.estado = 'PENDIENTE'
+              ORDER BY s.fecha_creacion DESC
+          `);
+          setSolicitudes(res || []);
+      } catch (err: any) { toast.error("Carga de solicitudes fallida: " + err.message) }
+  };
+
+  const fetchGlobalHistorial = async () => {
+    try {
+      const res = await executeAWSQuery(`
+        SELECT TOP 200 r.*, d_origen.nombre as origen_nombre, d_destino.nombre as destino_nombre, u.nombre_completo as usuario_emisor,
+          (SELECT SUM(cantidad_enviada) FROM wms_remitos_internos_items i WHERE i.remito_id = r.id) as total_unidades
+        FROM wms_remitos_internos r
+        LEFT JOIN Usuarios u ON CAST(u.id AS VARCHAR(255)) = CAST(r.creado_por AS VARCHAR(255))
+        LEFT JOIN Stock_Depositos d_origen ON r.deposito_origen_id = d_origen.id
+        LEFT JOIN Stock_Depositos d_destino ON r.deposito_destino_id = d_destino.id
+        ORDER BY r.fecha_creacion DESC
+      `);
+      setGlobalHistorial(res || []);
+      setHistorialLoaded(true);
+    } catch (error: any) { toast.error("Historial WMS: " + error.message) }
+  };
+
+  useEffect(() => {
+    fetchGlobalSolicitudes();
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === 'historial' && !historialLoaded) fetchGlobalHistorial();
+  }, [activeTab]);
+
+  const handleOpenSolicitud = async (sol: any) => {
+      setSelectedModalSol(sol);
+      try {
+          const res = await executeAWSQuery(`
+             SELECT i.*, v.nombre_variante, p.nombre as producto_nombre
+             FROM wms_solicitudes_items i
+             JOIN Stock_Variantes v ON i.variante_id = v.id
+             JOIN Stock_Productos_Maestros p ON v.producto_maestro_id = p.id
+             WHERE i.solicitud_id = ${sol.id}
+          `);
+          setSolicitudItems(prev => ({ ...prev, [sol.id]: res || [] }));
+      } catch (err) { }
+  };
+
+  const openOriginSubModal = async () => {
+     setIsSubModalOriginOpen(true);
+     if (!selectedModalSol) return;
+     const items = solicitudItems[selectedModalSol.id];
+     if (!items || items.length === 0) return;
+     
+     setIsLoadingCoverage(true);
+     try {
+       const qs = items.map((i:any) => i.variante_id).join(',');
+       const stock = await executeAWSQuery(`
+          SELECT deposito_id, variante_id, SUM(cantidad_actual) as stock_total 
+          FROM Stock_Etiquetas 
+          WHERE variante_id IN (${qs}) AND estado = 'activo' AND cantidad_actual > 0
+          GROUP BY deposito_id, variante_id
+       `);
+       
+       const availability: Record<number, {status: "FULL"|"PARTIAL"|"NONE"}> = {};
+       depositos.forEach((d:any) => {
+          let hasSufficientAll = true;
+          let hasAny = false;
+          for(const rq of items) {
+             const found = (stock||[]).find((s:any) => s.deposito_id === d.id && s.variante_id === rq.variante_id);
+             const qty = found ? found.stock_total : 0;
+             if (qty > 0) hasAny = true;
+             if (qty < rq.cantidad_solicitada) hasSufficientAll = false;
+          }
+          if (hasSufficientAll) availability[d.id] = { status: "FULL" };
+          else if (hasAny) availability[d.id] = { status: "PARTIAL" };
+          else availability[d.id] = { status: "NONE" };
+       });
+       setStockCoverage(availability);
+     } catch (e) { } finally { setIsLoadingCoverage(false); }
+  };
+
+  const handleEnviarSolicitud = async (sol: any) => {
+    const origenIdsArray = solicitudOrigenSel[sol.id] || [];
+    if (origenIdsArray.length === 0) return toast.error('Seleccioná al menos un almacén de origen primero');
+    const items = solicitudItems[sol.id];
+    if (!items || items.length === 0) return toast.error('Cargá los ítems primero');
+
+    setEnviandoSolicitud(sol.id);
+    try {
+      const remitoCode = 'REM-' + Date.now().toString().slice(-6) + Math.floor(Math.random() * 100);
+      const destino = sol.deposito_solicitante_id;
+      const primaryOrigen = origenIdsArray[0];
+      const userId = (user as any)?.id || '';
+
+      // PASO 1: Crear el remito y obtener su ID con OUTPUT INSERTED.id
+      const remitoRes = await executeAWSQuery(`
+        INSERT INTO wms_remitos_internos (numeracion, deposito_origen_id, deposito_destino_id, creado_por, estado)
+        OUTPUT INSERTED.id
+        VALUES ('${remitoCode}', ${primaryOrigen}, ${destino}, '${userId}', 'EN_TRANSITO');
+      `);
+      const remitoId = remitoRes?.[0]?.id;
+      if (!remitoId) throw new Error('No se pudo crear el remito interno (OUTPUT INSERTED.id vació)');
+
+      // PASO 2: Para cada item, iterar FIFO por almacenes de origen
+      const pdfItemsExtracted: any[] = [];
+      const labelsToPrint: any[] = [];
+      const missingStockErrors: string[] = [];
+
+      for (const item of items) {
+        let remaining = Number(item.cantidad_solicitada);
+        let localTaken = 0;
+
+        for (const oId of origenIdsArray) {
+          if (remaining <= 0) break;
+
+          const etqs = await executeAWSQuery(`
+            SELECT TOP 100 id, cantidad_actual, codigo_barras
+            FROM Stock_Etiquetas
+            WHERE variante_id = ${item.variante_id}
+              AND deposito_id = ${oId}
+              AND estado = 'activo'
+              AND cantidad_actual > 0
+            ORDER BY ultima_actualizacion ASC
+          `);
+
+          if (!etqs || etqs.length === 0) continue;
+
+          for (const etq of etqs) {
+            if (remaining <= 0) break;
+            const toTake = Math.min(Number(etq.cantidad_actual), remaining);
+            remaining -= toTake;
+            localTaken += toTake;
+
+            if (toTake === Number(etq.cantidad_actual)) {
+              // Lote completo: mover directamente
+              await executeAWSQuery(`
+                SET NOCOUNT ON;
+                UPDATE Stock_Etiquetas SET deposito_id = ${destino}, estado = 'trasladando' WHERE id = ${etq.id};
+                INSERT INTO Stock_Movimientos (etiqueta_id, tipo_movimiento, cantidad_afectada, deposito_origen_id, deposito_destino_id, remito_id, usuario_id)
+                VALUES (${etq.id}, 'traslado_salida', ${toTake}, ${oId}, ${destino}, ${remitoId}, '${userId}');
+                INSERT INTO wms_remitos_internos_items (remito_id, variante_id, cantidad_enviada, etiqueta_generada_id, estado)
+                VALUES (${remitoId}, ${item.variante_id}, ${toTake}, ${etq.id}, 'PENDIENTE');
+              `);
+            } else {
+              // Fraccionamiento: descontar y crear nuevo lote
+              const newCode = `${etq.codigo_barras}-F${Math.floor(Math.random() * 9999)}`;
+              labelsToPrint.push({ codigo_barras: newCode, producto_nombre: item.producto_nombre, nombre_variante: item.nombre_variante, cantidad_actual: toTake });
+
+              const newLoteRes = await executeAWSQuery(`
+                SET NOCOUNT ON;
+                UPDATE Stock_Etiquetas SET cantidad_actual = cantidad_actual - ${toTake} WHERE id = ${etq.id};
+                INSERT INTO Stock_Etiquetas (codigo_barras, variante_id, deposito_id, cantidad_inicial, cantidad_actual, estado)
+                OUTPUT INSERTED.id
+                VALUES ('${newCode}', ${item.variante_id}, ${destino}, ${toTake}, ${toTake}, 'trasladando');
+              `);
+              const newLoteId = newLoteRes?.[0]?.id;
+              if (newLoteId) {
+                await executeAWSQuery(`
+                  SET NOCOUNT ON;
+                  INSERT INTO Stock_Movimientos (etiqueta_id, tipo_movimiento, cantidad_afectada, deposito_origen_id, deposito_destino_id, remito_id, usuario_id)
+                  VALUES (${newLoteId}, 'fraccionamiento_ingreso', ${toTake}, ${oId}, ${destino}, ${remitoId}, '${userId}');
+                  INSERT INTO Stock_Movimientos (etiqueta_id, tipo_movimiento, cantidad_afectada, deposito_origen_id, deposito_destino_id, remito_id, usuario_id)
+                  VALUES (${etq.id}, 'fraccionamiento_salida', ${toTake}, ${oId}, ${destino}, ${remitoId}, '${userId}');
+                  INSERT INTO wms_remitos_internos_items (remito_id, variante_id, cantidad_enviada, etiqueta_generada_id, estado)
+                  VALUES (${remitoId}, ${item.variante_id}, ${toTake}, ${newLoteId}, 'PENDIENTE');
+                `);
+              }
+            }
+          }
+        }
+
+        if (localTaken > 0) pdfItemsExtracted.push({ id: item.variante_id + '-' + Date.now(), codigo_barras: 'MULTI-SEQ', cantidad_a_extraer: localTaken, producto_nombre: item.producto_nombre, nombre_variante: item.nombre_variante });
+        if (remaining > 0) missingStockErrors.push(`Faltaron ${remaining} uds de "${item.nombre_variante}"`);
+      }
+
+      // PASO 3: Marcar solicitud como aprobada
+      await executeAWSQuery(`UPDATE wms_solicitudes SET estado = 'APROBADA', remito_id = ${remitoId} WHERE id = ${sol.id};`);
+
+      if (missingStockErrors.length > 0) toast.error(`Stock insuficiente: ${missingStockErrors.join('. ')}`, { duration: 6000 });
+
+      setRemitoPDFInfo({ cart: pdfItemsExtracted, origen: 'Consolidado (Multi-Origen)', destino: sol.sector_nombre, codigo: remitoCode, fecha: new Date().toLocaleString(), nuevasEtiquetas: labelsToPrint });
+      toast.success(`✅ Remito ${remitoCode} generado y en tránsito`);
+      setSelectedModalSol(null);
+      fetchGlobalSolicitudes();
+    } catch (e: any) { toast.error('Error al despachar: ' + e.message); } finally { setEnviandoSolicitud(null); }
+  };
+
+  const handleVerHistorialDetalles = async (rem: any) => {
+      try {
+          const detailRes = await executeAWSQuery(`
+              SELECT i.*, v.nombre_variante as nombre_variante, p.nombre as producto_nombre, e.codigo_barras
+              FROM wms_remitos_internos_items i
+              JOIN Stock_Variantes v ON i.variante_id = v.id
+              JOIN Stock_Productos_Maestros p ON v.producto_maestro_id = p.id
+              LEFT JOIN Stock_Etiquetas e ON i.etiqueta_generada_id = e.id
+              WHERE i.remito_id = ${rem.id}
+          `);
+          setSelectedHistorialRemito({
+             cart: detailRes || [],
+             origen: rem.origen_nombre,
+             destino: rem.destino_nombre,
+             codigo: rem.numeracion,
+             fecha: new Date(rem.fecha_creacion).toLocaleString()
+          });
+      } catch (err: any) { toast.error("Error cargando detalle: " + err.message); }
   };
 
   const fetchData = async () => {
@@ -123,7 +357,7 @@ export function InventarioGerencial() {
   const openLabelDrillDown = async (prod: any) => {
     setVariationChartProduct(prod);
     try {
-      const q = `SELECT id, codigo_barras, cantidad_actual, deposito_id, fecha_creacion FROM Stock_Etiquetas WHERE variante_id = '${prod.variante_id}' AND estado = 'activo' AND cantidad_actual > 0 ${filterRef.current ? `AND deposito_id = ${filterRef.current}` : ''} ORDER BY fecha_creacion ASC`;
+      const q = `SELECT id, codigo_barras, cantidad_actual, deposito_id, ultima_actualizacion FROM Stock_Etiquetas WHERE variante_id = '${prod.variante_id}' AND estado = 'activo' AND cantidad_actual > 0 ${filterRef.current ? `AND deposito_id = ${filterRef.current}` : ''} ORDER BY ultima_actualizacion ASC`;
       const res = await executeAWSQuery(q);
       setLabelCatalog(res || []);
       setIsLabelDrillDownOpen(true);
@@ -166,7 +400,7 @@ export function InventarioGerencial() {
     setEgresoProduct(prod);
     setEgresoAutoMonto(1);
     try {
-      const etqs = await executeAWSQuery(`SELECT * FROM Stock_Etiquetas WHERE variante_id = '${prod.variante_id}' AND estado = 'activo' AND cantidad_actual > 0 ORDER BY fecha_creacion ASC`);
+      const etqs = await executeAWSQuery(`SELECT * FROM Stock_Etiquetas WHERE variante_id = '${prod.variante_id}' AND estado = 'activo' AND cantidad_actual > 0 ORDER BY ultima_actualizacion ASC`);
       setEgresoEtiquetas(etqs || []);
       
       const amounts: {[key:string]:number} = {};
@@ -316,6 +550,23 @@ export function InventarioGerencial() {
                 </div>
             </button>
 
+            
+            {/* NUEVO BOTON SOLICITUDES EN PANEL */}
+            <button onClick={() => setPanelView('solicitudes')} className={"relative bg-white dark:bg-slate-900 border-2 p-8 rounded-3xl text-left transition-all group flex flex-col items-start gap-6 hover:shadow-xl " + (solicitudes.length > 0 ? "border-rose-400 dark:border-rose-500/50 shadow-rose-500/10 hover:shadow-rose-500/20" : "border-slate-100 hover:border-emerald-200 dark:border-slate-800 dark:hover:border-emerald-900 hover:shadow-emerald-500/5")}>
+                {solicitudes.length > 0 && (
+                   <span className="absolute top-4 right-4 bg-rose-500 text-white font-black text-xs px-3 py-1 rounded-full shadow-lg shadow-rose-500/40 animate-pulse border-2 border-white dark:border-slate-900 z-10 flex items-center gap-2">
+                       <AlertCircle className="w-4 h-4"/> {solicitudes.length} PENDIENTES
+                   </span>
+                )}
+                <div className={"p-4 rounded-2xl group-hover:scale-110 transition-transform " + (solicitudes.length > 0 ? "bg-rose-50 dark:bg-rose-900/40 text-rose-600 dark:text-rose-400" : "bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400")}>
+                   <Send className="w-8 h-8" />
+                </div>
+                <div>
+                   <h3 className="text-2xl font-black text-slate-800 dark:text-white mb-2">Órdenes Solicitadas</h3>
+                   <p className="text-slate-500 font-medium text-sm">Aprobar, gestionar origen logístico y descontar envíos pedidos por otros sectores.</p>
+                </div>
+            </button>
+            
             <button onClick={() => setPanelView('retiro')} className="bg-white dark:bg-slate-900 border-2 border-slate-100 hover:border-orange-200 dark:border-slate-800 dark:hover:border-orange-900 p-8 rounded-3xl text-left transition-all group flex flex-col items-start gap-6 hover:shadow-xl hover:shadow-orange-500/5">
                 <div className="p-4 bg-orange-50 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400 rounded-2xl group-hover:scale-110 transition-transform">
                    <ArrowUpFromLine className="w-8 h-8" />
@@ -370,12 +621,7 @@ export function InventarioGerencial() {
          <div className="mt-4"><DespachoEgresos initialOperationType="venta_consumo" initialMode="lote" /></div>
       )}
 
-      {/* HISTORIAL TAB */}
-      {activeTab === 'historial' && (
-         <div className="mt-8 w-full"><DespachoEgresos initialMode="historial" initialOperationType="traslado" /></div>
-      )}
-
-      {/* PESTAÑA INVENTARIO (TABLA QUE EL USUARIO PIDIÓ CON FILTRO GEOGRÁFICO) */}
+      {/* PESTAÑA INVENTARIO */}
       {activeTab === 'inventario' && (
       <AnimatePresence>
       <motion.div initial={{opacity:0, y:10}} animate={{opacity:1, y:0}} exit={{opacity:0}}>
@@ -530,6 +776,324 @@ export function InventarioGerencial() {
       
 
 
+      
+      {/* PANEL SOLICITUDES */}
+      {activeTab === 'panel' && panelView === 'solicitudes' && (
+         <div className="space-y-6 animate-in slide-in-from-right-4 w-full">
+            <button onClick={() => setPanelView('hub')} className="bg-slate-200 dark:bg-slate-800 text-slate-800 dark:text-slate-200 font-black px-6 py-3 rounded-xl mb-4 hover:bg-slate-300 dark:hover:bg-slate-700 transition">Volver al Panel Central</button>
+            
+            <div className="flex justify-between items-center mb-6">
+                <h3 className="font-black text-2xl text-slate-800 dark:text-white flex items-center gap-2">
+                    <Send className="w-8 h-8 text-emerald-500" /> Cola de Órdenes Solicitadas ({solicitudes.length})
+                </h3>
+            </div>
+            
+            {solicitudes.length === 0 ? (
+                 <div className="bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 px-6 py-12 text-center rounded-3xl border-2 border-emerald-100 dark:border-emerald-800">
+                    <CheckCircle className="w-16 h-16 mx-auto mb-4" />
+                    <h3 className="text-2xl font-black mb-2">Todo al día</h3>
+                    <p className="font-bold max-w-sm mx-auto">No hay ninguna solicitud operativa de mercadería en espera.</p>
+                 </div>
+            ) : (
+                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                     {solicitudes.map((sol: any) => (
+                         <div key={sol.id} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 rounded-2xl flex justify-between flex-col transition hover:shadow-lg hover:border-emerald-300 dark:hover:border-emerald-700">
+                             <div className="flex justify-between mb-4">
+                                <div>
+                                   <p className="font-bold text-slate-500 uppercase tracking-widest text-[10px] mb-1">Sector Solicitante / Usuario</p>
+                                   <h4 className="font-black text-lg text-slate-800 dark:text-white leading-tight">{sol.sector_nombre || 'N/A'}</h4>
+                                   <p className="font-bold text-slate-500 text-xs mt-1"><User className="w-3 h-3 inline pb-0.5"/> {sol.operario_nombre}</p>
+                                </div>
+                                <div className="text-right">
+                                   <span className="font-mono text-emerald-600 bg-emerald-50 px-2 py-1 rounded text-xs font-black uppercase shadow-sm border border-emerald-100">{sol.numeracion}</span>
+                                </div>
+                             </div>
+                             <p className="font-bold text-slate-400 text-xs mb-6">Fecha Pedido: {new Date(sol.fecha_creacion).toLocaleString()}</p>
+                             
+                             <button onClick={() => handleOpenSolicitud(sol)} className="bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 font-black py-4 rounded-xl flex items-center justify-center gap-2 w-full hover:scale-[1.02] transition">
+                                EVALUAR Y ASIGNAR STOCK
+                             </button>
+                         </div>
+                     ))}
+                 </div>
+            )}
+         </div>
+      )}
+
+      {/* MODAL: ÓRDENES SOLICITADAS Y COBERTURAS */}
+      <Modal isOpen={!!selectedModalSol} onClose={() => { setSelectedModalSol(null); setRemitoPDFInfo(null); }} title={`Asignar Stock para Orden: ${selectedModalSol?.numeracion || ''}`}>
+         {selectedModalSol && (
+            <div className="space-y-6">
+               <div className="bg-amber-50 dark:bg-amber-900/10 p-3 rounded-xl border border-amber-200 dark:border-amber-900/30 flex items-center justify-between">
+                 <div className="flex items-center gap-2">
+                    <MapPin className="w-4 h-4 text-amber-600" />
+                    <span className="text-xs font-black uppercase tracking-widest text-amber-800 dark:text-amber-500">
+                       Orígenes de Extracción
+                    </span>
+                 </div>
+                 <button
+                    onClick={openOriginSubModal}
+                    className="bg-white dark:bg-slate-900 border border-amber-300 dark:border-amber-700 hover:border-amber-500 text-xs font-bold text-slate-700 dark:text-slate-200 py-1.5 px-4 rounded-lg shadow-sm transition-all flex items-center gap-2"
+                 >
+                    {solicitudOrigenSel[selectedModalSol.id]?.length > 0
+                        ? `${solicitudOrigenSel[selectedModalSol.id].length} Almacén(es) Elegido(s) - Cambiar`
+                        : 'Elegir Origen...'}
+                 </button>
+               </div>
+
+               <div className="flex bg-slate-50 dark:bg-slate-900 p-4 rounded-xl border border-slate-100 dark:border-slate-800 items-center justify-between mt-2">
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">Destino Físico</p>
+                    <p className="font-black text-lg text-slate-800 dark:text-white flex items-center gap-2">
+                      <MapPin className="w-5 h-5 text-emerald-500" /> {selectedModalSol.sector_nombre}
+                    </p>
+                  </div>
+               </div>
+
+               <div>
+                 <h4 className="text-xs font-black uppercase tracking-widest text-slate-400 mb-3 pb-2 border-b border-slate-100">Artículos Solicitados</h4>
+                 {!solicitudItems[selectedModalSol.id] ? (
+                    <div className="py-8 text-center text-slate-400 text-sm animate-pulse">Cargando...</div>
+                 ) : (
+                    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
+                      <table className="w-full text-left text-sm">
+                        <thead>
+                          <tr className="border-b border-slate-200 bg-slate-50">
+                            <th className="px-5 py-3 text-[10px] font-black uppercase tracking-widest text-slate-400">Artículo</th>
+                            <th className="px-5 py-3 text-[10px] font-black uppercase tracking-widest text-slate-400 text-center">Req.</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {solicitudItems[selectedModalSol.id].map((item: any) => (
+                            <tr key={item.id} className="hover:bg-slate-50">
+                              <td className="px-5 py-3">
+                                 <p className="font-bold text-slate-800">{item.producto_nombre}</p>
+                                 <p className="text-[10px] uppercase font-bold text-slate-500">{item.nombre_variante}</p>
+                              </td>
+                              <td className="px-5 py-3 text-center">
+                                 <input 
+                                   type="number" 
+                                   min="1"
+                                   className="w-20 text-center font-black text-lg text-indigo-600 bg-indigo-50 border border-indigo-200 rounded-lg p-1 outline-none focus:ring-2 focus:ring-indigo-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                   value={item.cantidad_solicitada}
+                                   onChange={(e) => {
+                                      const val = parseInt(e.target.value) || 1;
+                                      setSolicitudItems(prev => ({
+                                        ...prev,
+                                        [selectedModalSol.id]: prev[selectedModalSol.id].map((it: any) => 
+                                          it.id === item.id ? { ...it, cantidad_solicitada: val } : it
+                                        )
+                                      }));
+                                   }}
+                                 />
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                 )}
+               </div>
+
+               <button disabled={enviandoSolicitud === selectedModalSol.id || !solicitudOrigenSel[selectedModalSol.id]?.length} onClick={() => handleEnviarSolicitud(selectedModalSol)} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-black py-4 rounded-xl shadow-lg transition-all disabled:opacity-50 mt-4">
+                  {enviandoSolicitud === selectedModalSol.id ? 'CREANDO REMITO...' : 'ENTREGAR Y GENERAR REMITO'}
+               </button>
+            </div>
+         )}
+      </Modal>
+
+      {/* MODAL REMITO CREADO */}
+      <Modal isOpen={remitoPDFInfo !== null && !selectedModalSol} onClose={() => setRemitoPDFInfo(null)} title="Remito Generado">
+          {remitoPDFInfo && (
+              <div className="text-center p-4 space-y-6">
+                  <CheckCircle className="w-20 h-20 text-emerald-500 mx-auto" />
+                  <div>
+                    <h3 className="text-2xl font-black mb-1 text-slate-800 dark:text-white">¡Despacho Registrado!</h3>
+                    <p className="text-sm text-slate-500 font-medium">La mercadería ya entró en tránsito logístico y el remito fue creado con éxito.</p>
+                  </div>
+                  <button
+                    onClick={() => {
+                      printRemito(
+                        remitoPDFInfo.cart,
+                        { codigo: remitoPDFInfo.codigo, fecha: remitoPDFInfo.fecha, estado: 'EN_TRÁNSITO', origen: remitoPDFInfo.origen, destino: remitoPDFInfo.destino },
+                        'despacho'
+                      );
+                    }}
+                    className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-black py-4 uppercase tracking-widest rounded-2xl flex items-center justify-center gap-3 transition-all shadow-lg shadow-indigo-600/30"
+                  >
+                      <ClipboardList className="w-6 h-6"/> IMPRIMIR REMITO A4
+                  </button>
+                  <button onClick={() => setRemitoPDFInfo(null)} className="w-full py-4 uppercase font-bold tracking-widest text-xs border-2 border-slate-200 rounded-2xl hover:bg-slate-50">Cerrar</button>
+              </div>
+          )}
+      </Modal>
+
+      {/* SUB-MODAL ORÍGENES */}
+      {isSubModalOriginOpen && selectedModalSol && (
+        <Modal isOpen={true} onClose={() => setIsSubModalOriginOpen(false)} title="Elegir Almacén Físico">
+          <div className="space-y-6">
+             <p className="text-sm font-medium text-slate-500">Selecciona desde qué almacenes saldrá la mercadería. Si el primero no alcanza, selecciona más en secuencia.</p>
+             {isLoadingCoverage ? ( <div className="py-8 text-center">Calculando cobertura...</div> ) : (
+             <div className="grid grid-cols-2 md:grid-cols-3 gap-3 pt-2">
+               {depositos.filter((d:any) => String(d.id) !== String(selectedModalSol.deposito_solicitante_id)).map((d:any) => {
+                  const sels = solicitudOrigenSel[selectedModalSol.id] || [];
+                  const idx = sels.indexOf(String(d.id));
+                  const isSelected = idx !== -1;
+                  const coverage = stockCoverage[d.id];
+                  
+                  let isLockedOut = false;
+                  for (let i = 0; i < sels.length; i++) {
+                     if (String(sels[i]) !== String(d.id) && stockCoverage[Number(sels[i])]?.status === "FULL" && i <= idx) break; 
+                     if (String(sels[i]) !== String(d.id) && stockCoverage[Number(sels[i])]?.status === "FULL" && !isSelected) isLockedOut = true;
+                  }
+
+                  return (
+                    <button key={d.id} disabled={isLockedOut || (!isSelected && coverage?.status === "NONE")}
+                      onClick={() => setSolicitudOrigenSel(prev => {
+                            const cur = prev[selectedModalSol.id] || [];
+                            return isSelected ? { ...prev, [selectedModalSol.id]: cur.filter(x => x !== String(d.id)) } : { ...prev, [selectedModalSol.id]: [...cur, String(d.id)] };
+                      })}
+                      className={"relative flex flex-col items-center justify-center p-4 border-2 rounded-2xl transition-all " + (isSelected ? "bg-indigo-50 border-indigo-500 text-indigo-700" : isLockedOut || coverage?.status === "NONE" ? "bg-slate-50 border-slate-100 text-slate-300 opacity-60 cursor-not-allowed" : "bg-white border-slate-200 hover:border-indigo-300")}
+                    >
+                       <MapPin className={"w-8 h-8 mb-2 " + (isSelected ? "text-indigo-500" : coverage?.status === "NONE" ? "text-slate-300" : "text-amber-500")} />
+                       <span className="font-black text-[10px] tracking-widest text-center uppercase leading-tight mb-2 h-6">{d.nombre}</span>
+                       <span className={"text-[9px] font-bold px-2 py-0.5 rounded-full border uppercase mt-auto " + (coverage?.status==="FULL" ? "bg-emerald-100 text-emerald-700 border-emerald-200" : coverage?.status==="PARTIAL" ? "bg-amber-100 text-amber-700 border-amber-200" : "bg-slate-100 text-slate-400 border-slate-200")}>
+                          {coverage?.status==="FULL" ? "COMPLETA 100%" : coverage?.status==="PARTIAL" ? "INCOMPLETA STOCK" : "SIN STOCK"}
+                       </span>
+                       {isSelected && (<div className="absolute -top-3 -right-3 w-7 h-7 rounded-full bg-indigo-500 text-white font-black text-xs flex items-center justify-center border-2 border-white">{idx + 1}</div>)}
+                    </button>
+                  )
+               })}
+             </div>
+             )}
+             <button onClick={() => setIsSubModalOriginOpen(false)} className="w-full bg-slate-900 text-white font-black py-4 uppercase text-sm rounded-xl">Hecho</button>
+          </div>
+        </Modal>
+      )}
+
+      {/* HISTORIAL GLOBAL */}
+      {activeTab === 'historial' && (
+         <div className="space-y-6 animate-in slide-in-from-bottom-4 duration-500">
+            <div className="flex justify-between items-center mb-6">
+                <h3 className="font-black text-2xl flex items-center gap-3 text-slate-800 dark:text-white">
+                    <div className="p-3 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-500 rounded-xl">
+                       <History className="w-8 h-8" />
+                    </div>
+                    Trazabilidad y Emisiones (Historial WMS)
+                </h3>
+                <button onClick={fetchGlobalHistorial} className="font-bold border border-slate-200 dark:border-slate-800 px-4 py-2 rounded-xl text-indigo-600 dark:text-indigo-400 bg-white dark:bg-slate-900 shadow-sm hover:bg-slate-50 dark:hover:bg-slate-800 transition">Sincronizar</button>
+            </div>
+            <div className="flex flex-col md:flex-row gap-4 mb-8">
+                <div className="flex-1 relative">
+                   <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 dark:text-slate-500" />
+                   <input type="text" placeholder="Buscar por código de remito, almacén de origen o destino..." value={historialSearch} onChange={e=>setHistorialSearch(e.target.value)} className="w-full pl-12 pr-4 py-4 bg-white dark:bg-slate-900 border-2 border-slate-100 dark:border-slate-800 rounded-2xl font-bold focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all shadow-sm text-slate-800 dark:text-white" />
+                </div>
+                <div className="w-full md:w-64 relative">
+                   <input type="date" value={historialDate} onChange={e=>setHistorialDate(e.target.value)} className="w-full px-4 py-4 bg-white dark:bg-slate-900 border-2 border-slate-100 dark:border-slate-800 rounded-2xl font-bold focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all shadow-sm text-slate-800 dark:text-white" />
+                </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                {globalHistorial.filter(r => (!historialDate || r.fecha_creacion.startsWith(historialDate)) && (!historialSearch || r.numeracion?.toLowerCase().includes(historialSearch.toLowerCase()) || r.origen_nombre?.toLowerCase().includes(historialSearch.toLowerCase()) || r.destino_nombre?.toLowerCase().includes(historialSearch.toLowerCase()))).map((rem:any) => (
+                       <div key={rem.id} onClick={() => { handleVerHistorialDetalles(rem); setIsViewingFullscreenPDF(true); }} className="p-6 bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-3xl flex flex-col justify-between gap-6 hover:border-indigo-300 dark:hover:border-indigo-500/50 hover:shadow-xl hover:shadow-indigo-500/5 transition-all cursor-pointer group">
+                           <div className="flex items-start gap-5">
+                               <div className="w-14 h-14 bg-slate-50 dark:bg-slate-800 text-slate-400 dark:text-slate-500 rounded-2xl flex items-center justify-center shrink-0 group-hover:bg-indigo-50 group-hover:text-indigo-600 transition-colors">
+                                   <PackageCheck className="w-6 h-6" />
+                               </div>
+                               <div>
+                                   <div className="flex items-center gap-2 mb-2">
+                                       <span className="bg-slate-900 text-white text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded-md shadow-sm">{rem.numeracion}</span>
+                                       <span className="text-[10px] font-bold text-slate-500 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded-md">{new Date(rem.fecha_creacion).toLocaleDateString()}</span>
+                                   </div>
+                                   <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1 flex items-center gap-1"><ArrowUpRight className="w-3 h-3 text-rose-400"/> {rem.origen_nombre}</p>
+                                   <p className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1"><ArrowRightLeft className="w-3 h-3 text-indigo-400"/> {rem.destino_nombre}</p>
+                               </div>
+                           </div>
+                           <div className="flex justify-between items-center pt-4 border-t border-slate-100 dark:border-slate-800">
+                               <div>
+                                   <p className="text-xs font-black text-slate-500 uppercase tracking-widest">{rem.total_unidades || 0} Unidades Físicas</p>
+                                   <p className="text-[10px] uppercase font-bold text-slate-400 tracking-widest mt-0.5">Resp: {rem.usuario_emisor || rem.creado_por || 'Sistema'}</p>
+                               </div>
+                               <span className="text-[10px] bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 border border-emerald-100 dark:border-emerald-800 px-2.5 py-1 rounded-full font-black uppercase tracking-widest">{rem.estado}</span>
+                           </div>
+                       </div>
+                ))}
+            </div>
+         </div>
+      )}
+
+
+
+
+
+      {/* FULLSCREEN PDF VISOR HISTORIAL */}
+      {isViewingFullscreenPDF && selectedHistorialRemito && (
+        <div id="print-root" className="fixed inset-0 z-[100] bg-slate-800/90 backdrop-blur-sm overflow-y-auto p-4 flex flex-col items-center">
+            <div className="hide-on-print fixed top-6 right-6 flex gap-4 z-[110]">
+              <button onClick={() => { setTimeout(() => window.print(), 100); }} className="bg-indigo-600 text-white p-4 rounded-full hover:bg-indigo-700 flex items-center shadow-lg"><span className="font-black text-xs uppercase">Imprimir A4</span></button>
+              <button onClick={() => { setIsViewingFullscreenPDF(false); setSelectedHistorialRemito(null); }} className="bg-white text-slate-900 p-4 rounded-full hover:bg-slate-200"><span className="font-black text-xs uppercase">Cerrar</span></button>
+            </div>
+            {(selectedHistorialRemito.cart.length > 0 ? selectedHistorialRemito.cart.reduce((acc:any, curr:any, i:number) => { if (i % 30 === 0) acc.push([]); acc[acc.length - 1].push(curr); return acc; }, []) : [[]]).map((pageItems:any, pageIndex:number) => (
+                    <div key={pageIndex} className="w-[794px] min-h-[1123px] bg-white text-slate-800 font-sans p-10 mb-4 shrink-0 shadow-xl" style={{ pageBreakAfter: 'always' }}>
+                        <div className="flex justify-between border-b pb-5 mb-5 align-top">
+                            <div>
+                                <h1 className="text-3xl font-black mb-1">REMITO DE MOVIMIENTO</h1>
+                            </div>
+                            <div className="text-right">
+                                <span className="font-mono font-black border border-slate-200 px-3 py-1 rounded-md">{selectedHistorialRemito.codigo}</span>
+                                <p className="font-bold text-xs mt-2">{selectedHistorialRemito.fecha}</p>
+                            </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-4 mb-5">
+                            <div className="border border-slate-200 p-4 rounded-xl"><p className="text-[10px] font-bold text-slate-400">Origen</p><p className="font-black">{selectedHistorialRemito.origen}</p></div>
+                            <div className="border border-slate-200 p-4 rounded-xl"><p className="text-[10px] font-bold text-slate-400">Destino</p><p className="font-black">{selectedHistorialRemito.destino}</p></div>
+                        </div>
+                        <table className="w-full text-left bg-white border border-slate-200 rounded-xl border-collapse">
+                            <thead><tr className="border-b"><th className="py-2 px-3 text-[10px] border-r">Cantidad</th><th className="py-2 px-3 text-[10px] border-r">Lotes (Multi-Secuencia)</th><th className="py-2 px-3 text-[10px]">Artículo</th></tr></thead>
+                            <tbody className="divide-y">
+                                {pageItems.map((c:any, idx:number)=>(
+                                   <tr key={idx} className="bg-white"><td className="py-2 px-3 border-r font-black text-center">{c.cantidad_a_extraer || c.cantidad_enviada}</td><td className="py-2 px-3 border-r font-mono text-xs text-slate-500">{c.codigo_barras || 'N/A'}</td><td className="py-2 px-3 font-bold">{c.producto_nombre} <span className="text-[10px] font-normal px-2 ml-2 rounded bg-slate-100">{c.nombre_variante}</span></td></tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+            ))}
+        </div>
+      )}
+
+      {/* FULLSCREEN PDF PARA NUEVO REMITO */}
+      {isViewingFullscreenPDF && remitoPDFInfo && !selectedHistorialRemito && (
+        <div id="print-root" className="fixed inset-0 z-[100] bg-slate-800/90 backdrop-blur-sm overflow-y-auto p-4 flex flex-col items-center">
+            <div className="hide-on-print fixed top-6 right-6 flex gap-4 z-[110]">
+              <button onClick={() => { setTimeout(() => window.print(), 100); }} className="bg-indigo-600 text-white p-4 rounded-full flex items-center shadow-lg"><span className="font-black text-xs">Imprimir A4</span></button>
+              <button onClick={() => { setIsViewingFullscreenPDF(false); setRemitoPDFInfo(null); setSelectedModalSol(null); }} className="bg-white p-4 rounded-full"><span className="font-black text-xs">Cerrar</span></button>
+            </div>
+            
+            {(remitoPDFInfo.cart.length > 0 ? remitoPDFInfo.cart.reduce((acc:any, curr:any, i:number) => { if (i % 30 === 0) acc.push([]); acc[acc.length - 1].push(curr); return acc; }, []) : [[]]).map((pageItems:any, pageIndex:number) => (
+                    <div key={pageIndex} className="w-[794px] min-h-[1123px] bg-white text-slate-800 font-sans p-10 mb-4 shrink-0 shadow-xl" style={{ pageBreakAfter: 'always' }}>
+                        <div className="flex justify-between border-b pb-5 mb-5 align-top">
+                            <div><h1 className="text-3xl font-black mb-1">REMITO DESPACHO (NUEVO)</h1></div>
+                            <div className="text-right">
+                                <span className="font-mono font-black border border-slate-200 px-3 py-1 rounded-md">{remitoPDFInfo.codigo}</span>
+                                <p className="font-bold text-xs mt-2">{remitoPDFInfo.fecha}</p>
+                            </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-4 mb-5">
+                            <div className="border border-slate-200 p-4 rounded-xl"><p className="text-[10px] font-bold text-slate-400">Origen Consolidado</p><p className="font-black">{remitoPDFInfo.origen}</p></div>
+                            <div className="border border-slate-200 p-4 rounded-xl"><p className="text-[10px] font-bold text-slate-400">Destino</p><p className="font-black">{remitoPDFInfo.destino}</p></div>
+                        </div>
+                        <table className="w-full text-left border rounded-xl border-collapse">
+                            <thead><tr className="border-b"><th className="py-2 px-3 text-[10px] border-r">Cantidad</th><th className="py-2 px-3 text-[10px] border-r">Lotes (Multi-Secuencia)</th><th className="py-2 px-3 text-[10px]">Artículo</th></tr></thead>
+                            <tbody className="divide-y">
+                                {pageItems.map((c:any, idx:number)=>(
+                                   <tr key={idx} className="bg-white"><td className="py-2 px-3 border-r font-black text-center">{c.cantidad_a_extraer}</td><td className="py-2 px-3 border-r font-mono text-xs">{c.codigo_barras}</td><td className="py-2 px-3 font-bold">{c.producto_nombre} <span className="text-[10px] font-normal px-2 ml-2 rounded bg-slate-100">{c.nombre_variante}</span></td></tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+            ))}
+        </div>
+      )}
+
       {/* MODALES CLAVE */}
       
       {/* MODAL ETIQUETAS */}
@@ -618,6 +1182,120 @@ export function InventarioGerencial() {
              </button>
          </div>
       </Modal>
+
+    
+      {/* GLOBAL VIEW HISTORIAL PORTAL */}
+      {selectedHistorialRemito && (
+        <div className="fixed inset-0 z-[100] bg-slate-800/90 backdrop-blur-sm overflow-y-auto p-4 sm:p-10 flex flex-col items-center gap-8 print:static print:inset-auto print:h-auto print:w-auto print:overflow-visible print:block print:p-0 print:bg-white hide-scrollbar">
+            <div className="hide-on-print fixed top-6 right-6 flex gap-4 z-[110]">
+              <button
+                onClick={() => {
+                  printRemito(
+                    selectedHistorialRemito.cart,
+                    {
+                      codigo: selectedHistorialRemito.codigo,
+                      fecha: selectedHistorialRemito.fecha,
+                      estado: 'EN_TRANSITO',
+                      origen: selectedHistorialRemito.origen,
+                      destino: selectedHistorialRemito.destino,
+                    },
+                    'despacho'
+                  );
+                }}
+                className="bg-indigo-600 text-white p-4 rounded-full shadow-2xl hover:bg-indigo-700 transition-transform hover:scale-110 flex items-center justify-center"
+              >
+                 <span className="font-black text-xs uppercase tracking-widest flex items-center gap-2"><Printer className="w-4 h-4"/> Imprimir Hoja</span>
+              </button>
+              <button onClick={() => setSelectedHistorialRemito(null)} className="bg-white text-slate-900 p-4 rounded-full shadow-2xl hover:bg-slate-200 transition-transform hover:scale-110 flex items-center justify-center">
+                 <span className="font-black text-xs uppercase tracking-widest">X Cerrar</span>
+              </button>
+            </div>
+            
+            <div id="print-root" className="w-full flex flex-col items-center gap-12 print:block print:static print:w-full print:h-auto print:overflow-visible">
+                {(selectedHistorialRemito.cart.length > 0 ? selectedHistorialRemito.cart.reduce((acc, curr, i) => { if (i % 30 === 0) acc.push([]); acc[acc.length - 1].push(curr); return acc; }, []) : [[]]).map((pageItems, pageIndex, pagesArray) => (
+                    <div key={pageIndex} className="w-[794px] min-h-[1123px] bg-white text-slate-800 font-sans p-10 shadow-2xl relative border border-slate-100 flex flex-col shrink-0 " style={{ pageBreakAfter: 'always' }}>
+                        <div className="flex justify-between items-start border-b border-slate-100 pb-5 mb-5 relative">
+                            <div className="w-1/2 pr-6">
+                                <h1 className="text-3xl font-black mb-1 tracking-tighter text-slate-900 leading-none">REMITO DE MOVIMIENTO</h1>
+                                <p className="font-bold text-xs text-slate-400 uppercase tracking-widest">SISTEMA LOGÍSTICO INTERNO · WMS</p>
+                            </div>
+                            <div className="w-1/2 pl-6 text-right">
+                                <div className="inline-block text-left bg-slate-50 p-4 rounded-xl border border-slate-100 w-full">
+                                    <div className="flex justify-between mb-2 border-b border-slate-100 pb-2">
+                                        <span className="text-[10px] uppercase font-bold text-slate-400 tracking-widest">N° Documento</span>
+                                        <span className="font-mono font-black text-slate-700 text-sm">{selectedHistorialRemito.codigo}</span>
+                                    </div>
+                                    <div className="flex justify-between mb-2 border-b border-slate-100 pb-2">
+                                        <span className="text-[10px] uppercase font-bold text-slate-400 tracking-widest">Fecha Operación</span>
+                                        <span className="font-mono font-bold text-slate-700 text-xs">{selectedHistorialRemito.fecha}</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                        <span className="text-[10px] uppercase font-bold text-slate-400 tracking-widest">Estado</span>
+                                        <span className="font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded text-[10px]">EN_TRANSITO</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4 mb-5">
+                            <div className="border border-slate-100 p-4 rounded-xl bg-white shadow-sm">
+                                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1 flex items-center gap-1"><ArrowUpRight className="w-3 h-3 text-rose-400"/> Sale desde (Origen Logístico)</p>
+                                <p className="font-black text-lg text-slate-800 leading-tight">{selectedHistorialRemito.origen}</p>
+                            </div>
+                            <div className="border border-slate-100 p-4 rounded-xl bg-white shadow-sm">
+                                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1 flex items-center gap-1"><ArrowRightLeft className="w-3 h-3 text-indigo-400"/> Llega a (Destino Físico)</p>
+                                <p className="font-black text-lg text-slate-800 leading-tight">{selectedHistorialRemito.destino}</p>
+                            </div>
+                        </div>
+
+                        <div className="bg-slate-50/50 rounded-xl border border-slate-100 overflow-hidden mb-auto">
+                            <table className="w-full text-left">
+                               <thead>
+                                  <tr className="border-b border-slate-200 bg-slate-50">
+                                      <th className="py-2 px-3 text-[9px] uppercase tracking-widest text-slate-500 font-black border-r border-slate-100 text-center w-24">C. ENV</th>
+                                      <th className="py-2 px-3 text-[9px] uppercase tracking-widest text-slate-500 font-black border-r border-slate-100 text-center w-24">C. REC</th>
+                                      <th className="py-2 px-3 text-[9px] uppercase tracking-widest text-slate-500 font-black border-r border-slate-100">ARTÍCULO / DESCRIPCIÓN</th>
+                                      <th className="py-2 px-3 text-[9px] uppercase tracking-widest text-slate-500 font-black text-center w-40">VAR / LOTE</th>
+                                  </tr>
+                               </thead>
+                               <tbody className="divide-y divide-slate-100">
+                                  {pageItems.map((c, idx)=>(
+                                     <tr key={c.id + '-' + idx} className="bg-white hover:bg-slate-50">
+                                        <td className="text-center py-1.5 px-3 border-r border-slate-100 font-black text-[11px] text-slate-700">{c.cantidad_a_extraer || c.cantidad_enviada}</td>
+                                        <td className="text-center py-1.5 px-3 border-r border-slate-100 font-black text-[11px] text-emerald-600">-</td>
+                                        <td className="py-1.5 px-3 border-r border-slate-100 font-bold tracking-tight text-slate-800 text-[11px]">{c.producto_nombre}</td>
+                                        <td className="text-center py-1.5 px-2 font-bold text-[9px] uppercase tracking-widest text-slate-500">{c.nombre_variante}</td>
+                                     </tr>
+                                  ))}
+                               </tbody>
+                            </table>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-16 mt-6 pt-6 px-6">
+                            <div className="border-t border-dashed border-slate-300 text-center pt-2">
+                                <p className="font-black uppercase tracking-widest text-[10px] text-slate-800">Firma de Entrega (Origen)</p>
+                                <p className="text-[8px] text-slate-400 font-bold tracking-widest mt-0.5">ACLARACIÓN Y DNI</p>
+                            </div>
+                            <div className="border-t border-dashed border-slate-300 text-center pt-2">
+                                <p className="font-black uppercase tracking-widest text-[10px] text-slate-800">Firma de Recepción (Destino)</p>
+                                <p className="text-[8px] text-slate-400 font-bold tracking-widest mt-0.5">ACLARACIÓN Y FECHA</p>
+                            </div>
+                        </div>
+                        
+                        <div className="mt-6 pt-3 flex justify-between items-center opacity-40 px-6">
+                             <p className="text-[9px] uppercase font-mono text-slate-900 font-bold tracking-widest flex items-center gap-1.5">
+                                <CheckCircle className="w-3 h-3" />
+                                WMS · DOC. DIGITAL
+                             </p>
+                             <p className="text-[9px] uppercase font-mono text-slate-900 font-bold tracking-widest">
+                                HOJA {pageIndex + 1} DE {pagesArray.length}
+                             </p>
+                        </div>
+                    </div>
+                ))}
+            </div>
+        </div>
+      )}
 
     </div>
   );

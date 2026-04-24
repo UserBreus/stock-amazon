@@ -107,22 +107,4 @@ html {
   animation: scan 3s ease-in-out infinite;
 }
 
-@media print {
-  body * {
-    visibility: hidden;
-  }
-  #print-root, #print-root * {
-    visibility: visible;
-  }
-  .hide-on-print, .hide-on-print * {
-    visibility: hidden !important;
-    display: none !important;
-  }
-  #print-root {
-    position: absolute;
-    left: 0;
-    top: 0;
-    width: 100vw;
-  }
-  @page { margin: 0; }
-}
+/* Impresión gestionada en ventana nueva via printRemito.ts — sin reglas @media print aquí */

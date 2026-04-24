@@ -1,0 +1,113 @@
+const fs = require('fs');
+
+const code = fs.readFileSync('src/pages/InventarioOperativo.tsx', 'utf8');
+
+const startStr = '{isViewingFullscreenPDF && activeRem && (';
+const start = code.indexOf(startStr);
+const end = code.indexOf(')}', start + 1000) + 2;
+
+if(start === -1 || end === 1) {
+   console.log('Failed to find block in InventarioOperativo');
+   process.exit(1);
+}
+
+const newBlock = `{isViewingFullscreenPDF && activeRem && (
+        <div className="fixed inset-0 z-[100] bg-slate-800/90 backdrop-blur-sm overflow-y-auto p-4 sm:p-10 flex flex-col items-center gap-8 print:block print:p-0 print:bg-white hide-scrollbar">
+            <div className="hide-on-print fixed top-6 right-6 flex gap-4 z-[110]">
+              <button onClick={() => { setTimeout(() => window.print(), 100); }} className="bg-indigo-600 text-white p-4 rounded-full shadow-2xl hover:bg-indigo-700 transition-transform hover:scale-110 flex items-center justify-center">
+                 <span className="font-black text-xs uppercase tracking-widest flex items-center gap-2"><Printer className="w-4 h-4"/> Imprimir Hoja</span>
+              </button>
+              <button onClick={() => { setIsViewingFullscreenPDF(false); }} className="bg-white text-slate-900 p-4 rounded-full shadow-2xl hover:bg-slate-200 transition-transform hover:scale-110 flex items-center justify-center">
+                 <span className="font-black text-xs uppercase tracking-widest">X Cerrar</span>
+              </button>
+            </div>
+            
+            <div id="print-root" className="w-full flex flex-col items-center gap-12 print:block print:w-full">
+                {(remitoDetalleItems.length > 0 ? remitoDetalleItems.reduce((acc:any[], curr:any, i:number) => { if (i % 26 === 0) acc.push([]); acc[acc.length - 1].push(curr); return acc; }, []) : [[]]).map((pageItems:any[], pageIndex:number, pagesArray:any[]) => (
+                    <div key={pageIndex} className="w-[794px] min-h-[1123px] h-[1123px] bg-white text-slate-800 font-sans p-10 shadow-2xl relative border border-slate-100 flex flex-col shrink-0 print:shadow-none print:border-none print:m-0 print:p-0 print:w-full print:h-[1123px] print:rounded-none break-after-page">
+                        <div className="flex justify-between items-start border-b border-slate-100 pb-5 mb-5 relative">
+                            <div className="w-1/2 pr-6">
+                                <h1 className="text-3xl font-black mb-1 tracking-tighter text-slate-900 leading-none">REMITO DE MOVIMIENTO</h1>
+                                <p className="font-bold text-xs text-slate-400 uppercase tracking-widest">SISTEMA LOGÍSTICO INTERNO · WMS</p>
+                            </div>
+                            <div className="w-1/2 pl-6 text-right">
+                                <div className="inline-block text-left bg-slate-50 p-4 rounded-xl border border-slate-100 w-full">
+                                    <div className="flex justify-between mb-2 border-b border-slate-100 pb-2">
+                                        <span className="text-[10px] uppercase font-bold text-slate-400 tracking-widest">N° Documento</span>
+                                        <span className="font-mono font-black text-slate-700 text-sm">{activeRem.rem_code || activeRem.numeracion || 'N/A'}</span>
+                                    </div>
+                                    <div className="flex justify-between mb-2 border-b border-slate-100 pb-2">
+                                        <span className="text-[10px] uppercase font-bold text-slate-400 tracking-widest">Fecha Operación</span>
+                                        <span className="font-mono font-bold text-slate-700 text-xs">{new Date(activeRem.fecha_creacion).toLocaleString()}</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                        <span className="text-[10px] uppercase font-bold text-slate-400 tracking-widest">Estado</span>
+                                        <span className="font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded text-[10px]">{activeRem.estado}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4 mb-5">
+                            <div className="border border-slate-100 p-4 rounded-xl bg-white shadow-sm">
+                                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1 flex items-center gap-1"><ArrowUpRight className="w-3 h-3 text-rose-400"/> Sale desde (Origen Logístico)</p>
+                                <p className="font-black text-lg text-slate-800 leading-tight">{depositos.find((d:any)=>d.id===activeRem.deposito_origen_id)?.nombre || 'Bodega Principal'}</p>
+                            </div>
+                            <div className="border border-slate-100 p-4 rounded-xl bg-white shadow-sm">
+                                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1 flex items-center gap-1"><ArrowRightLeft className="w-3 h-3 text-indigo-400"/> Llega a (Destino Físico)</p>
+                                <p className="font-black text-lg text-slate-800 leading-tight">{depositos.find((d:any)=>d.id===activeRem.deposito_destino_id)?.nombre || 'Ubicación'}</p>
+                            </div>
+                        </div>
+
+                        <div className="bg-slate-50/50 rounded-xl border border-slate-100 overflow-hidden mb-auto">
+                            <table className="w-full text-left">
+                               <thead>
+                                  <tr className="border-b border-slate-200 bg-slate-50">
+                                      <th className="py-2 px-3 text-[9px] uppercase tracking-widest text-slate-500 font-black border-r border-slate-100 text-center w-24">C. ENV</th>
+                                      <th className="py-2 px-3 text-[9px] uppercase tracking-widest text-slate-500 font-black border-r border-slate-100 text-center w-24">C. REC</th>
+                                      <th className="py-2 px-3 text-[9px] uppercase tracking-widest text-slate-500 font-black border-r border-slate-100">ARTÍCULO / DESCRIPCIÓN</th>
+                                      <th className="py-2 px-3 text-[9px] uppercase tracking-widest text-slate-500 font-black text-center w-40">VAR / LOTE</th>
+                                  </tr>
+                               </thead>
+                               <tbody className="divide-y divide-slate-100">
+                                  {pageItems.map((c:any, idx:number)=>(
+                                     <tr key={idx} className="bg-white hover:bg-slate-50">
+                                        <td className="text-center py-1.5 px-3 border-r border-slate-100 font-black text-[11px] text-slate-700">{c.cantidad_enviada}</td>
+                                        <td className="text-center py-1.5 px-3 border-r border-slate-100 font-black text-[11px] text-emerald-600">{c.cantidad_recibida || '-'}</td>
+                                        <td className="py-1.5 px-3 border-r border-slate-100 font-bold tracking-tight text-slate-800 text-[11px]">{c.producto_nombre}</td>
+                                        <td className="text-center py-1.5 px-2 font-bold text-[9px] uppercase tracking-widest text-slate-500">{c.nombre_variante}</td>
+                                     </tr>
+                                  ))}
+                               </tbody>
+                            </table>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-16 mt-6 pt-6 px-6">
+                            <div className="border-t border-dashed border-slate-300 text-center pt-2">
+                                <p className="font-black uppercase tracking-widest text-[10px] text-slate-800">Firma de Entrega (Origen)</p>
+                                <p className="text-[8px] text-slate-400 font-bold tracking-widest mt-0.5">ACLARACIÓN Y DNI</p>
+                            </div>
+                            <div className="border-t border-dashed border-slate-300 text-center pt-2">
+                                <p className="font-black uppercase tracking-widest text-[10px] text-slate-800">Firma de Recepción (Destino)</p>
+                                <p className="text-[8px] text-slate-400 font-bold tracking-widest mt-0.5">ACLARACIÓN Y FECHA</p>
+                            </div>
+                        </div>
+                        
+                        <div className="mt-6 pt-3 flex justify-between items-center opacity-40 px-6">
+                             <p className="text-[9px] uppercase font-mono text-slate-900 font-bold tracking-widest flex items-center gap-1.5">
+                                <CheckCircle className="w-3 h-3" />
+                                WMS · DOC. DIGITAL
+                             </p>
+                             <p className="text-[9px] uppercase font-mono text-slate-900 font-bold tracking-widest">
+                                HOJA {pageIndex + 1} DE {pagesArray.length}
+                             </p>
+                        </div>
+                    </div>
+                ))}
+            </div>
+        </div>
+    )}`;
+
+const final = code.substring(0, start) + newBlock + code.substring(end);
+fs.writeFileSync('src/pages/InventarioOperativo.tsx', final);
+console.log('InventarioOperativo Pached.');
