@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { Modal } from './Modal';
 import { executeAWSQuery } from '../../lib/aws-client';
-import { Package, Truck, Anchor, CheckCircle2, Factory, Ship, MapPin } from 'lucide-react';
+import { Package, Truck, Anchor, CheckCircle2, Factory, Ship, MapPin, QrCode } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import toast from 'react-hot-toast';
+import { printLabel } from '../../lib/printLabel';
 
 export function CompraDetalleModal({ isOpen, compra, onClose, onUpdate, onEditDraft }: any) {
    const [detalles, setDetalles] = useState<any[]>([]);
@@ -166,30 +167,48 @@ export function CompraDetalleModal({ isOpen, compra, onClose, onUpdate, onEditDr
                        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden">
                            <h4 className="font-black text-slate-800 dark:text-white text-lg p-5 border-b border-slate-100 dark:border-slate-800">Cargamento ({detalles.length} items)</h4>
                            {isLoading ? <div className="p-10 text-center text-slate-400">Cargando ítems...</div> : (
+                               <div className="overflow-x-auto">
                                <table className="w-full text-left text-sm">
                                    <thead className="bg-slate-50 dark:bg-slate-950 font-black text-slate-500 uppercase tracking-widest text-[10px]">
                                       <tr>
+                                         <th className="p-4 w-12 text-center">QR</th>
                                          <th className="p-4">Producto</th>
                                          <th className="p-4 text-center">Cantidad</th>
-                                         <th className="p-4 text-right">Real ($)</th>
-                                         <th className="p-4 text-right text-indigo-600">Local ($)</th>
+                                         <th className="p-4 text-right hidden sm:table-cell">Real ($)</th>
+                                         <th className="p-4 text-right text-indigo-600 hidden sm:table-cell">Local ($)</th>
                                          <th className="p-4 text-right">Total</th>
                                       </tr>
                                    </thead>
                                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                                        {detalles.map(d => (
                                            <tr key={d.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                                               <td className="p-4 text-center">
+                                                   <button 
+                                                      onClick={() => printLabel({
+                                                        id: d.variante_id,
+                                                        producto_padre: d.producto_nombre,
+                                                        nombre_variante: d.nombre_variante,
+                                                        sku: d.sku
+                                                      })}
+                                                      className="text-xs font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 hover:bg-indigo-600 hover:text-white transition-all px-2 py-1.5 rounded-lg flex flex-col items-center gap-1 shadow-sm uppercase mx-auto"
+                                                      title="Imprimir Etiqueta"
+                                                   >
+                                                      <QrCode className="w-5 h-5 mx-auto" />
+                                                      <span className="text-[9px] font-black">Imprimir</span>
+                                                   </button>
+                                               </td>
                                                <td className="p-4 text-sm font-bold text-slate-800 dark:text-slate-200">
                                                   {d.producto_nombre} <span className="text-slate-500 font-medium">({d.nombre_variante})</span>
                                                </td>
                                                <td className="p-4 text-center font-black">{d.cantidad}</td>
-                                               <td className="p-4 text-right font-medium text-slate-400">${d.precio_unitario}</td>
-                                               <td className="p-4 text-right font-bold text-indigo-600">${d.costo_puesto_local ? Number(d.costo_puesto_local).toFixed(2) : d.precio_unitario}</td>
+                                               <td className="p-4 text-right font-medium text-slate-400 hidden sm:table-cell">${d.precio_unitario}</td>
+                                               <td className="p-4 text-right font-bold text-indigo-600 hidden sm:table-cell">${d.costo_puesto_local ? Number(d.costo_puesto_local).toFixed(2) : d.precio_unitario}</td>
                                                <td className="p-4 text-right font-black text-emerald-600">${(d.precio_unitario * d.cantidad).toFixed(2)}</td>
                                            </tr>
                                        ))}
                                    </tbody>
                                </table>
+                               </div>
                            )}
                         </div>
 

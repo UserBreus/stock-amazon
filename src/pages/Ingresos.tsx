@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { ShoppingCart, Receipt, Plus, Package, Box, ChevronLeft } from 'lucide-react';
+import { ShoppingCart, Receipt, Plus, Package, Box, ChevronLeft, QrCode } from 'lucide-react';
 import { ComprasDashboard } from '../components/gestion/ComprasDashboard';
 import { executeAWSQuery } from '../lib/aws-client';
 import { cn } from '../lib/utils';
@@ -10,6 +10,7 @@ import { CategoryDrillDownModal } from '../components/ui/CategoryDrillDownModal'
 import { Modal } from '../components/ui/Modal';
 import { GestionImportaciones } from '../components/GestionImportaciones';
 import toast from 'react-hot-toast';
+import { printLabel } from '../lib/printLabel';
 
 export function Ingresos() {
   const { user } = useAuth();
@@ -392,18 +393,40 @@ export function Ingresos() {
                              <div className="col-span-2 text-right">Costo Unit ($)</div>
                              <div className="col-span-2 text-right">Subtotal</div>
                         </div>
-
                         {carrito.map((item, idx) => (
                             <div key={idx} className="bg-white p-3 md:px-4 md:py-2 rounded-xl border border-slate-100 hover:border-slate-300 transition-colors flex flex-col md:grid md:grid-cols-12 md:items-center gap-2 md:gap-3 relative group">
-                                <div className="hidden md:flex col-span-1 justify-center">
-                                    <button onClick={()=>eliminarDelCarrito(idx)} className="text-slate-300 hover:text-rose-500 transition-colors w-8 h-8 rounded-full flex items-center justify-center hover:bg-rose-50 font-black">X</button>
+                                <div className="hidden md:flex col-span-2 justify-center gap-1">
+                                    <button 
+                                      onClick={() => printLabel({
+                                        id: item.variante.id,
+                                        producto_padre: item.variante.producto_padre,
+                                        nombre_variante: item.variante.nombre_variante,
+                                        sku: item.variante.sku
+                                      })} 
+                                      className="text-xs font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 hover:bg-indigo-600 hover:text-white transition-all px-2 py-1 rounded-lg flex items-center gap-1 shadow-sm uppercase tracking-widest whitespace-nowrap"
+                                      title="Imprimir Etiqueta QR"
+                                    >
+                                      <QrCode className="w-4 h-4" /> Imprimir QR
+                                    </button>
+                                    <button onClick={()=>eliminarDelCarrito(idx)} className="text-slate-300 hover:text-rose-500 transition-colors w-8 h-8 rounded-full flex items-center justify-center hover:bg-rose-50 font-black flex-shrink-0" title="Eliminar Ítem">X</button>
                                 </div>
-                                <div className="col-span-5 flex items-center gap-4">
-                                     <button onClick={()=>eliminarDelCarrito(idx)} className="md:hidden text-slate-300 hover:text-rose-500 transition-colors font-black">X</button>
-                                     <div>
-                                        <p className="font-bold text-sm text-slate-800 leading-none">{item.variante.producto_padre}</p>
+                                <div className="col-span-4 flex items-center gap-2">
+                                     <button onClick={()=>eliminarDelCarrito(idx)} className="md:hidden text-slate-300 hover:text-rose-500 transition-colors font-black mr-2 bg-slate-50 w-8 h-8 rounded-full flex items-center justify-center shrink-0">X</button>
+                                     <button 
+                                       onClick={() => printLabel({
+                                         id: item.variante.id,
+                                         producto_padre: item.variante.producto_padre,
+                                         nombre_variante: item.variante.nombre_variante,
+                                         sku: item.variante.sku
+                                       })} 
+                                       className="md:hidden text-xs font-bold text-indigo-700 bg-indigo-100 hover:bg-indigo-200 transition-colors px-2 py-1 rounded border border-indigo-200 flex items-center gap-1 uppercase whitespace-nowrap shrink-0"
+                                     >
+                                       <QrCode className="w-3 h-3" /> QR
+                                     </button>
+                                     <div className="min-w-0">
+                                        <p className="font-bold text-sm text-slate-800 leading-none truncate">{item.variante.producto_padre}</p>
                                         {item.variante.nombre_variante && (
-                                            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-1 bg-slate-100 px-2 py-0.5 rounded inline-block">
+                                            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-1 bg-slate-100 px-2 py-0.5 rounded inline-block truncate max-w-full">
                                                 {item.variante.nombre_variante}
                                             </p>
                                         )}
