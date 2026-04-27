@@ -9,6 +9,7 @@ import { PrintLabelsModal } from './PrintLabelsModal';
 
 export function CompraDetalleModal({ isOpen, compra, onClose, onUpdate, onEditDraft }: any) {
    const [detalles, setDetalles] = useState<any[]>([]);
+   const [etiquetasPendientes, setEtiquetasPendientes] = useState<any[]>([]);
    const [costosExtra, setCostosExtra] = useState<any[]>([]);
    const [isLoading, setIsLoading] = useState(true);
    const [nuevoCostoItem, setNuevoCostoItem] = useState({ desc: '', monto: '' });
@@ -35,12 +36,21 @@ export function CompraDetalleModal({ isOpen, compra, onClose, onUpdate, onEditDr
    const fetchDetalles = async () => {
       setIsLoading(true);
       try {
-           const [res, costosRes] = await Promise.all([
+           const [res, costosRes, etqRes] = await Promise.all([
                executeAWSQuery(`SELECT d.*, v.nombre_variante, p.nombre as producto_nombre FROM Stock_Compras_Detalle d INNER JOIN Stock_Variantes v ON d.variante_id = v.id INNER JOIN Stock_Productos_Maestros p ON v.producto_maestro_id = p.id WHERE d.compra_id = '${compra.id}'`),
-               executeAWSQuery(`IF OBJECT_ID('Stock_Compras_Costos_Extra', 'U') IS NOT NULL EXEC('SELECT * FROM Stock_Compras_Costos_Extra WHERE compra_id = ''${compra.id}'' ORDER BY fecha ASC')`).catch(() => [])
+               executeAWSQuery(`IF OBJECT_ID('Stock_Compras_Costos_Extra', 'U') IS NOT NULL EXEC('SELECT * FROM Stock_Compras_Costos_Extra WHERE compra_id = ''${compra.id}'' ORDER BY fecha ASC')`).catch(() => []),
+               executeAWSQuery(`
+                   SELECT e.id as etiqueta_id, e.variante_id, v.nombre_variante, p.nombre as producto_nombre, p.tipo_gestion, e.cantidad_inicial as cantidad
+                   FROM Stock_Etiquetas e
+                   INNER JOIN Stock_Variantes v ON e.variante_id = v.id
+                   INNER JOIN Stock_Productos_Maestros p ON v.producto_maestro_id = p.id
+                   WHERE e.compra_id = '${compra.id}' AND e.estado = 'pendiente_recepcion'
+                   ORDER BY e.id ASC
+               `).catch(() => [])
            ]);
            if(res) setDetalles(res);
            if(costosRes) setCostosExtra(costosRes);
+           if(etqRes) setEtiquetasPendientes(etqRes);
        } catch(e) { console.error(e); }
       setIsLoading(false);
    };
@@ -119,13 +129,15 @@ export function CompraDetalleModal({ isOpen, compra, onClose, onUpdate, onEditDr
                   <div className="flex items-center gap-3">
                     <QrCode className="w-5 h-5 text-indigo-600" />
                     <div>
-                      <p className="font-black text-sm text-indigo-900 dark:text-indigo-200">Etiquetas de Esta Orden</p>
-                      <p className="text-xs text-indigo-400 font-medium">{detalles.length} artículo{detalles.length !== 1 ? 's' : ''} — imprimí los QR para el ingreso físico</p>
+                      <p className="font-black text-sm text-indigo-900 dark:text-indigo-200">Etiquetas Pre-impresas</p>
+                      <p className="text-xs text-indigo-400 font-medium tracking-wide">
+                        {etiquetasPendientes.length === 0 ? 'Generá primero la orden definitiva para crear los códigos.' : `${etiquetasPendientes.length} etiquetas listas para imprimir e ingresar.`}
+                      </p>
                     </div>
                   </div>
                   <button
                     onClick={() => setIsPrintModalOpen(true)}
-                    disabled={isLoading || detalles.length === 0}
+                    disabled={isLoading || etiquetasPendientes.length === 0}
                     className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-bold rounded-lg transition-all shadow-sm"
                   >
                     <Printer className="w-4 h-4" />
@@ -316,7 +328,7 @@ export function CompraDetalleModal({ isOpen, compra, onClose, onUpdate, onEditDr
        <PrintLabelsModal
          isOpen={isPrintModalOpen}
          onClose={() => setIsPrintModalOpen(false)}
-         detalles={detalles}
+         detalles={etiquetasPendientes}
        />
        </>
    );

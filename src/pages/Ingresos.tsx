@@ -63,7 +63,7 @@ export function Ingresos() {
         executeAWSQuery("SELECT * FROM Stock_Proveedores ORDER BY nombre"),
         executeAWSQuery("SELECT * FROM Stock_TiposFactura ORDER BY nombre"),
         executeAWSQuery("SELECT * FROM Stock_Categorias ORDER BY nombre"),
-        executeAWSQuery("SELECT v.*, p.nombre as producto_padre, p.categoria_id, p.unidad_base FROM Stock_Variantes v INNER JOIN Stock_Productos_Maestros p ON v.producto_maestro_id = p.id ORDER BY p.nombre, v.nombre_variante"),
+        executeAWSQuery("SELECT v.*, p.nombre as producto_padre, p.categoria_id, p.unidad_base, p.tipo_gestion FROM Stock_Variantes v INNER JOIN Stock_Productos_Maestros p ON v.producto_maestro_id = p.id ORDER BY p.nombre, v.nombre_variante"),
         executeAWSQuery("SELECT id FROM Stock_Depositos WHERE tipo='central' ORDER BY id ASC"),
         executeAWSQuery("SELECT * FROM Stock_Productos_Maestros ORDER BY nombre"),
         executeAWSQuery("SELECT * FROM Stock_Monedas ORDER BY id")
@@ -141,6 +141,7 @@ export function Ingresos() {
                 q += `
                    UPDATE Stock_Compras SET proveedor_id = '${provId}', referencia_factura = '${referencia}', tipo_factura_id = ${tipoFacturaId}, total_compra = ${total}, gastos_extras = ${valGastos}, estado = '${estado}', moneda_id = ${monedaId} WHERE id = '${editingDraftId}';
                    DELETE FROM Stock_Compras_Detalle WHERE compra_id = '${editingDraftId}';
+                   DELETE FROM Stock_Etiquetas WHERE compra_id = '${editingDraftId}' AND estado = 'pendiente_recepcion';
                    DECLARE @CompraId UNIQUEIDENTIFIER = '${editingDraftId}';
                 `;
             } else {
@@ -170,6 +171,23 @@ export function Ingresos() {
                    INSERT INTO Stock_Compras_Detalle (compra_id, variante_id, cantidad, precio_unitario)
                    VALUES (@CompraId, '${item.variante.id}', ${item.cantidad}, ${item.precio_unitario});
                 `;
+                const rand = Math.random().toString(36).substring(2, 9);
+                if (item.variante.tipo_gestion === 'lote_individual') {
+                    q += `
+                       DECLARE @Iter_${rand} INT = 0;
+                       WHILE @Iter_${rand} < ${item.cantidad}
+                       BEGIN
+                         INSERT INTO Stock_Etiquetas (codigo_barras, variante_id, deposito_id, cantidad_inicial, cantidad_actual, compra_id, costo_unitario_real, estado)
+                         VALUES (CONVERT(varchar(255), NEWID()), '${item.variante.id}', ${almacenId}, 0, 0, @CompraId, ${item.precio_unitario || 0}, 'pendiente_recepcion');
+                         SET @Iter_${rand} = @Iter_${rand} + 1;
+                       END
+                    `;
+                } else {
+                    q += `
+                       INSERT INTO Stock_Etiquetas (codigo_barras, variante_id, deposito_id, cantidad_inicial, cantidad_actual, compra_id, costo_unitario_real, estado)
+                       VALUES (CONVERT(varchar(255), NEWID()), '${item.variante.id}', ${almacenId}, ${item.cantidad}, 0, @CompraId, ${item.precio_unitario || 0}, 'pendiente_recepcion');
+                    `;
+                }
             } else {
                 // Logica exclusiva para Ajuste Libre
                 q += `

@@ -28,7 +28,10 @@ export function RecepcionAuditoria({ onRecargaRequerida, onCartChange }: Recepci
   const [etiquetasEscaneadas, setEtiquetasEscaneadas] = useState<string[]>([]);
   const [pendingExternalCode, setPendingExternalCode] = useState<string | null>(null);
   const [externalCodeMap, setExternalCodeMap] = useState<{code: string, variante_id: string}[]>([]);
-  const [etiquetasPendientes, setEtiquetasPendientes] = useState<any[]>([]);
+  
+  // Novedades WMS: tracking the pre-minted IDs
+  const [etiquetasPreMinted, setEtiquetasPreMinted] = useState<{id: number, variante_id: string}[]>([]);
+  const [scannedLoteIds, setScannedLoteIds] = useState<string[]>([]);
   
   // Datos Auxiliares para Selección Libre
   const [categorias, setCategorias] = useState<any[]>([]);
@@ -101,15 +104,25 @@ export function RecepcionAuditoria({ onRecargaRequerida, onCartChange }: Recepci
       
       // Get lineas
       try {
-          const rs = await executeAWSQuery(`
-              SELECT d.variante_id, d.cantidad as esperada, d.precio_unitario, v.nombre_variante, p.nombre as producto_nombre, p.unidad_base, m.gramos_por_metro_lineal, p.tipo_gestion
-              FROM Stock_Compras_Detalle d
-              INNER JOIN Stock_Variantes v ON d.variante_id = v.id
-              INNER JOIN Stock_Productos_Maestros p ON v.producto_maestro_id = p.id
-              LEFT JOIN wms_equivalencias_metricas m ON p.id = m.producto_maestro_id
-              WHERE d.compra_id = '${compraId}'
-          `);
+          const [rs, preMintedRes] = await Promise.all([
+              executeAWSQuery(`
+                  SELECT d.variante_id, d.cantidad as esperada, d.precio_unitario, v.nombre_variante, p.nombre as producto_nombre, p.unidad_base, m.gramos_por_metro_lineal, p.tipo_gestion
+                  FROM Stock_Compras_Detalle d
+                  INNER JOIN Stock_Variantes v ON d.variante_id = v.id
+                  INNER JOIN Stock_Productos_Maestros p ON v.producto_maestro_id = p.id
+                  LEFT JOIN wms_equivalencias_metricas m ON p.id = m.producto_maestro_id
+                  WHERE d.compra_id = '${compraId}'
+              `),
+              executeAWSQuery(`
+                  SELECT id, variante_id FROM Stock_Etiquetas 
+                  WHERE compra_id = '${compraId}' AND estado = 'pendiente_recepcion'
+              `)
+          ]);
           
+          if(preMintedRes) {
+              setEtiquetasPreMinted(preMintedRes.map((r: any) => ({ id: r.id, variante_id: r.variante_id })));
+          }
+
           if(rs) {
               setLineasAuditoria(rs.map((r:any) => ({
                   variante_id: r.variante_id,
@@ -155,10 +168,18 @@ export function RecepcionAuditoria({ onRecargaRequerida, onCartChange }: Recepci
       }
 
       let foundVarianteId: string | null = null;
-      
-      // Check if code maps directly to a variant_id (direct catalogue barcode)
-      const isDirect = lineasAuditoria.find(l => l.variante_id.toUpperCase() === codigo.toUpperCase() || codigo.includes(l.variante_id));
-      if (isDirect) foundVarianteId = isDirect.variante_id;
+      let matchedLoteId: string | null = null;
+
+      // 1. Check if code is an exact ID from our pre-minted tags (Lote Individual tag)
+      const preMintedMatch = etiquetasPreMinted.find(e => e.id.toString() === codigo.trim());
+      if (preMintedMatch) {
+          foundVarianteId = preMintedMatch.variante_id.toString();
+          matchedLoteId = preMintedMatch.id.toString();
+      } else {
+          // 2. Check if code maps directly to a variant_id (direct catalogue barcode / granel)
+          const isDirect = lineasAuditoria.find(l => l.variante_id.toUpperCase() === codigo.toUpperCase() || codigo.includes(l.variante_id));
+          if (isDirect) foundVarianteId = isDirect.variante_id;
+      }
 
       if (!foundVarianteId) {
          // Open mapping modal for external code
@@ -166,9 +187,12 @@ export function RecepcionAuditoria({ onRecargaRequerida, onCartChange }: Recepci
          return;
       }
 
+      if (matchedLoteId) {
+          setScannedLoteIds(prev => [...prev, matchedLoteId!]);
+      }
       setEtiquetasEscaneadas(prev => [...prev, codigo.toUpperCase()]);
       const nw = lineasAuditoria.map(l => {
-          if (l.variante_id === foundVarianteId) {
+          if (l.variante_id.toString() === foundVarianteId?.toString()) {
               return { ...l, Auditada: l.Auditada + 1 };
           }
           return l;
@@ -241,84 +265,87 @@ export function RecepcionAuditoria({ onRecargaRequerida, onCartChange }: Recepci
           q += `UPDATE Stock_Compras SET estado = 'completada' WHERE id = '${compraSeleccionada.id}';\n`;
       }
 
-      // GRANEL: una sola etiqueta por lote
+      // GRANEL: buscar la etiqueta pre-creada que le corresponde y actualizarla
       for(const item of lineasGranel) {
-         const randomVar = Math.random().toString(36).substring(2, 9);
          const udsPorBulto = item.cantidadSecundaria > 0 ? item.cantidadSecundaria : 1;
          const totalUnidades = item.Auditada * udsPorBulto;
-         q += `
-           DECLARE @Fisico_${randomVar} INT;
-           INSERT INTO Stock_Etiquetas (codigo_barras, variante_id, deposito_id, cantidad_inicial, cantidad_actual, compra_id, costo_unitario_real, estado) 
-           VALUES (CONVERT(varchar(255), NEWID()), '${item.variante_id}', ${almacenId}, ${totalUnidades}, ${totalUnidades}, ${contexto === 'compra' ? `'${compraSeleccionada?.id}'` : 'NULL'}, ${item.precio_unitario || 0}, 'activo');
-           SET @Fisico_${randomVar} = SCOPE_IDENTITY();
-           INSERT INTO Stock_Movimientos (etiqueta_id, tipo_movimiento, cantidad_afectada, deposito_destino_id, referencia_compra_id, usuario_id)
-           VALUES (@Fisico_${randomVar}, 'ingreso_auditoria_${contexto}', ${totalUnidades}, ${almacenId}, ${contexto === 'compra' ? `'${compraSeleccionada?.id}'` : 'NULL'}, '${user?.id}');
-         `;
+         if (contexto === 'compra') {
+             // Actualizar la etiqueta pre-creada y generar movimiento
+             q += `
+               DECLARE @FisicoGranel_${item.variante_id.replace(/-/g,'')} INT;
+               SELECT TOP 1 @FisicoGranel_${item.variante_id.replace(/-/g,'')} = id FROM Stock_Etiquetas WHERE compra_id = '${compraSeleccionada.id}' AND variante_id = '${item.variante_id}' AND estado = 'pendiente_recepcion';
+               
+               IF @FisicoGranel_${item.variante_id.replace(/-/g,'')} IS NOT NULL
+               BEGIN
+                  UPDATE Stock_Etiquetas SET deposito_id = ${almacenId}, cantidad_actual = ${totalUnidades}, estado = 'activo' WHERE id = @FisicoGranel_${item.variante_id.replace(/-/g,'')};
+                  INSERT INTO Stock_Movimientos (etiqueta_id, tipo_movimiento, cantidad_afectada, deposito_destino_id, referencia_compra_id, usuario_id)
+                  VALUES (@FisicoGranel_${item.variante_id.replace(/-/g,'')}, 'ingreso_auditoria_compra', ${totalUnidades}, ${almacenId}, '${compraSeleccionada.id}', '${user?.id}');
+               END
+             `;
+         } else {
+             // Libre ingress fallback
+             const randomVar = Math.random().toString(36).substring(2, 9);
+             q += `
+               DECLARE @Fisico_${randomVar} INT;
+               INSERT INTO Stock_Etiquetas (codigo_barras, variante_id, deposito_id, cantidad_inicial, cantidad_actual, costo_unitario_real, estado) 
+               VALUES (CONVERT(varchar(255), NEWID()), '${item.variante_id}', ${almacenId}, ${totalUnidades}, ${totalUnidades}, ${item.precio_unitario || 0}, 'activo');
+               SET @Fisico_${randomVar} = SCOPE_IDENTITY();
+               INSERT INTO Stock_Movimientos (etiqueta_id, tipo_movimiento, cantidad_afectada, deposito_destino_id, usuario_id)
+               VALUES (@Fisico_${randomVar}, 'ingreso_auditoria_libre', ${totalUnidades}, ${almacenId}, '${user?.id}');
+             `;
+         }
       }
 
-      // LOTE INDIVIDUAL: una etiqueta por unidad física, con tabla temporal para recuperar IDs
-      const loteIndVarianteIds: string[] = [];
+      // LOTE INDIVIDUAL: actualizar específicamente las etiquetas físicas pre-creadas asignándoles cantidad 0 (peso diferido) y activándolas
       for(const item of lineasLoteInd) {
-         const randomVar = Math.random().toString(36).substring(2, 9);
-         loteIndVarianteIds.push(item.variante_id);
-         q += `
-           IF OBJECT_ID('tempdb..#NewEtqs_${randomVar}') IS NOT NULL DROP TABLE #NewEtqs_${randomVar};
-           CREATE TABLE #NewEtqs_${randomVar} (etq_id INT, variante_id VARCHAR(255));
-           DECLARE @Iter_${randomVar} INT = 0;
-           WHILE @Iter_${randomVar} < ${item.Auditada}
-           BEGIN
-             INSERT INTO Stock_Etiquetas (codigo_barras, variante_id, deposito_id, cantidad_inicial, cantidad_actual, compra_id, costo_unitario_real, estado)
-             VALUES (CONVERT(varchar(255), NEWID()), '${item.variante_id}', ${almacenId}, 0, 0, ${contexto === 'compra' ? `'${compraSeleccionada?.id}'` : 'NULL'}, ${item.precio_unitario || 0}, 'activo');
-             DECLARE @FisicoId_${randomVar} INT = SCOPE_IDENTITY();
-             INSERT INTO #NewEtqs_${randomVar} VALUES (@FisicoId_${randomVar}, '${item.variante_id}');
-             INSERT INTO Stock_Movimientos (etiqueta_id, tipo_movimiento, cantidad_afectada, deposito_destino_id, referencia_compra_id, usuario_id)
-             VALUES (@FisicoId_${randomVar}, 'ingreso_auditoria_${contexto}', 0, ${almacenId}, ${contexto === 'compra' ? `'${compraSeleccionada?.id}'` : 'NULL'}, '${user?.id}');
-             SET @Iter_${randomVar} = @Iter_${randomVar} + 1;
-           END
-           SELECT e.id as etq_id, e.variante_id, v.nombre_variante, p.nombre as producto_nombre
-           FROM #NewEtqs_${randomVar} t
-           JOIN Stock_Etiquetas e ON e.id = t.etq_id
-           JOIN Stock_Variantes v ON v.id = e.variante_id
-           JOIN Stock_Productos_Maestros p ON p.id = v.producto_maestro_id;
-         `;
+         if (contexto === 'compra') {
+             // Obtenemos los IDs pre-minted para esto y activamos n de ellos
+             const pendingForThis = etiquetasPreMinted.filter(e => e.variante_id.toString() === item.variante_id.toString());
+             
+             // Priorizamos los IDs que SÍ fueron escaneados usando la pistolita
+             let idsToActivate = scannedLoteIds.filter(id => pendingForThis.some(p => p.id.toString() === id.toString()));
+             
+             // Si el usuario simplemente apretó el botón "+" manualmente sin escanear, tomamos IDs aleatorios
+             let remainingNeeded = item.Auditada - idsToActivate.length;
+             if (remainingNeeded > 0) {
+                 const untouched = pendingForThis.filter(p => !idsToActivate.includes(p.id.toString()));
+                 idsToActivate = [...idsToActivate, ...untouched.slice(0, remainingNeeded).map(x => x.id.toString())];
+             }
+
+             if (idsToActivate.length > 0) {
+                 q += `
+                    UPDATE Stock_Etiquetas SET deposito_id = ${almacenId}, estado = 'activo' WHERE id IN (${idsToActivate.join(',')});
+                    INSERT INTO Stock_Movimientos (etiqueta_id, tipo_movimiento, cantidad_afectada, deposito_destino_id, referencia_compra_id, usuario_id)
+                    SELECT id, 'ingreso_auditoria_compra', 0, ${almacenId}, '${compraSeleccionada.id}', '${user?.id}' FROM Stock_Etiquetas WHERE id IN (${idsToActivate.join(',')});
+                 `;
+             }
+         } else {
+             // Libre ingress fallback
+             const randomVar = Math.random().toString(36).substring(2, 9);
+             q += `
+               DECLARE @Iter_${randomVar} INT = 0;
+               WHILE @Iter_${randomVar} < ${item.Auditada}
+               BEGIN
+                 INSERT INTO Stock_Etiquetas (codigo_barras, variante_id, deposito_id, cantidad_inicial, cantidad_actual, costo_unitario_real, estado)
+                 VALUES (CONVERT(varchar(255), NEWID()), '${item.variante_id}', ${almacenId}, 0, 0, ${item.precio_unitario || 0}, 'activo');
+                 DECLARE @FisicoId_${randomVar} INT = SCOPE_IDENTITY();
+                 INSERT INTO Stock_Movimientos (etiqueta_id, tipo_movimiento, cantidad_afectada, deposito_destino_id, usuario_id)
+                 VALUES (@FisicoId_${randomVar}, 'ingreso_auditoria_libre', 0, ${almacenId}, '${user?.id}');
+                 SET @Iter_${randomVar} = @Iter_${randomVar} + 1;
+               END
+             `;
+         }
       }
 
       try {
           const result = await executeAWSQuery(q);
-          toast.success("¡Stock ingresado exitosamente mediante auditoría WMS!");
-
-          // Si hay artículos lote_individual, buscar las etiquetas creadas para ofrecer impresión
-          if (lineasLoteInd.length > 0 && loteIndVarianteIds.length > 0) {
-             try {
-                 // Recuperar las etiquetas recién insertadas (las más recientes de esos variante_ids)
-                 const etqRes = await executeAWSQuery(`
-                   SELECT TOP ${lineasLoteInd.reduce((a, l) => a + l.Auditada, 0) + 5}
-                     e.id as etq_id, e.variante_id, v.nombre_variante, p.nombre as producto_nombre
-                   FROM Stock_Etiquetas e
-                   JOIN Stock_Variantes v ON v.id = e.variante_id
-                   JOIN Stock_Productos_Maestros p ON p.id = v.producto_maestro_id
-                   WHERE e.variante_id IN (${loteIndVarianteIds.map(v => `'${v}'`).join(',')})
-                     AND e.cantidad_actual = 0
-                     AND e.estado = 'activo'
-                   ORDER BY e.id DESC
-                 `);
-                 if (etqRes && etqRes.length > 0) {
-                     const entries: PrintLabelEntry[] = etqRes.map((r: any) => ({
-                         variante_id: r.variante_id,
-                         etiqueta_id: r.etq_id,
-                         producto_nombre: r.producto_nombre,
-                         nombre_variante: r.nombre_variante,
-                         tipo_gestion: 'lote_individual' as const,
-                     }));
-                     setPostIngressLabels(entries);
-                     setIsPrintLabelsOpen(true);
-                 }
-             } catch(e) { console.error('Error recuperando etiquetas post-ingreso', e); }
-          }
+          toast.success("¡Stock ingresado exitosamente al inventario!");
 
           setCompraSeleccionada(null);
           setLineasAuditoria([]);
           setEtiquetasEscaneadas([]);
+          setEtiquetasPreMinted([]);
+          setScannedLoteIds([]);
           onRecargaRequerida();
           fetchFoundation();
       } catch(e:any) {
