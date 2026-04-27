@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { PackageOpen, QrCode, FileText, CheckCircle2, Scan, ArrowLeft, Plus, X, Box, HelpCircle } from 'lucide-react';
+import { PackageOpen, QrCode, FileText, CheckCircle2, Scan, ArrowLeft, Plus, X, Box, HelpCircle, Printer } from 'lucide-react';
 import { executeAWSQuery } from '../lib/aws-client';
 import { useAuth } from '../context/AuthContext';
 import toast from 'react-hot-toast';
 import { ModalSelector } from './ui/ModalSelector';
 import { cn } from '../lib/utils';
 import { CategoryDrillDownModal } from './ui/CategoryDrillDownModal';
+import { PrintLabelsModal } from './ui/PrintLabelsModal';
 
 interface RecepcionAuditoriaProps {
   onRecargaRequerida: () => void;
@@ -38,6 +39,7 @@ export function RecepcionAuditoria({ onRecargaRequerida, onCartChange }: Recepci
   const [isCompraModalOpen, setIsCompraModalOpen] = useState(false);
   const [isProdDrillDownOpen, setIsProdDrillDownOpen] = useState(false);
   const [isScannerModalOpen, setIsScannerModalOpen] = useState(false);
+  const [isPrintLabelsOpen, setIsPrintLabelsOpen] = useState(false);
   const [qrCodeBuffer, setQrCodeBuffer] = useState('');
 
   useEffect(() => {
@@ -386,7 +388,7 @@ export function RecepcionAuditoria({ onRecargaRequerida, onCartChange }: Recepci
                                     <h2 className="text-xl font-black uppercase flex items-center gap-2"><FileText className="w-6 h-6 text-indigo-400"/> Revisión de Compra</h2>
                                     <p className="text-xs text-indigo-300 font-medium tracking-widest mt-1">Ref: {compraSeleccionada.referencia_factura} • Proveedor: {compraSeleccionada.proveedor_nombre}</p>
                                 </div>
-                                <div className="flex gap-4 items-center">
+                                <div className="flex gap-3 items-center flex-wrap">
                                     <select 
                                         disabled={!(isAdminStock || isGerente)}
                                         value={selectedAlmacenId || ''} 
@@ -396,6 +398,14 @@ export function RecepcionAuditoria({ onRecargaRequerida, onCartChange }: Recepci
                                         <option value="" disabled>Destino Logístico...</option>
                                         {depositos.map(d => <option key={d.id} value={d.id}>{d.nombre}</option>)}
                                     </select>
+                                    <button
+                                        onClick={() => setIsPrintLabelsOpen(true)}
+                                        className="flex items-center gap-2 px-4 py-3 bg-indigo-700 hover:bg-indigo-600 text-white text-sm font-bold rounded-xl transition-colors border border-indigo-500"
+                                        title="Imprimir etiquetas QR de esta orden"
+                                    >
+                                        <Printer className="w-4 h-4" />
+                                        Imprimir Etiquetas
+                                    </button>
                                     <button onClick={asentarIngreso} className="bg-emerald-500 hover:bg-emerald-600 px-6 py-3 rounded-xl font-black uppercase tracking-widest text-sm shadow-emerald-500/20 shadow-lg border border-emerald-400">
                                         Cerrar Ingreso Completo
                                     </button>
@@ -510,6 +520,19 @@ export function RecepcionAuditoria({ onRecargaRequerida, onCartChange }: Recepci
                     </div>
                 )}
             </AnimatePresence>
+
+            {/* Modal de selección de etiquetas a imprimir */}
+            <PrintLabelsModal
+                isOpen={isPrintLabelsOpen}
+                onClose={() => setIsPrintLabelsOpen(false)}
+                detalles={lineasAuditoria.map(l => ({
+                    variante_id: l.variante_id,
+                    producto_nombre: l.descripcion.split(' - ')[0] || l.descripcion,
+                    nombre_variante: l.descripcion.split(' - ')[1] || '',
+                    cantidad: l.esperada || l.Auditada,
+                    sku: null
+                }))}
+            />
 
             {/* TABLA BASE DE INGRESO A MANO */}
             {contexto === 'libre' && (
