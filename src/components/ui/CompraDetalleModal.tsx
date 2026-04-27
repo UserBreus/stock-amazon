@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Modal } from './Modal';
 import { executeAWSQuery } from '../../lib/aws-client';
-import { Package, Truck, Anchor, CheckCircle2, Factory, Ship, MapPin, QrCode } from 'lucide-react';
+import { Package, Truck, Anchor, CheckCircle2, Factory, Ship, MapPin, QrCode, Printer } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import toast from 'react-hot-toast';
 import { printLabel } from '../../lib/printLabel';
+import { PrintLabelsModal } from './PrintLabelsModal';
 
 export function CompraDetalleModal({ isOpen, compra, onClose, onUpdate, onEditDraft }: any) {
    const [detalles, setDetalles] = useState<any[]>([]);
@@ -13,6 +14,7 @@ export function CompraDetalleModal({ isOpen, compra, onClose, onUpdate, onEditDr
    const [nuevoCostoItem, setNuevoCostoItem] = useState({ desc: '', monto: '' });
    const [showExtraCostoForm, setShowExtraCostoForm] = useState(false);
    const [isUpdating, setIsUpdating] = useState(false);
+   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
    
    const timelineSteps = [
      { key: 'realizada', label: 'Realizada', icon: Package },
@@ -109,9 +111,29 @@ export function CompraDetalleModal({ isOpen, compra, onClose, onUpdate, onEditDr
    const currentStepIndex = timelineSteps.findIndex(s => s.key === compra.progreso);
 
    return (
+       <>
        <Modal isOpen={isOpen} onClose={onClose} title={`Detalle de Compra: ${compra.referencia_factura}`} maxWidth="max-w-5xl">
            <div className="space-y-6">
-                <div className="card-nexus p-6 bg-indigo-50 dark:bg-indigo-900/10 border-indigo-100 dark:border-indigo-800/50 flex justify-between items-center relative overflow-visible z-10">
+                {/* Print Labels Banner */}
+                <div className="flex items-center justify-between bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800/50 rounded-xl px-5 py-3">
+                  <div className="flex items-center gap-3">
+                    <QrCode className="w-5 h-5 text-indigo-600" />
+                    <div>
+                      <p className="font-black text-sm text-indigo-900 dark:text-indigo-200">Etiquetas de Esta Orden</p>
+                      <p className="text-xs text-indigo-400 font-medium">{detalles.length} artículo{detalles.length !== 1 ? 's' : ''} — imprimí los QR para el ingreso físico</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setIsPrintModalOpen(true)}
+                    disabled={isLoading || detalles.length === 0}
+                    className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-bold rounded-lg transition-all shadow-sm"
+                  >
+                    <Printer className="w-4 h-4" />
+                    Imprimir Etiquetas
+                  </button>
+                </div>
+
+                <div className="card-nexus p-6 bg-slate-50 dark:bg-indigo-900/10 border-indigo-100 dark:border-indigo-800/50 flex justify-between items-center relative overflow-visible z-10">
                    <div>
                        <h4 className="font-black text-indigo-900 dark:text-indigo-200 text-lg mb-1">Monto Total</h4>
                        <p className="text-xs font-bold text-indigo-400 uppercase tracking-widest">Gastos / Fletes Extra: ${compra.gastos_extras || 0}</p>
@@ -290,6 +312,13 @@ export function CompraDetalleModal({ isOpen, compra, onClose, onUpdate, onEditDr
                </div>
            </div>
        </Modal>
+
+       <PrintLabelsModal
+         isOpen={isPrintModalOpen}
+         onClose={() => setIsPrintModalOpen(false)}
+         detalles={detalles}
+       />
+       </>
    );
 }
 
