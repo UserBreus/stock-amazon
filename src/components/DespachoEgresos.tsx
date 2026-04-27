@@ -137,6 +137,7 @@ export function DespachoEgresos({ initialOperationType = 'traslado', initialMode
                      v.nombre_variante,
                      v.nombre_variante as nombre,
                      pm.id as producto_maestro_id, pm.nombre as producto_nombre, pm.categoria_id,
+                     pm.tipo_gestion,
                      COALESCE((SELECT CAST(SUM(cantidad_actual) AS INT) FROM Stock_Etiquetas WHERE variante_id = v.id AND deposito_id = ${origenId} AND estado = 'activo'), 0) as stock_total
               FROM Stock_Variantes v
               INNER JOIN Stock_Productos_Maestros pm ON v.producto_maestro_id = pm.id
@@ -157,37 +158,86 @@ export function DespachoEgresos({ initialOperationType = 'traslado', initialMode
   const handleCatalogSelection = async (varianteId: string) => {
       setLoadingCode(true);
       try {
-          const res = await executeAWSQuery(`
-              SELECT v.id as variante_id, v.nombre_variante, pm.nombre as producto_nombre, d.nombre as deposito_nombre,
-                     SUM(e.cantidad_actual) as cantidad_total
-              FROM Stock_Variantes v
+          // Primero verificar si el producto es lote_individual o granel
+          const tipoRes = await executeAWSQuery(`
+              SELECT pm.tipo_gestion FROM Stock_Variantes v
               INNER JOIN Stock_Productos_Maestros pm ON v.producto_maestro_id = pm.id
-              INNER JOIN Stock_Etiquetas e ON e.variante_id = v.id
-              LEFT JOIN Stock_Depositos d ON e.deposito_id = d.id
-              WHERE e.variante_id = ${varianteId} AND e.deposito_id = ${origenId} AND e.cantidad_actual > 0 AND e.estado = 'activo'
-              GROUP BY v.id, v.nombre_variante, pm.nombre, d.nombre
+              WHERE v.id = ${varianteId}
           `);
-          if(res && res.length > 0) {
-              const bulkItem = res[0];
-              const existingIndex = cart.findIndex(c => c.isBulk && c.variante_id === bulkItem.variante_id);
-              if (existingIndex > -1) {
-                 toast.error("Este producto ya está en el nivel de volumen del carrito.");
+          const esLoteInd = tipoRes?.[0]?.tipo_gestion === 'lote_individual';
+
+          if (esLoteInd) {
+              // LOTE INDIVIDUAL: cargar cada etiqueta física por separado
+              const etqRes = await executeAWSQuery(`
+                  SELECT e.id, e.codigo_barras, e.cantidad_actual, e.variante_id,
+                         v.nombre_variante, pm.nombre as producto_nombre, d.nombre as deposito_nombre
+                  FROM Stock_Etiquetas e
+                  INNER JOIN Stock_Variantes v ON v.id = e.variante_id
+                  INNER JOIN Stock_Productos_Maestros pm ON pm.id = v.producto_maestro_id
+                  LEFT JOIN Stock_Depositos d ON d.id = e.deposito_id
+                  WHERE e.variante_id = ${varianteId}
+                    AND e.deposito_id = ${origenId}
+                    AND e.estado = 'activo'
+                    AND e.cantidad_actual >= 0
+                  ORDER BY e.id ASC
+              `);
+              if (etqRes && etqRes.length > 0) {
+                  // Agregar CADA etiqueta física como item individual — no se debe agrupar
+                  const newItems = etqRes
+                      .filter((e: any) => !cart.find(c => c.id === e.id))
+                      .map((e: any) => ({
+                          ...e,
+                          isBulk: false,
+                          tipo_gestion: 'lote_individual',
+                          // lote_individual: es una pieza única, la cantidad a extraer es 1 (toda la pieza)
+                          cantidad_a_extraer: 1,
+                          // sobreescribir cantidad_actual a 1 para que la validación funcione
+                          cantidad_actual: 1,
+                      }));
+                  if (newItems.length === 0) {
+                      toast.error("Todas las etiquetas de ese producto ya están en el carrito.");
+                  } else {
+                      setCart(prev => [...newItems, ...prev]);
+                      toast.success(`${newItems.length} pieza(s) física(s) cargadas al carrito`);
+                  }
               } else {
-                 setCart([{
-                    id: 'BULK_' + bulkItem.variante_id,
-                    isBulk: true,
-                    variante_id: bulkItem.variante_id,
-                    codigo_barras: 'GRANEL-AUTO',
-                    producto_nombre: bulkItem.producto_nombre,
-                    nombre_variante: bulkItem.nombre_variante,
-                    cantidad_actual: bulkItem.cantidad_total,
-                    cantidad_a_extraer: '',
-                    deposito_id: origenId
-                 }, ...cart]);
-                 toast.success("Volumen de producto agregado al carrito");
+                  toast.error("No hay piezas físicas activas disponibles de este producto.");
               }
           } else {
-              toast.error("No hay stock físico activo disponible de este producto.");
+              // GRANEL: agrupar todo el stock en un solo item editable
+              const res = await executeAWSQuery(`
+                  SELECT v.id as variante_id, v.nombre_variante, pm.nombre as producto_nombre, d.nombre as deposito_nombre,
+                         SUM(e.cantidad_actual) as cantidad_total
+                  FROM Stock_Variantes v
+                  INNER JOIN Stock_Productos_Maestros pm ON v.producto_maestro_id = pm.id
+                  INNER JOIN Stock_Etiquetas e ON e.variante_id = v.id
+                  LEFT JOIN Stock_Depositos d ON e.deposito_id = d.id
+                  WHERE e.variante_id = ${varianteId} AND e.deposito_id = ${origenId} AND e.cantidad_actual > 0 AND e.estado = 'activo'
+                  GROUP BY v.id, v.nombre_variante, pm.nombre, d.nombre
+              `);
+              if(res && res.length > 0) {
+                  const bulkItem = res[0];
+                  const existingIndex = cart.findIndex(c => c.isBulk && c.variante_id === bulkItem.variante_id);
+                  if (existingIndex > -1) {
+                     toast.error("Este producto ya está en el nivel de volumen del carrito.");
+                  } else {
+                     setCart([{
+                        id: 'BULK_' + bulkItem.variante_id,
+                        isBulk: true,
+                        tipo_gestion: 'granel',
+                        variante_id: bulkItem.variante_id,
+                        codigo_barras: 'GRANEL-AUTO',
+                        producto_nombre: bulkItem.producto_nombre,
+                        nombre_variante: bulkItem.nombre_variante,
+                        cantidad_actual: bulkItem.cantidad_total,
+                        cantidad_a_extraer: '',
+                        deposito_id: origenId
+                     }, ...cart]);
+                     toast.success("Volumen de producto agregado al carrito");
+                  }
+              } else {
+                  toast.error("No hay stock físico activo disponible de este producto.");
+              }
           }
       } catch(e: any) {
           toast.error("Fallo al obtener stock físico: " + e.message);

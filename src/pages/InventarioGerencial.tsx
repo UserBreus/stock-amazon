@@ -400,7 +400,14 @@ export function InventarioGerencial() {
     setEgresoProduct(prod);
     setEgresoAutoMonto(1);
     try {
-      const etqs = await executeAWSQuery(`SELECT * FROM Stock_Etiquetas WHERE variante_id = '${prod.variante_id}' AND estado = 'activo' AND cantidad_actual > 0 ORDER BY ultima_actualizacion ASC`);
+      const etqs = await executeAWSQuery(`
+        SELECT e.*, pm.tipo_gestion
+        FROM Stock_Etiquetas e
+        JOIN Stock_Variantes v ON v.id = e.variante_id
+        JOIN Stock_Productos_Maestros pm ON pm.id = v.producto_maestro_id
+        WHERE e.variante_id = '${prod.variante_id}' AND e.estado = 'activo' AND e.cantidad_actual > 0
+        ORDER BY e.ultima_actualizacion ASC
+      `);
       setEgresoEtiquetas(etqs || []);
       
       const amounts: {[key:string]:number} = {};
@@ -434,9 +441,15 @@ export function InventarioGerencial() {
       for (const id of ids) {
          const am = egresoAmounts[id];
          const eq = egresoEtiquetas.find(e => e.id.toString() === id);
-         const n = eq.cantidad_actual - am;
-         await executeAWSQuery(`UPDATE Stock_Etiquetas SET cantidad_actual = ${n}, estado = '${n===0?'agotado':'activo'}' WHERE id = ${id}`);
-         await executeAWSQuery(`INSERT INTO Stock_Movimientos (etiqueta_id, tipo_movimiento, cantidad, usuario_id) VALUES (${id}, 'egreso_auto', ${am}, '${user?.id || 1}')`);
+         // lote_individual: marcar la etiqueta completa como consumida (no descuento parcial)
+         if (eq?.tipo_gestion === 'lote_individual') {
+            await executeAWSQuery(`UPDATE Stock_Etiquetas SET cantidad_actual = 0, estado = 'consumido' WHERE id = ${id}`);
+            await executeAWSQuery(`INSERT INTO Stock_Movimientos (etiqueta_id, tipo_movimiento, cantidad_afectada, usuario_id) VALUES (${id}, 'egreso_lote_individual', 1, '${user?.id || 1}')`);
+         } else {
+            const n = eq.cantidad_actual - am;
+            await executeAWSQuery(`UPDATE Stock_Etiquetas SET cantidad_actual = ${n}, estado = '${n===0?'agotado':'activo'}' WHERE id = ${id}`);
+            await executeAWSQuery(`INSERT INTO Stock_Movimientos (etiqueta_id, tipo_movimiento, cantidad_afectada, usuario_id) VALUES (${id}, 'egreso_auto', ${am}, '${user?.id || 1}')`);
+         }
       }
       setIsEgresoModalOpen(false);
       fetchData();

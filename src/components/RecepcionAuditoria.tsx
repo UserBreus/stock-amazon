@@ -7,7 +7,7 @@ import toast from 'react-hot-toast';
 import { ModalSelector } from './ui/ModalSelector';
 import { cn } from '../lib/utils';
 import { CategoryDrillDownModal } from './ui/CategoryDrillDownModal';
-import { PrintLabelsModal } from './ui/PrintLabelsModal';
+import { PrintLabelsModal, PrintLabelEntry } from './ui/PrintLabelsModal';
 
 interface RecepcionAuditoriaProps {
   onRecargaRequerida: () => void;
@@ -40,6 +40,7 @@ export function RecepcionAuditoria({ onRecargaRequerida, onCartChange }: Recepci
   const [isProdDrillDownOpen, setIsProdDrillDownOpen] = useState(false);
   const [isScannerModalOpen, setIsScannerModalOpen] = useState(false);
   const [isPrintLabelsOpen, setIsPrintLabelsOpen] = useState(false);
+  const [postIngressLabels, setPostIngressLabels] = useState<PrintLabelEntry[]>([]);
   const [qrCodeBuffer, setQrCodeBuffer] = useState('');
 
   useEffect(() => {
@@ -230,51 +231,91 @@ export function RecepcionAuditoria({ onRecargaRequerida, onCartChange }: Recepci
       if(!selectedAlmacenId) return toast.error("Por favor, seleccione el almacén o sector de destino.");
       const almacenId = selectedAlmacenId;
 
+      // Separar líneas por tipo de gestión
+      const lineasGranel = lineasAuditoria.filter(l => l.Auditada > 0 && l.tipo_gestion !== 'lote_individual');
+      const lineasLoteInd = lineasAuditoria.filter(l => l.Auditada > 0 && l.tipo_gestion === 'lote_individual');
+
       let q = '';
 
       if (contexto === 'compra' && compraSeleccionada) {
           q += `UPDATE Stock_Compras SET estado = 'completada' WHERE id = '${compraSeleccionada.id}';\n`;
       }
 
-      for(const item of lineasAuditoria) {
-          if (item.Auditada <= 0) continue; 
-          const randomVar = Math.random().toString(36).substring(2, 9);
-          
-          if (item.tipo_gestion === 'lote_individual') {
-             q += `
-               DECLARE @Iter_${randomVar} INT = 0;
-               WHILE @Iter_${randomVar} < ${item.Auditada}
-               BEGIN
-                  DECLARE @Fisico_${randomVar} INT;
-                  -- Se asienta en cantidad actual 0 para pesaje diferido en la balanza
-                  INSERT INTO Stock_Etiquetas (codigo_barras, variante_id, deposito_id, cantidad_inicial, cantidad_actual, compra_id, costo_unitario_real) 
-                  VALUES (CONVERT(varchar(255), NEWID()), '${item.variante_id}', ${almacenId}, 0, 0, ${contexto === 'compra' ? `'${compraSeleccionada?.id}'` : 'NULL'}, ${item.precio_unitario || 0});
-                  SET @Fisico_${randomVar} = SCOPE_IDENTITY();
-                  
-                  INSERT INTO Stock_Movimientos (etiqueta_id, tipo_movimiento, cantidad_afectada, deposito_destino_id, referencia_compra_id, usuario_id)
-                  VALUES (@Fisico_${randomVar}, 'ingreso_auditoria_${contexto}', 0, ${almacenId}, ${contexto === 'compra' ? `'${compraSeleccionada?.id}'` : 'NULL'}, '${user?.id}');
-                  
-                  SET @Iter_${randomVar} = @Iter_${randomVar} + 1;
-               END
-             `;
-          } else {
-             const udsPorBulto = item.cantidadSecundaria > 0 ? item.cantidadSecundaria : 1;
-             const totalUnidades = item.Auditada * udsPorBulto;
-             q += `
-               DECLARE @Fisico_${randomVar} INT;
-               INSERT INTO Stock_Etiquetas (codigo_barras, variante_id, deposito_id, cantidad_inicial, cantidad_actual, compra_id, costo_unitario_real) 
-               VALUES (CONVERT(varchar(255), NEWID()), '${item.variante_id}', ${almacenId}, ${totalUnidades}, ${totalUnidades}, ${contexto === 'compra' ? `'${compraSeleccionada?.id}'` : 'NULL'}, ${item.precio_unitario || 0});
-               SET @Fisico_${randomVar} = SCOPE_IDENTITY();
+      // GRANEL: una sola etiqueta por lote
+      for(const item of lineasGranel) {
+         const randomVar = Math.random().toString(36).substring(2, 9);
+         const udsPorBulto = item.cantidadSecundaria > 0 ? item.cantidadSecundaria : 1;
+         const totalUnidades = item.Auditada * udsPorBulto;
+         q += `
+           DECLARE @Fisico_${randomVar} INT;
+           INSERT INTO Stock_Etiquetas (codigo_barras, variante_id, deposito_id, cantidad_inicial, cantidad_actual, compra_id, costo_unitario_real, estado) 
+           VALUES (CONVERT(varchar(255), NEWID()), '${item.variante_id}', ${almacenId}, ${totalUnidades}, ${totalUnidades}, ${contexto === 'compra' ? `'${compraSeleccionada?.id}'` : 'NULL'}, ${item.precio_unitario || 0}, 'activo');
+           SET @Fisico_${randomVar} = SCOPE_IDENTITY();
+           INSERT INTO Stock_Movimientos (etiqueta_id, tipo_movimiento, cantidad_afectada, deposito_destino_id, referencia_compra_id, usuario_id)
+           VALUES (@Fisico_${randomVar}, 'ingreso_auditoria_${contexto}', ${totalUnidades}, ${almacenId}, ${contexto === 'compra' ? `'${compraSeleccionada?.id}'` : 'NULL'}, '${user?.id}');
+         `;
+      }
 
-               INSERT INTO Stock_Movimientos (etiqueta_id, tipo_movimiento, cantidad_afectada, deposito_destino_id, referencia_compra_id, usuario_id)
-               VALUES (@Fisico_${randomVar}, 'ingreso_auditoria_${contexto}', ${totalUnidades}, ${almacenId}, ${contexto === 'compra' ? `'${compraSeleccionada?.id}'` : 'NULL'}, '${user?.id}');
-             `;
-          }
+      // LOTE INDIVIDUAL: una etiqueta por unidad física, con tabla temporal para recuperar IDs
+      const loteIndVarianteIds: string[] = [];
+      for(const item of lineasLoteInd) {
+         const randomVar = Math.random().toString(36).substring(2, 9);
+         loteIndVarianteIds.push(item.variante_id);
+         q += `
+           IF OBJECT_ID('tempdb..#NewEtqs_${randomVar}') IS NOT NULL DROP TABLE #NewEtqs_${randomVar};
+           CREATE TABLE #NewEtqs_${randomVar} (etq_id INT, variante_id VARCHAR(255));
+           DECLARE @Iter_${randomVar} INT = 0;
+           WHILE @Iter_${randomVar} < ${item.Auditada}
+           BEGIN
+             INSERT INTO Stock_Etiquetas (codigo_barras, variante_id, deposito_id, cantidad_inicial, cantidad_actual, compra_id, costo_unitario_real, estado)
+             VALUES (CONVERT(varchar(255), NEWID()), '${item.variante_id}', ${almacenId}, 0, 0, ${contexto === 'compra' ? `'${compraSeleccionada?.id}'` : 'NULL'}, ${item.precio_unitario || 0}, 'activo');
+             DECLARE @FisicoId_${randomVar} INT = SCOPE_IDENTITY();
+             INSERT INTO #NewEtqs_${randomVar} VALUES (@FisicoId_${randomVar}, '${item.variante_id}');
+             INSERT INTO Stock_Movimientos (etiqueta_id, tipo_movimiento, cantidad_afectada, deposito_destino_id, referencia_compra_id, usuario_id)
+             VALUES (@FisicoId_${randomVar}, 'ingreso_auditoria_${contexto}', 0, ${almacenId}, ${contexto === 'compra' ? `'${compraSeleccionada?.id}'` : 'NULL'}, '${user?.id}');
+             SET @Iter_${randomVar} = @Iter_${randomVar} + 1;
+           END
+           SELECT e.id as etq_id, e.variante_id, v.nombre_variante, p.nombre as producto_nombre
+           FROM #NewEtqs_${randomVar} t
+           JOIN Stock_Etiquetas e ON e.id = t.etq_id
+           JOIN Stock_Variantes v ON v.id = e.variante_id
+           JOIN Stock_Productos_Maestros p ON p.id = v.producto_maestro_id;
+         `;
       }
 
       try {
-          await executeAWSQuery(q);
+          const result = await executeAWSQuery(q);
           toast.success("¡Stock ingresado exitosamente mediante auditoría WMS!");
+
+          // Si hay artículos lote_individual, buscar las etiquetas creadas para ofrecer impresión
+          if (lineasLoteInd.length > 0 && loteIndVarianteIds.length > 0) {
+             try {
+                 // Recuperar las etiquetas recién insertadas (las más recientes de esos variante_ids)
+                 const etqRes = await executeAWSQuery(`
+                   SELECT TOP ${lineasLoteInd.reduce((a, l) => a + l.Auditada, 0) + 5}
+                     e.id as etq_id, e.variante_id, v.nombre_variante, p.nombre as producto_nombre
+                   FROM Stock_Etiquetas e
+                   JOIN Stock_Variantes v ON v.id = e.variante_id
+                   JOIN Stock_Productos_Maestros p ON p.id = v.producto_maestro_id
+                   WHERE e.variante_id IN (${loteIndVarianteIds.map(v => `'${v}'`).join(',')})
+                     AND e.cantidad_actual = 0
+                     AND e.estado = 'activo'
+                   ORDER BY e.id DESC
+                 `);
+                 if (etqRes && etqRes.length > 0) {
+                     const entries: PrintLabelEntry[] = etqRes.map((r: any) => ({
+                         variante_id: r.variante_id,
+                         etiqueta_id: r.etq_id,
+                         producto_nombre: r.producto_nombre,
+                         nombre_variante: r.nombre_variante,
+                         tipo_gestion: 'lote_individual' as const,
+                     }));
+                     setPostIngressLabels(entries);
+                     setIsPrintLabelsOpen(true);
+                 }
+             } catch(e) { console.error('Error recuperando etiquetas post-ingreso', e); }
+          }
+
           setCompraSeleccionada(null);
           setLineasAuditoria([]);
           setEtiquetasEscaneadas([]);
@@ -700,6 +741,27 @@ export function RecepcionAuditoria({ onRecargaRequerida, onCartChange }: Recepci
                     </div>
                 )}
             </AnimatePresence>
+
+            {/* Modal pre-ingreso — etiquetas granel (antes de ingresar stock) */}
+            <PrintLabelsModal
+                isOpen={isPrintLabelsOpen && postIngressLabels.length === 0}
+                onClose={() => setIsPrintLabelsOpen(false)}
+                detalles={lineasAuditoria.map(l => ({
+                    variante_id: l.variante_id,
+                    producto_nombre: l.descripcion.split(' - ')[0] || l.descripcion,
+                    nombre_variante: l.descripcion.split(' - ')[1] || '',
+                    cantidad: l.esperada || l.Auditada,
+                    tipo_gestion: l.tipo_gestion || 'granel',
+                    sku: null
+                }))}
+            />
+
+            {/* Modal post-ingreso — etiquetas lote_individual con IDs reales */}
+            <PrintLabelsModal
+                isOpen={isPrintLabelsOpen && postIngressLabels.length > 0}
+                onClose={() => { setIsPrintLabelsOpen(false); setPostIngressLabels([]); }}
+                detalles={postIngressLabels}
+            />
       </div>
   );
 }
