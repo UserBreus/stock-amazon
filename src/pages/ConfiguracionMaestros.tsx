@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Settings, Box, Network, Truck, Search, Folder, ArrowLeft, Palette, LayoutDashboard, Tag, Layers, ArchiveRestore, History, Edit3, Trash2, Banknote } from 'lucide-react';
+import { Settings, Box, Network, Truck, Search, Folder, ArrowLeft, Palette, LayoutDashboard, Tag, Layers, ArchiveRestore, History, Edit3, Trash2, Banknote, FileText, ChevronRight } from 'lucide-react';
 import { IconManager } from '../components/IconManager';
 import { useUIConfig, DynamicUIIcon } from '../context/UIContext';
 
@@ -56,7 +56,7 @@ export function ConfiguracionMaestros() {
   const [productos, setProductos] = useState<any[]>([]);
 
   // Variantes (Hijos)
-  const [varProdId, setVarProdId] = useState('');
+  const [varProdIds, setVarProdIds] = useState<string[]>([]);
   const [varNombre, setVarNombre] = useState('');
   const [varSku, setVarSku] = useState('');
   const [variantes, setVariantes] = useState<any[]>([]);
@@ -201,8 +201,8 @@ export function ConfiguracionMaestros() {
   }, [pmNombre, pmCatId, categorias, productos]);
 
   useEffect(() => {
-    if (varProdId) {
-       const prod = productos.find(p => p.id.toString() === varProdId);
+    if (varProdIds) {
+       const prod = productos.find(p => p.id.toString() === varProdIds[0]);
        if (prod && prod.atributos_config) {
           try { setAtributos(JSON.parse(prod.atributos_config)); } catch(e) { setAtributos([]); }
        } else {
@@ -212,7 +212,7 @@ export function ConfiguracionMaestros() {
        setAtributos([]);
     }
     setVariantesGeneradas([]);
-  }, [varProdId, productos]);
+  }, [varProdIds, productos]);
 
   const fetchMemorizados = async () => {
       try {
@@ -266,7 +266,7 @@ export function ConfiguracionMaestros() {
          return;
      }
 
-     const prod = productos.find(p => p.id.toString() === varProdId);
+     const prod = productos.find(p => p.id.toString() === varProdIds[0]);
      const prefixBase = prod?.sku || (prod?.nombre ? prod.nombre.substring(0, 3).toUpperCase() : 'VAR');
 
      const combinaciones = atributos.reduce((acc, curr) => {
@@ -290,28 +290,46 @@ export function ConfiguracionMaestros() {
          };
      });
      setVariantesGeneradas(generadas);
-  }, [atributos, varProdId, productos]);
+  }, [atributos, varProdIds, productos]);
 
   const createVariantesMasivas = async () => {
-    if(!varProdId) return toast.error("Selecciona un título.");
-    const validas = variantesGeneradas.filter(v => v.activa);
-    if(validas.length === 0) return toast.error("No hay modelos activos.");
+    if(varProdIds.length === 0) return toast.error("Selecciona al menos un artículo base.");
+    const validas = variantesGeneradas.filter(v => v.activa && !v.yaExiste);
+    if(validas.length === 0) return toast.error("No hay modelos activos o todos ya existen.");
     setIsSaving(true);
     try {
        const attrJson = JSON.stringify(atributos).replace(/'/g, "''");
-       let q = `UPDATE Stock_Productos_Maestros SET atributos_config = '${attrJson}' WHERE id = ${varProdId};\n`;
+       let q = '';
+       varProdIds.forEach(pid => {
+           q += `UPDATE Stock_Productos_Maestros SET atributos_config = '${attrJson}' WHERE id = ${pid};\n`;
+       });
        validas.forEach(v => {
-          q += `INSERT INTO Stock_Variantes (producto_maestro_id, codigo_variante, nombre_variante) VALUES (${varProdId}, '${v.sku || ''}', '${v.nombre.replace(/'/g, "''")}');\n`;
+          q += `INSERT INTO Stock_Variantes (producto_maestro_id, codigo_variante, nombre_variante, metadata_json) VALUES (${v.prodId}, '${v.sku || ''}', '${v.nombre.replace(/'/g, "''")}', '${JSON.stringify(v.metadata).replace(/'/g, "''")}');\n`;
        });
        await executeAWSQuery(q);
        toast.success(`${validas.length} Modelos Creados Exitosamente.`);
        fetchData();
-       setVarProdId('');
+       setVarProdIds([]);
+       setNuevoAtributo('');
+       setAtributos([]);
+       setVariantesGeneradas([]);
+       setIsProdModalOpen(false);
     } catch (err: any) {
        toast.error("Error al registrar modelos: " + err.message);
     } finally {
        setIsSaving(false);
     }
+  };
+
+  const updateVarianteInline = async (id: number, nuevoNombre: string, nuevoSku: string) => {
+      try {
+          await executeAWSQuery(`UPDATE Stock_Variantes SET nombre_variante='${nuevoNombre.replace(/'/g, "''")}', codigo_variante='${nuevoSku.replace(/'/g, "''")}' WHERE id = ${id}`);
+          toast.success('Variante actualizada.');
+          fetchData();
+      } catch (e: any) {
+          toast.error('Error al actualizar variante.');
+          console.error(e);
+      }
   };
 
   useEffect(() => {
@@ -483,9 +501,9 @@ export function ConfiguracionMaestros() {
 
   const createVariante = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!varProdId) return toast.error("Por favor, selecciona un maestro primero.");
+    if (varProdIds.length === 0) return toast.error("Por favor, selecciona un maestro primero.");
     try {
-      await executeAWSQuery(`INSERT INTO Stock_Variantes (producto_maestro_id, codigo_variante, nombre_variante) VALUES ('${varProdId}', '${varSku.replace(/'/g, "''")}', '${varNombre.replace(/'/g, "''")}')`);
+      await executeAWSQuery(`INSERT INTO Stock_Variantes (producto_maestro_id, codigo_variante, nombre_variante) VALUES ('${varProdIds[0]}', '${varSku.replace(/'/g, "''")}', '${varNombre.replace(/'/g, "''")}')`);
       setVarNombre(''); setVarSku(''); toast.success("Variante Creada"); fetchData();
     } catch (err: any) {
        toast.error("Error al crear variante: " + (err.message || "Posible duplicado."));
@@ -527,8 +545,7 @@ export function ConfiguracionMaestros() {
           </div>
           
           
-  <motion.div initial={{opacity:0, y:20}} animate={{opacity:1, y:0}} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 max-w-7xl mx-auto py-8">
-      
+  <motion.div initial={{opacity:0, y:20}} animate={{opacity:1, y:0}} className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 xl:grid-cols-6 gap-4 max-w-[1400px] mx-auto py-4 px-4">
       <button 
            draggable={isEditMode}
            onDragStart={(e) => handleDragStart(e, 'btn_sys_maestros')}
@@ -539,17 +556,16 @@ export function ConfiguracionMaestros() {
                else { setActiveTab('titulos_base'); }
            }} 
            style={{ order: uiConfigs['btn_sys_maestros']?.order_index || 1 }}
-           className={`${isEditMode ? 'ring-2 ring-indigo-500 hover:ring-indigo-500/50 cursor-move border-dashed shadow-[0_0_15px_rgba(99,102,241,0.5)]' : ''} ${uiConfigs['btn_sys_maestros']?.bg_color || 'bg-white dark:bg-slate-900 border border-slate-200 hover:border-blue-300 dark:border-slate-800 dark:hover:border-blue-900'} p-8 rounded-3xl text-left transition-all h-full group flex flex-col items-start gap-6 hover:shadow-xl hover:-translate-y-1`}
+           className={`${isEditMode ? 'ring-2 ring-indigo-500 hover:ring-indigo-500/50 cursor-move border-dashed shadow-[0_0_15px_rgba(99,102,241,0.5)]' : ''} bg-white dark:bg-slate-900 border border-slate-200 hover:border-slate-400 dark:border-slate-800 dark:hover:border-slate-600 p-4 rounded-2xl text-center transition-all h-full group flex flex-col items-center gap-2 hover:shadow-md hover:-translate-y-0.5`}
         >
-            <div className="p-4 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-2xl group-hover:scale-110 transition-transform">
-               <DynamicUIIcon id="btn_sys_maestros" fallback={Network} className={`w-8 h-8 ${uiConfigs['btn_sys_maestros']?.icon_color || ''}`} />
+            <div className="p-3 bg-transparent text-slate-700 dark:text-slate-300 group-hover:scale-110 transition-transform flex items-center justify-center">
+               <DynamicUIIcon id="btn_sys_maestros" fallback={Network} className={`w-6 h-6 ${uiConfigs['btn_sys_maestros']?.icon_color || ''}`} />
             </div>
-            <div className="flex-1 flex flex-col">
-               <h3 className="text-xl font-black text-slate-800 dark:text-white mb-2">{uiConfigs['btn_sys_maestros']?.label || 'Artículos Maestros'}</h3>
-               <p className="text-slate-500 font-medium text-xs leading-relaxed">{uiConfigs['btn_sys_maestros']?.sub_label || 'Crea las matrices principales de cada producto de tu catálogo.'}</p>
+            <div className="flex-1 flex flex-col items-center">
+               <h3 className="text-xs font-black text-slate-800 dark:text-white mb-1 leading-tight text-center">{uiConfigs['btn_sys_maestros']?.label || 'Artículos Maestros'}</h3>
+               <p className="text-slate-400 font-medium text-[10px] leading-tight text-center line-clamp-2 max-w-[120px]">{uiConfigs['btn_sys_maestros']?.sub_label || 'Matrices principales.'}</p>
             </div>
       </button>
-
       <button 
            draggable={isEditMode}
            onDragStart={(e) => handleDragStart(e, 'btn_sys_variantes')}
@@ -560,17 +576,16 @@ export function ConfiguracionMaestros() {
                else { setActiveTab('modelos'); }
            }} 
            style={{ order: uiConfigs['btn_sys_variantes']?.order_index || 2 }}
-           className={`${isEditMode ? 'ring-2 ring-indigo-500 hover:ring-indigo-500/50 cursor-move border-dashed shadow-[0_0_15px_rgba(99,102,241,0.5)]' : ''} ${uiConfigs['btn_sys_variantes']?.bg_color || 'bg-white dark:bg-slate-900 border border-slate-200 hover:border-purple-300 dark:border-slate-800 dark:hover:border-purple-900'} p-8 rounded-3xl text-left transition-all h-full group flex flex-col items-start gap-6 hover:shadow-xl hover:-translate-y-1`}
+           className={`${isEditMode ? 'ring-2 ring-indigo-500 hover:ring-indigo-500/50 cursor-move border-dashed shadow-[0_0_15px_rgba(99,102,241,0.5)]' : ''} bg-white dark:bg-slate-900 border border-slate-200 hover:border-slate-400 dark:border-slate-800 dark:hover:border-slate-600 p-4 rounded-2xl text-center transition-all h-full group flex flex-col items-center gap-2 hover:shadow-md hover:-translate-y-0.5`}
         >
-            <div className="p-4 bg-purple-50 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400 rounded-2xl group-hover:scale-110 transition-transform">
-               <DynamicUIIcon id="btn_sys_variantes" fallback={Box} className={`w-8 h-8 ${uiConfigs['btn_sys_variantes']?.icon_color || ''}`} />
+            <div className="p-3 bg-transparent text-slate-700 dark:text-slate-300 group-hover:scale-110 transition-transform flex items-center justify-center">
+               <DynamicUIIcon id="btn_sys_variantes" fallback={Box} className={`w-6 h-6 ${uiConfigs['btn_sys_variantes']?.icon_color || ''}`} />
             </div>
-            <div className="flex-1 flex flex-col">
-               <h3 className="text-xl font-black text-slate-800 dark:text-white mb-2">{uiConfigs['btn_sys_variantes']?.label || 'Variantes (SKU)'}</h3>
-               <p className="text-slate-500 font-medium text-xs leading-relaxed">{uiConfigs['btn_sys_variantes']?.sub_label || 'Generador de matrices. Multiplica artículos por Talle/Color/etc.'}</p>
+            <div className="flex-1 flex flex-col items-center">
+               <h3 className="text-xs font-black text-slate-800 dark:text-white mb-1 leading-tight text-center">{uiConfigs['btn_sys_variantes']?.label || 'Variantes (SKU)'}</h3>
+               <p className="text-slate-400 font-medium text-[10px] leading-tight text-center line-clamp-2 max-w-[120px]">{uiConfigs['btn_sys_variantes']?.sub_label || 'Generador de matrices.'}</p>
             </div>
       </button>
-
       <button 
            draggable={isEditMode}
            onDragStart={(e) => handleDragStart(e, 'btn_sys_rasgos')}
@@ -581,17 +596,16 @@ export function ConfiguracionMaestros() {
                else { setActiveTab('diccionario'); }
            }} 
            style={{ order: uiConfigs['btn_sys_rasgos']?.order_index || 3 }}
-           className={`${isEditMode ? 'ring-2 ring-indigo-500 hover:ring-indigo-500/50 cursor-move border-dashed shadow-[0_0_15px_rgba(99,102,241,0.5)]' : ''} ${uiConfigs['btn_sys_rasgos']?.bg_color || 'bg-white dark:bg-slate-900 border border-slate-200 hover:border-indigo-300 dark:border-slate-800 dark:hover:border-indigo-900'} p-8 rounded-3xl text-left transition-all h-full group flex flex-col items-start gap-6 hover:shadow-xl hover:-translate-y-1`}
+           className={`${isEditMode ? 'ring-2 ring-indigo-500 hover:ring-indigo-500/50 cursor-move border-dashed shadow-[0_0_15px_rgba(99,102,241,0.5)]' : ''} bg-white dark:bg-slate-900 border border-slate-200 hover:border-slate-400 dark:border-slate-800 dark:hover:border-slate-600 p-4 rounded-2xl text-center transition-all h-full group flex flex-col items-center gap-2 hover:shadow-md hover:-translate-y-0.5`}
         >
-            <div className="p-4 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded-2xl group-hover:scale-110 transition-transform">
-               <DynamicUIIcon id="btn_sys_rasgos" fallback={Tag} className={`w-8 h-8 ${uiConfigs['btn_sys_rasgos']?.icon_color || ''}`} />
+            <div className="p-3 bg-transparent text-slate-700 dark:text-slate-300 group-hover:scale-110 transition-transform flex items-center justify-center">
+               <DynamicUIIcon id="btn_sys_rasgos" fallback={Tag} className={`w-6 h-6 ${uiConfigs['btn_sys_rasgos']?.icon_color || ''}`} />
             </div>
-            <div className="flex-1 flex flex-col">
-               <h3 className="text-xl font-black text-slate-800 dark:text-white mb-2">{uiConfigs['btn_sys_rasgos']?.label || 'Rasgos y Atributos'}</h3>
-               <p className="text-slate-500 font-medium text-xs leading-relaxed">{uiConfigs['btn_sys_rasgos']?.sub_label || 'Diccionario de combinaciones usadas para armar Variantes.'}</p>
+            <div className="flex-1 flex flex-col items-center">
+               <h3 className="text-xs font-black text-slate-800 dark:text-white mb-1 leading-tight text-center">{uiConfigs['btn_sys_rasgos']?.label || 'Rasgos y Atributos'}</h3>
+               <p className="text-slate-400 font-medium text-[10px] leading-tight text-center line-clamp-2 max-w-[120px]">{uiConfigs['btn_sys_rasgos']?.sub_label || 'Diccionario Variantes.'}</p>
             </div>
       </button>
-
       <button 
            draggable={isEditMode}
            onDragStart={(e) => handleDragStart(e, 'btn_sys_familias')}
@@ -602,17 +616,16 @@ export function ConfiguracionMaestros() {
                else { setActiveTab('categorias'); }
            }} 
            style={{ order: uiConfigs['btn_sys_familias']?.order_index || 4 }}
-           className={`${isEditMode ? 'ring-2 ring-indigo-500 hover:ring-indigo-500/50 cursor-move border-dashed shadow-[0_0_15px_rgba(99,102,241,0.5)]' : ''} ${uiConfigs['btn_sys_familias']?.bg_color || 'bg-white dark:bg-slate-900 border border-slate-200 hover:border-emerald-300 dark:border-slate-800 dark:hover:border-emerald-900'} p-8 rounded-3xl text-left transition-all h-full group flex flex-col items-start gap-6 hover:shadow-xl hover:-translate-y-1`}
+           className={`${isEditMode ? 'ring-2 ring-indigo-500 hover:ring-indigo-500/50 cursor-move border-dashed shadow-[0_0_15px_rgba(99,102,241,0.5)]' : ''} bg-white dark:bg-slate-900 border border-slate-200 hover:border-slate-400 dark:border-slate-800 dark:hover:border-slate-600 p-4 rounded-2xl text-center transition-all h-full group flex flex-col items-center gap-2 hover:shadow-md hover:-translate-y-0.5`}
         >
-            <div className="p-4 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 rounded-2xl group-hover:scale-110 transition-transform">
-               <DynamicUIIcon id="btn_sys_familias" fallback={Layers} className={`w-8 h-8 ${uiConfigs['btn_sys_familias']?.icon_color || ''}`} />
+            <div className="p-3 bg-transparent text-slate-700 dark:text-slate-300 group-hover:scale-110 transition-transform flex items-center justify-center">
+               <DynamicUIIcon id="btn_sys_familias" fallback={Layers} className={`w-6 h-6 ${uiConfigs['btn_sys_familias']?.icon_color || ''}`} />
             </div>
-            <div className="flex-1 flex flex-col">
-               <h3 className="text-xl font-black text-slate-800 dark:text-white mb-2">{uiConfigs['btn_sys_familias']?.label || 'Familias'}</h3>
-               <p className="text-slate-500 font-medium text-xs leading-relaxed">{uiConfigs['btn_sys_familias']?.sub_label || 'Categorías o agrupadores globales para estadística y orden.'}</p>
+            <div className="flex-1 flex flex-col items-center">
+               <h3 className="text-xs font-black text-slate-800 dark:text-white mb-1 leading-tight text-center">{uiConfigs['btn_sys_familias']?.label || 'Familias'}</h3>
+               <p className="text-slate-400 font-medium text-[10px] leading-tight text-center line-clamp-2 max-w-[120px]">{uiConfigs['btn_sys_familias']?.sub_label || 'Categorías globales.'}</p>
             </div>
       </button>
-
       <button 
            draggable={isEditMode}
            onDragStart={(e) => handleDragStart(e, 'btn_sys_proveedores')}
@@ -623,17 +636,16 @@ export function ConfiguracionMaestros() {
                else { setActiveTab('proveedores'); }
            }} 
            style={{ order: uiConfigs['btn_sys_proveedores']?.order_index || 5 }}
-           className={`${isEditMode ? 'ring-2 ring-indigo-500 hover:ring-indigo-500/50 cursor-move border-dashed shadow-[0_0_15px_rgba(99,102,241,0.5)]' : ''} ${uiConfigs['btn_sys_proveedores']?.bg_color || 'bg-white dark:bg-slate-900 border border-slate-200 hover:border-amber-300 dark:border-slate-800 dark:hover:border-amber-900'} p-8 rounded-3xl text-left transition-all h-full group flex flex-col items-start gap-6 hover:shadow-xl hover:-translate-y-1`}
+           className={`${isEditMode ? 'ring-2 ring-indigo-500 hover:ring-indigo-500/50 cursor-move border-dashed shadow-[0_0_15px_rgba(99,102,241,0.5)]' : ''} bg-white dark:bg-slate-900 border border-slate-200 hover:border-slate-400 dark:border-slate-800 dark:hover:border-slate-600 p-4 rounded-2xl text-center transition-all h-full group flex flex-col items-center gap-2 hover:shadow-md hover:-translate-y-0.5`}
         >
-            <div className="p-4 bg-amber-50 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 rounded-2xl group-hover:scale-110 transition-transform">
-               <DynamicUIIcon id="btn_sys_proveedores" fallback={Truck} className={`w-8 h-8 ${uiConfigs['btn_sys_proveedores']?.icon_color || ''}`} />
+            <div className="p-3 bg-transparent text-slate-700 dark:text-slate-300 group-hover:scale-110 transition-transform flex items-center justify-center">
+               <DynamicUIIcon id="btn_sys_proveedores" fallback={Truck} className={`w-6 h-6 ${uiConfigs['btn_sys_proveedores']?.icon_color || ''}`} />
             </div>
-            <div className="flex-1 flex flex-col">
-               <h3 className="text-xl font-black text-slate-800 dark:text-white mb-2">{uiConfigs['btn_sys_proveedores']?.label || 'Proveedores'}</h3>
-               <p className="text-slate-500 font-medium text-xs leading-relaxed">{uiConfigs['btn_sys_proveedores']?.sub_label || 'Directorio de importadores y fabricantes.'}</p>
+            <div className="flex-1 flex flex-col items-center">
+               <h3 className="text-xs font-black text-slate-800 dark:text-white mb-1 leading-tight text-center">{uiConfigs['btn_sys_proveedores']?.label || 'Proveedores'}</h3>
+               <p className="text-slate-400 font-medium text-[10px] leading-tight text-center line-clamp-2 max-w-[120px]">{uiConfigs['btn_sys_proveedores']?.sub_label || 'Directorio importadores.'}</p>
             </div>
       </button>
-
       <button 
            draggable={isEditMode}
            onDragStart={(e) => handleDragStart(e, 'btn_sys_almacenes')}
@@ -644,17 +656,16 @@ export function ConfiguracionMaestros() {
                else { setActiveTab('almacenes'); }
            }} 
            style={{ order: uiConfigs['btn_sys_almacenes']?.order_index || 6 }}
-           className={`${isEditMode ? 'ring-2 ring-indigo-500 hover:ring-indigo-500/50 cursor-move border-dashed shadow-[0_0_15px_rgba(99,102,241,0.5)]' : ''} ${uiConfigs['btn_sys_almacenes']?.bg_color || 'bg-white dark:bg-slate-900 border border-slate-200 hover:border-rose-300 dark:border-slate-800 dark:hover:border-rose-900'} p-8 rounded-3xl text-left transition-all h-full group flex flex-col items-start gap-6 hover:shadow-xl hover:-translate-y-1`}
+           className={`${isEditMode ? 'ring-2 ring-indigo-500 hover:ring-indigo-500/50 cursor-move border-dashed shadow-[0_0_15px_rgba(99,102,241,0.5)]' : ''} bg-white dark:bg-slate-900 border border-slate-200 hover:border-slate-400 dark:border-slate-800 dark:hover:border-slate-600 p-4 rounded-2xl text-center transition-all h-full group flex flex-col items-center gap-2 hover:shadow-md hover:-translate-y-0.5`}
         >
-            <div className="p-4 bg-rose-50 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400 rounded-2xl group-hover:scale-110 transition-transform">
-               <DynamicUIIcon id="btn_sys_almacenes" fallback={ArchiveRestore} className={`w-8 h-8 ${uiConfigs['btn_sys_almacenes']?.icon_color || ''}`} />
+            <div className="p-3 bg-transparent text-slate-700 dark:text-slate-300 group-hover:scale-110 transition-transform flex items-center justify-center">
+               <DynamicUIIcon id="btn_sys_almacenes" fallback={ArchiveRestore} className={`w-6 h-6 ${uiConfigs['btn_sys_almacenes']?.icon_color || ''}`} />
             </div>
-            <div className="flex-1 flex flex-col">
-               <h3 className="text-xl font-black text-slate-800 dark:text-white mb-2">{uiConfigs['btn_sys_almacenes']?.label || 'Almacenes y Sectores'}</h3>
-               <p className="text-slate-500 font-medium text-xs leading-relaxed">{uiConfigs['btn_sys_almacenes']?.sub_label || 'Locaciones físicas o lógicas. Configuración de depositos de stock.'}</p>
+            <div className="flex-1 flex flex-col items-center">
+               <h3 className="text-xs font-black text-slate-800 dark:text-white mb-1 leading-tight text-center">{uiConfigs['btn_sys_almacenes']?.label || 'Almacenes'}</h3>
+               <p className="text-slate-400 font-medium text-[10px] leading-tight text-center line-clamp-2 max-w-[120px]">{uiConfigs['btn_sys_almacenes']?.sub_label || 'Depositos de stock.'}</p>
             </div>
       </button>
-
       <button 
            draggable={isEditMode}
            onDragStart={(e) => handleDragStart(e, 'btn_sys_monedas')}
@@ -665,14 +676,34 @@ export function ConfiguracionMaestros() {
                else { setActiveTab('monedas'); }
            }} 
            style={{ order: uiConfigs['btn_sys_monedas']?.order_index || 7 }}
-           className={`${isEditMode ? 'ring-2 ring-indigo-500 hover:ring-indigo-500/50 cursor-move border-dashed shadow-[0_0_15px_rgba(99,102,241,0.5)]' : ''} ${uiConfigs['btn_sys_monedas']?.bg_color || 'bg-white dark:bg-slate-900 border border-slate-200 hover:border-green-300 dark:border-slate-800 dark:hover:border-green-900'} p-8 rounded-3xl text-left transition-all h-full group flex flex-col items-start gap-6 hover:shadow-xl hover:-translate-y-1`}
+           className={`${isEditMode ? 'ring-2 ring-indigo-500 hover:ring-indigo-500/50 cursor-move border-dashed shadow-[0_0_15px_rgba(99,102,241,0.5)]' : ''} bg-white dark:bg-slate-900 border border-slate-200 hover:border-slate-400 dark:border-slate-800 dark:hover:border-slate-600 p-4 rounded-2xl text-center transition-all h-full group flex flex-col items-center gap-2 hover:shadow-md hover:-translate-y-0.5`}
         >
-            <div className="p-4 bg-green-50 dark:bg-green-900/30 text-green-600 dark:text-green-400 rounded-2xl group-hover:scale-110 transition-transform">
-               <DynamicUIIcon id="btn_sys_monedas" fallback={Banknote} className={`w-8 h-8 ${uiConfigs['btn_sys_monedas']?.icon_color || ''}`} />
+            <div className="p-3 bg-transparent text-slate-700 dark:text-slate-300 group-hover:scale-110 transition-transform flex items-center justify-center">
+               <DynamicUIIcon id="btn_sys_monedas" fallback={Banknote} className={`w-6 h-6 ${uiConfigs['btn_sys_monedas']?.icon_color || ''}`} />
             </div>
-            <div className="flex-1 flex flex-col">
-               <h3 className="text-xl font-black text-slate-800 dark:text-white mb-2">{uiConfigs['btn_sys_monedas']?.label || 'Monedas'}</h3>
-               <p className="text-slate-500 font-medium text-xs leading-relaxed">{uiConfigs['btn_sys_monedas']?.sub_label || 'Tipos de cambio y divisas operables en compras.'}</p>
+            <div className="flex-1 flex flex-col items-center">
+               <h3 className="text-xs font-black text-slate-800 dark:text-white mb-1 leading-tight text-center">{uiConfigs['btn_sys_monedas']?.label || 'Monedas'}</h3>
+               <p className="text-slate-400 font-medium text-[10px] leading-tight text-center line-clamp-2 max-w-[120px]">{uiConfigs['btn_sys_monedas']?.sub_label || 'Divisas en compras.'}</p>
+            </div>
+      </button>
+      <button 
+           draggable={isEditMode}
+           onDragStart={(e) => handleDragStart(e, 'btn_sys_tipos_facturas')}
+           onDragOver={handleDragOver}
+           onDrop={(e) => handleDrop(e, 'btn_sys_tipos_facturas')}
+           onClick={(e) => {
+               if (isEditMode) { e.preventDefault(); setEditingComponentId('btn_sys_tipos_facturas'); }
+               else { setActiveTab('tipos_facturas'); }
+           }} 
+           style={{ order: uiConfigs['btn_sys_tipos_facturas']?.order_index || 8 }}
+           className={`${isEditMode ? 'ring-2 ring-indigo-500 hover:ring-indigo-500/50 cursor-move border-dashed shadow-[0_0_15px_rgba(99,102,241,0.5)]' : ''} bg-white dark:bg-slate-900 border border-slate-200 hover:border-slate-400 dark:border-slate-800 dark:hover:border-slate-600 p-4 rounded-2xl text-center transition-all h-full group flex flex-col items-center gap-2 hover:shadow-md hover:-translate-y-0.5`}
+        >
+            <div className="p-3 bg-transparent text-slate-700 dark:text-slate-300 group-hover:scale-110 transition-transform flex items-center justify-center">
+               <DynamicUIIcon id="btn_sys_tipos_facturas" fallback={FileText} className={`w-6 h-6 ${uiConfigs['btn_sys_tipos_facturas']?.icon_color || ''}`} />
+            </div>
+            <div className="flex-1 flex flex-col items-center">
+               <h3 className="text-xs font-black text-slate-800 dark:text-white mb-1 leading-tight text-center">{uiConfigs['btn_sys_tipos_facturas']?.label || 'Tipos Comprobantes'}</h3>
+               <p className="text-slate-400 font-medium text-[10px] leading-tight text-center line-clamp-2 max-w-[120px]">{uiConfigs['btn_sys_tipos_facturas']?.sub_label || 'Tipos de facturas.'}</p>
             </div>
       </button>
   </motion.div>
@@ -1352,19 +1383,19 @@ export function ConfiguracionMaestros() {
                             onClick={() => setIsProdModalOpen(true)}
                             className="input-nexus w-full flex items-center justify-between border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-left h-[42px] px-4"
                         >
-                            <span className={varProdId ? "font-black text-blue-700 dark:text-blue-400 text-sm truncate" : "text-slate-400 font-bold text-sm"}>
-                                {varProdId ? productos.find(p => p.id.toString() === varProdId)?.nombre : "Buscar..."}
+                            <span className={varProdIds.length > 0 ? "font-black text-blue-700 dark:text-blue-400 text-sm truncate" : "text-slate-400 font-bold text-sm"}>
+                                {varProdIds.length > 0 ? productos.find(p => p.id.toString() === varProdIds[0])?.nombre : "Buscar..."}
                             </span>
                             <Network className="w-4 h-4 text-slate-400 flex-shrink-0" />
                         </button>
                     </div>
 
                     <div className="xl:col-span-7 flex flex-col h-full border-l border-transparent xl:border-slate-200 dark:xl:border-slate-800 xl:pl-8">
-                        <label className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest block mb-2 transition-colors duration-300" style={{ color: varProdId ? 'inherit' : '' }}>2. Categoría de Rasgo (Ej. Talle, Color)</label>
+                        <label className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest block mb-2 transition-colors duration-300" style={{ color: varProdIds.length > 0 ? 'inherit' : '' }}>2. Categoría de Rasgo (Ej. Talle, Color)</label>
                         
                         <div className="flex gap-2">
                              <input 
-                                disabled={!varProdId}
+                                disabled={varProdIds.length === 0}
                                 value={nuevoAtributo} 
                                 onChange={e=>setNuevoAtributo(e.target.value)} 
                                 onKeyDown={(e) => {
@@ -1373,15 +1404,15 @@ export function ConfiguracionMaestros() {
                                         handleAddAtributo(nuevoAtributo);
                                     }
                                 }} 
-                                placeholder={varProdId ? "Escribe un nuevo rasgo y presiona Enter..." : "Bloqueado"} 
+                                placeholder={varProdIds.length > 0 ? "Escribe un nuevo rasgo y presiona Enter..." : "Bloqueado"} 
                                 className="input-nexus flex-1 h-[42px] px-4 text-sm disabled:opacity-50" 
                              />
-                             <button disabled={!varProdId || !nuevoAtributo.trim()} type="button" onClick={() => handleAddAtributo(nuevoAtributo)} className="btn-primary px-6 shadow-sm font-black text-xs disabled:opacity-50 h-[42px]">
+                             <button disabled={varProdIds.length === 0 || !nuevoAtributo.trim()} type="button" onClick={() => handleAddAtributo(nuevoAtributo)} className="btn-primary px-6 shadow-sm font-black text-xs disabled:opacity-50 h-[42px]">
                                 Añadir
                              </button>
                         </div>
 
-                        {varProdId && (
+                        {varProdIds.length > 0 && (
                             <div className="flex flex-wrap gap-2 mt-4 bg-slate-50 dark:bg-slate-900/50 p-3 rounded-xl border border-slate-200 dark:border-slate-700/50">
                                 <span className="w-full text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5"><Box className="w-3.5 h-3.5" /> Rasgos Guardados en Memoria:</span>
                                 {atributosBase.filter(ab => !atributos.find(a => a.nombre.toLowerCase() === ab.nombre.toLowerCase())).map(ab => (
@@ -1402,7 +1433,7 @@ export function ConfiguracionMaestros() {
             </div>
 
             {/* Espacio de Trabajo Principal (Ancho Completo) */}
-            {varProdId ? (
+            {varProdIds.length > 0 ? (
             <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 w-full">
                 
                 {/* Panel Izquierdo: Carga de Valores */}
@@ -1534,9 +1565,20 @@ export function ConfiguracionMaestros() {
         onClose={() => setIsProdModalOpen(false)}
         categorias={categorias}
         productos={productos}
-        selectedValue={varProdId}
-        onSelect={setVarProdId}
+        selectedValue="" multiSelect={true} onSelectMultiple={setVarProdIds} activeItemIds={varProdIds}
+        onSelect={() => {}}
       />
-    </div>
+    
+
+      {activeTab === 'tipos_facturas' && (
+        <motion.div initial={{opacity:0}} animate={{opacity:1}} className="card-nexus p-8 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
+          <h3 className="text-xl font-black text-slate-900 dark:text-white mb-2 flex items-center gap-2"><FileText className="w-5 h-5 text-emerald-500"/> Tipos de Comprobantes</h3>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mb-6 font-bold">Gestión de tipos de facturas y comprobantes para el sistema.</p>
+          <div className="flex-1 min-h-[300px] flex items-center justify-center border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-xl">
+             <p className="text-slate-400 font-bold text-xs">Módulo en construcción.</p>
+          </div>
+        </motion.div>
+      )}
+</div>
   );
 }
