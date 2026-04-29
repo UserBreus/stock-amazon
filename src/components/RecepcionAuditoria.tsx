@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { PackageOpen, QrCode, FileText, CheckCircle2, Scan, ArrowLeft, Plus, X, Box, HelpCircle, Printer } from 'lucide-react';
+import { PackageOpen, QrCode, FileText, CheckCircle2, Scan, ArrowLeft, Plus, X, Box, HelpCircle, Printer, AlertTriangle } from 'lucide-react';
 import { executeAWSQuery } from '../lib/aws-client';
 import { useAuth } from '../context/AuthContext';
 import toast from 'react-hot-toast';
@@ -30,7 +30,7 @@ export function RecepcionAuditoria({ onRecargaRequerida, onCartChange }: Recepci
   const [externalCodeMap, setExternalCodeMap] = useState<{code: string, variante_id: string}[]>([]);
   
   // Novedades WMS: tracking the pre-minted IDs
-  const [etiquetasPreMinted, setEtiquetasPreMinted] = useState<{id: number, variante_id: string}[]>([]);
+  const [etiquetasPreMinted, setEtiquetasPreMinted] = useState<{id: number, codigo_barras?: string, variante_id: string, tipo_gestion?: string, cantidad_inicial?: number}[]>([]);
   const [scannedLoteIds, setScannedLoteIds] = useState<string[]>([]);
   
   // Datos Auxiliares para Selección Libre
@@ -114,51 +114,101 @@ export function RecepcionAuditoria({ onRecargaRequerida, onCartChange }: Recepci
                   WHERE d.compra_id = '${compraId}'
               `),
               executeAWSQuery(`
-                  SELECT id, variante_id FROM Stock_Etiquetas 
-                  WHERE compra_id = '${compraId}' AND estado = 'pendiente_recepcion'
+                  SELECT e.id, e.codigo_barras, e.variante_id, e.cantidad_inicial, p.tipo_gestion 
+                  FROM Stock_Etiquetas e
+                  INNER JOIN Stock_Variantes v ON e.variante_id = v.id
+                  INNER JOIN Stock_Productos_Maestros p ON v.producto_maestro_id = p.id
+                  WHERE e.compra_id = '${compraId}' AND e.estado = 'pendiente_recepcion'
               `)
           ]);
           
           if(preMintedRes) {
-              setEtiquetasPreMinted(preMintedRes.map((r: any) => ({ id: r.id, variante_id: r.variante_id })));
+              setEtiquetasPreMinted(preMintedRes.map((r: any) => ({ 
+                  id: r.id, 
+                  codigo_barras: r.codigo_barras,
+                  variante_id: r.variante_id,
+                  tipo_gestion: r.tipo_gestion,
+                  cantidad_inicial: r.cantidad_inicial
+              })));
           }
 
           if(rs) {
-              setLineasAuditoria(rs.map((r:any) => ({
-                  variante_id: r.variante_id,
-                  descripcion: `${r.producto_nombre} - ${r.nombre_variante}`,
-                  esperada: r.esperada,
-                  Auditada: 0,
-                  estado: 'pendiente', // pendiente | listo | excedente
-                  unidad_base: r.unidad_base || 'ud',
-                  gramos_por_metro_lineal: r.gramos_por_metro_lineal || null,
-                  cantidadSecundaria: 0,
-                  tipo_gestion: r.tipo_gestion || 'granel',
-                  precio_unitario: r.precio_unitario || 0
-              })));
+              setLineasAuditoria(rs.map((r:any) => {
+                  const prem = (preMintedRes || []).filter((e:any) => e.variante_id.toString().toLowerCase() === r.variante_id.toString().toLowerCase());
+                  
+                  let aud = 0;
+                  let audSec = 0;
+                  
+                  if (prem.length > 0) {
+                      aud = prem.length;
+                      audSec = prem[0].cantidad_inicial || 0;
+                  }
+
+                  const l = {
+                      variante_id: r.variante_id,
+                      descripcion: `${r.producto_nombre} - ${r.nombre_variante}`,
+                      esperada: r.esperada,
+                      Auditada: aud,
+                      cantidadSecundaria: audSec,
+                      estado: 'pendiente',
+                      unidad_base: r.unidad_base || 'ud',
+                      gramos_por_metro_lineal: r.gramos_por_metro_lineal || null,
+                      tipo_gestion: r.tipo_gestion || 'granel',
+                      precio_unitario: r.precio_unitario || 0
+                  };
+                  
+                  const totalAud = r.tipo_gestion === 'lote_individual' ? l.Auditada : l.Auditada * (l.cantidadSecundaria || 1);
+                  if (totalAud === r.esperada && r.esperada > 0) l.estado = 'listo';
+                  else if (totalAud > r.esperada) l.estado = 'excedente';
+                  
+                  return l;
+              }));
           }
       } catch(e) { console.error(e); }
   };
 
   const marcarOrdenCompleta = () => {
-      const nw = lineasAuditoria.map(l => ({ ...l, Auditada: l.esperada, estado: 'listo' }));
+      const nw = lineasAuditoria.map(l => {
+          let aud = l.Auditada;
+          let audSec = l.cantidadSecundaria;
+          
+          if (l.tipo_gestion === 'lote_individual') {
+             aud = l.esperada;
+          } else {
+             if (aud === 0) aud = l.esperada;
+             if (audSec === 0) audSec = 1;
+             if (aud * audSec !== l.esperada) {
+                 aud = l.esperada;
+                 audSec = 1;
+             }
+          }
+          return { ...l, Auditada: aud, cantidadSecundaria: audSec, estado: 'listo' };
+      });
       setLineasAuditoria(nw);
       toast.success("Toda la orden de compra fue marcada como completa.");
   };
 
   const updateAuditoriaManual = (idx: number, cantidad: number) => {
       const nw = [...lineasAuditoria];
-      
       nw[idx].Auditada = cantidad;
-      if (nw[idx].Auditada === nw[idx].esperada) nw[idx].estado = 'listo';
-      else if (nw[idx].Auditada > nw[idx].esperada) nw[idx].estado = 'excedente';
+      
+      const totalAud = nw[idx].tipo_gestion === 'lote_individual' ? nw[idx].Auditada : nw[idx].Auditada * (nw[idx].cantidadSecundaria || 1);
+      if (totalAud === nw[idx].esperada && nw[idx].esperada > 0) nw[idx].estado = 'listo';
+      else if (totalAud > nw[idx].esperada) nw[idx].estado = 'excedente';
       else nw[idx].estado = 'pendiente';
+      
       setLineasAuditoria(nw);
   };
 
   const updateCantidadSecundaria = (idx: number, cantidad: number) => {
       const nw = [...lineasAuditoria];
       nw[idx].cantidadSecundaria = cantidad;
+      
+      const totalAud = nw[idx].tipo_gestion === 'lote_individual' ? nw[idx].Auditada : nw[idx].Auditada * (nw[idx].cantidadSecundaria || 1);
+      if (totalAud === nw[idx].esperada && nw[idx].esperada > 0) nw[idx].estado = 'listo';
+      else if (totalAud > nw[idx].esperada) nw[idx].estado = 'excedente';
+      else nw[idx].estado = 'pendiente';
+      
       setLineasAuditoria(nw);
   };
 
@@ -171,7 +221,7 @@ export function RecepcionAuditoria({ onRecargaRequerida, onCartChange }: Recepci
       let matchedLoteId: string | null = null;
 
       // 1. Check if code is an exact ID from our pre-minted tags (Lote Individual tag)
-      const preMintedMatch = etiquetasPreMinted.find(e => e.id.toString() === codigo.trim());
+      const preMintedMatch = etiquetasPreMinted.find(e => (e.codigo_barras || e.id.toString()) === codigo.trim());
       if (preMintedMatch) {
           foundVarianteId = preMintedMatch.variante_id.toString();
           matchedLoteId = preMintedMatch.id.toString();
@@ -191,9 +241,14 @@ export function RecepcionAuditoria({ onRecargaRequerida, onCartChange }: Recepci
           setScannedLoteIds(prev => [...prev, matchedLoteId!]);
       }
       setEtiquetasEscaneadas(prev => [...prev, codigo.toUpperCase()]);
+      
+      const cantidadASumar = (preMintedMatch && preMintedMatch.tipo_gestion === 'granel') 
+            ? preMintedMatch.cantidad_inicial 
+            : 1;
+
       const nw = lineasAuditoria.map(l => {
           if (l.variante_id.toString() === foundVarianteId?.toString()) {
-              return { ...l, Auditada: l.Auditada + 1 };
+              return { ...l, Auditada: l.Auditada + (cantidadASumar || 1) };
           }
           return l;
       });
@@ -246,11 +301,46 @@ export function RecepcionAuditoria({ onRecargaRequerida, onCartChange }: Recepci
 
   const asentarIngreso = async () => {
       if(lineasAuditoria.length === 0) return toast.error("No hay líneas auditadas");
-      const incompletas = lineasAuditoria.filter(l => l.Auditada < l.esperada && contexto === 'compra');
-      if (incompletas.length > 0) {
-          const conf = confirm(`Hay ${incompletas.length} líneas incompletas mostrando faltantes. ¿Deseas inyectar sólo lo auditado y cerrar la orden de compra?`);
-          if(!conf) return;
+      const incompletas = lineasAuditoria.filter(l => {
+         const totalAud = l.tipo_gestion === 'lote_individual' ? l.Auditada : l.Auditada * (l.cantidadSecundaria || 1);
+         return totalAud < l.esperada;
+      });
+      
+      if (incompletas.length > 0 && contexto === 'compra') {
+          toast.custom(
+            (t) => (
+              <div className={`${t.visible ? 'animate-enter' : 'animate-leave'} flex flex-col gap-4 bg-slate-900 border-2 border-amber-500 p-6 rounded-3xl shadow-2xl max-w-md w-full pointer-events-auto mt-[40vh]`}>
+                <div className="flex items-start gap-4">
+                  <div className="p-3 bg-amber-500/20 text-amber-400 rounded-full flex-shrink-0 mt-1">
+                     <AlertTriangle className="w-8 h-8"/>
+                  </div>
+                  <div>
+                    <h1 className="text-xl font-black text-white mb-2">Líneas Incompletas</h1>
+                    <p className="text-slate-300 font-medium text-sm leading-relaxed">
+                       Hay <b className="text-amber-400 text-base">{incompletas.length} artículos</b> reportando faltantes en tu físico vs lo esperado en la factura original.<br/><br/>
+                       ¿Estás seguro que querés asentar al sistema SÓLO las cantidades que contaste y cerrar la compra igual?
+                    </p>
+                  </div>
+                </div>
+                <div className="flex gap-3 justify-end mt-4">
+                  <button onClick={() => toast.dismiss(t.id)} className="px-5 py-3 rounded-xl font-bold bg-slate-800 text-slate-300 hover:bg-slate-700 transition-colors w-full text-center">
+                      Esperar, voy a revisar
+                  </button>
+                  <button onClick={() => { toast.dismiss(t.id); procederAsentarIngreso(); }} className="px-5 py-3 w-full text-center rounded-xl font-black bg-amber-500 text-amber-950 hover:bg-amber-400 transition-colors shadow-[0_0_20px_rgba(245,158,11,0.3)] hover:shadow-[0_0_25px_rgba(245,158,11,0.5)]">
+                      Sí, Cerrar Ingreso
+                  </button>
+                </div>
+              </div>
+            ),
+            { duration: Infinity, id: 'incomplete-warning' }
+          );
+          return;
       }
+      
+      procederAsentarIngreso();
+  };
+
+  const procederAsentarIngreso = async () => {
 
       if(!selectedAlmacenId) return toast.error("Por favor, seleccione el almacén o sector de destino.");
       const almacenId = selectedAlmacenId;
@@ -265,33 +355,49 @@ export function RecepcionAuditoria({ onRecargaRequerida, onCartChange }: Recepci
           q += `UPDATE Stock_Compras SET estado = 'completada' WHERE id = '${compraSeleccionada.id}';\n`;
       }
 
-      // GRANEL: buscar la etiqueta pre-creada que le corresponde y actualizarla
+      // GRANEL: procesar cada bulto escaneado y las mermas manuales
       for(const item of lineasGranel) {
-         const udsPorBulto = item.cantidadSecundaria > 0 ? item.cantidadSecundaria : 1;
-         const totalUnidades = item.Auditada * udsPorBulto;
          if (contexto === 'compra') {
-             // Actualizar la etiqueta pre-creada y generar movimiento
-             q += `
-               DECLARE @FisicoGranel_${item.variante_id.replace(/-/g,'')} INT;
-               SELECT TOP 1 @FisicoGranel_${item.variante_id.replace(/-/g,'')} = id FROM Stock_Etiquetas WHERE compra_id = '${compraSeleccionada.id}' AND variante_id = '${item.variante_id}' AND estado = 'pendiente_recepcion';
-               
-               IF @FisicoGranel_${item.variante_id.replace(/-/g,'')} IS NOT NULL
-               BEGIN
-                  UPDATE Stock_Etiquetas SET deposito_id = ${almacenId}, cantidad_actual = ${totalUnidades}, estado = 'activo' WHERE id = @FisicoGranel_${item.variante_id.replace(/-/g,'')};
-                  INSERT INTO Stock_Movimientos (etiqueta_id, tipo_movimiento, cantidad_afectada, deposito_destino_id, referencia_compra_id, usuario_id)
-                  VALUES (@FisicoGranel_${item.variante_id.replace(/-/g,'')}, 'ingreso_auditoria_compra', ${totalUnidades}, ${almacenId}, '${compraSeleccionada.id}', '${user?.id}');
-               END
-             `;
+             const pendingForThis = etiquetasPreMinted.filter(e => e.variante_id.toString() === item.variante_id.toString());
+             let idsToActivate = scannedLoteIds.filter(id => pendingForThis.some(p => p.id.toString() === id.toString()));
+             
+             // Si hay sumas manuales no basadas en código QR, intentamos tomarlas al azar
+             // Ojo: Para granel, Auditada es SUMA de unidades, pero pendingForThis.length son N Bultos!
+             // Así que tomaremos las etiquetas que sumen para completar, u optamos por todas las necesarias
+             
+             const sumEscaneados = pendingForThis
+                .filter(p => idsToActivate.includes(p.id.toString()))
+                .reduce((acc, curr) => acc + (curr.cantidad_inicial || 0), 0);
+
+             if (item.Auditada > sumEscaneados) {
+                // Faltan unidades por asignar a etiquetas físicas.
+                const untouched = pendingForThis.filter(p => !idsToActivate.includes(p.id.toString()));
+                let currentMissing = item.Auditada - sumEscaneados;
+                
+                for (const u of untouched) {
+                    if (currentMissing <= 0) break;
+                    idsToActivate.push(u.id.toString());
+                    currentMissing -= (u.cantidad_inicial || 0);
+                }
+             }
+
+             if (idsToActivate.length > 0) {
+                 q += `
+                   UPDATE Stock_Etiquetas SET deposito_id = ${almacenId}, estado = 'activo', cantidad_actual = cantidad_inicial WHERE id IN (${idsToActivate.join(',')});
+                   INSERT INTO Stock_Movimientos (etiqueta_id, tipo_movimiento, cantidad_afectada, deposito_destino_id, referencia_compra_id, usuario_id)
+                   SELECT id, 'ingreso_auditoria_compra', cantidad_inicial, ${almacenId}, '${compraSeleccionada.id}', '${user?.id}' FROM Stock_Etiquetas WHERE id IN (${idsToActivate.join(',')});
+                 `;
+             }
          } else {
              // Libre ingress fallback
              const randomVar = Math.random().toString(36).substring(2, 9);
              q += `
                DECLARE @Fisico_${randomVar} INT;
                INSERT INTO Stock_Etiquetas (codigo_barras, variante_id, deposito_id, cantidad_inicial, cantidad_actual, costo_unitario_real, estado) 
-               VALUES (CONVERT(varchar(255), NEWID()), '${item.variante_id}', ${almacenId}, ${totalUnidades}, ${totalUnidades}, ${item.precio_unitario || 0}, 'activo');
+               VALUES (CONVERT(varchar(255), NEWID()), '${item.variante_id}', ${almacenId}, ${item.Auditada}, ${item.Auditada}, ${item.precio_unitario || 0}, 'activo');
                SET @Fisico_${randomVar} = SCOPE_IDENTITY();
                INSERT INTO Stock_Movimientos (etiqueta_id, tipo_movimiento, cantidad_afectada, deposito_destino_id, usuario_id)
-               VALUES (@Fisico_${randomVar}, 'ingreso_auditoria_libre', ${totalUnidades}, ${almacenId}, '${user?.id}');
+               VALUES (@Fisico_${randomVar}, 'ingreso_auditoria_libre', ${item.Auditada}, ${almacenId}, '${user?.id}');
              `;
          }
       }
@@ -314,9 +420,9 @@ export function RecepcionAuditoria({ onRecargaRequerida, onCartChange }: Recepci
 
              if (idsToActivate.length > 0) {
                  q += `
-                    UPDATE Stock_Etiquetas SET deposito_id = ${almacenId}, estado = 'activo' WHERE id IN (${idsToActivate.join(',')});
+                    UPDATE Stock_Etiquetas SET deposito_id = ${almacenId}, estado = 'activo', cantidad_actual = cantidad_inicial WHERE id IN (${idsToActivate.join(',')});
                     INSERT INTO Stock_Movimientos (etiqueta_id, tipo_movimiento, cantidad_afectada, deposito_destino_id, referencia_compra_id, usuario_id)
-                    SELECT id, 'ingreso_auditoria_compra', 0, ${almacenId}, '${compraSeleccionada.id}', '${user?.id}' FROM Stock_Etiquetas WHERE id IN (${idsToActivate.join(',')});
+                    SELECT id, 'ingreso_auditoria_compra', cantidad_inicial, ${almacenId}, '${compraSeleccionada.id}', '${user?.id}' FROM Stock_Etiquetas WHERE id IN (${idsToActivate.join(',')});
                  `;
              }
          } else {
@@ -327,10 +433,10 @@ export function RecepcionAuditoria({ onRecargaRequerida, onCartChange }: Recepci
                WHILE @Iter_${randomVar} < ${item.Auditada}
                BEGIN
                  INSERT INTO Stock_Etiquetas (codigo_barras, variante_id, deposito_id, cantidad_inicial, cantidad_actual, costo_unitario_real, estado)
-                 VALUES (CONVERT(varchar(255), NEWID()), '${item.variante_id}', ${almacenId}, 0, 0, ${item.precio_unitario || 0}, 'activo');
+                 VALUES (CONVERT(varchar(255), NEWID()), '${item.variante_id}', ${almacenId}, 1, 1, ${item.precio_unitario || 0}, 'activo');
                  DECLARE @FisicoId_${randomVar} INT = SCOPE_IDENTITY();
                  INSERT INTO Stock_Movimientos (etiqueta_id, tipo_movimiento, cantidad_afectada, deposito_destino_id, usuario_id)
-                 VALUES (@FisicoId_${randomVar}, 'ingreso_auditoria_libre', 0, ${almacenId}, '${user?.id}');
+                 VALUES (@FisicoId_${randomVar}, 'ingreso_auditoria_libre', 1, ${almacenId}, '${user?.id}');
                  SET @Iter_${randomVar} = @Iter_${randomVar} + 1;
                END
              `;
@@ -540,7 +646,11 @@ export function RecepcionAuditoria({ onRecargaRequerida, onCartChange }: Recepci
                                                             <span className="text-xs font-bold text-slate-400 uppercase">ud</span>
                                                         </div>
                                                         <span className="text-[9px] text-slate-400 font-medium leading-tight max-w-[120px]">
-                                                            {l.tipo_gestion === 'lote_individual' ? 'Físico: ¿Cuántos rollos entraron?' : '¿Cuántos paquetes/bultos idénticos entraron?'}
+                                                            {(() => {
+                                                                if (l.tipo_gestion === 'lote_individual') return 'Físico: ¿Cuántos rollos entraron?';
+                                                                const epms = etiquetasPreMinted.filter(e => e.variante_id.toString().toLowerCase() === l.variante_id.toString().toLowerCase());
+                                                                return `¿Cuántos paquetes/bultos entraron? (Esperados: ${epms.length || '?'})`;
+                                                            })()}
                                                         </span>
                                                     </div>
                                                 </td>
@@ -590,16 +700,26 @@ export function RecepcionAuditoria({ onRecargaRequerida, onCartChange }: Recepci
             </AnimatePresence>
 
             {/* Modal de selección de etiquetas a imprimir */}
+
             <PrintLabelsModal
                 isOpen={isPrintLabelsOpen}
                 onClose={() => setIsPrintLabelsOpen(false)}
-                detalles={lineasAuditoria.map(l => ({
-                    variante_id: l.variante_id,
-                    producto_nombre: l.descripcion.split(' - ')[0] || l.descripcion,
-                    nombre_variante: l.descripcion.split(' - ')[1] || '',
-                    cantidad: l.esperada || l.Auditada,
-                    sku: null
-                }))}
+                detalles={lineasAuditoria.map(l => {
+                    const epms = etiquetasPreMinted.filter(e => e.variante_id.toString().toLowerCase() === l.variante_id.toString().toLowerCase());
+                    return {
+                        variante_id: l.variante_id,
+                        producto_nombre: l.descripcion.split(' - ')[0] || l.descripcion,
+                        nombre_variante: l.descripcion.split(' - ')[1] || '',
+                        cantidad: l.esperada || l.Auditada,
+                        sku: null,
+                        tipo_gestion: l.tipo_gestion,
+                        etiqueta_id: epms[0]?.codigo_barras || epms[0]?.id,
+                        etiqueta_ids: epms.map(e => e.codigo_barras || e.id),
+                        compra_id: compraSeleccionada?.id,
+                        // Siempre desde el conteo real de etiquetas en DB
+                        bultos_predefinidos: epms.length > 0 ? epms.length : (l.esperada || 1)
+                    };
+                })}
             />
 
             {/* TABLA BASE DE INGRESO A MANO */}
@@ -710,9 +830,17 @@ export function RecepcionAuditoria({ onRecargaRequerida, onCartChange }: Recepci
                }}
                multiSelect={true}
                onSelectMultiple={(ids) => {
-                   ids.forEach(id => agregarLineaLibre(id));
-                   toast.success(`${ids.length} artículos añadidos a la lista.`);
+                   const previousIds = lineasAuditoria.map(l => l.variante_id.toString());
+                   const filtrados = ids.filter(id => !previousIds.includes(id.toString()));
+                   
+                   if (filtrados.length > 0) {
+                       filtrados.forEach(id => agregarLineaLibre(id));
+                       toast.success(`${filtrados.length} artículos añadidos a la lista.`);
+                   } else if (ids.length > 0) {
+                       toast.error('Estos artículos ya están en la lista.');
+                   }
                }}
+               activeItemIds={lineasAuditoria.map(l => l.variante_id.toString())}
             />
 
             <AnimatePresence>
@@ -769,19 +897,6 @@ export function RecepcionAuditoria({ onRecargaRequerida, onCartChange }: Recepci
                 )}
             </AnimatePresence>
 
-            {/* Modal pre-ingreso — etiquetas granel (antes de ingresar stock) */}
-            <PrintLabelsModal
-                isOpen={isPrintLabelsOpen && postIngressLabels.length === 0}
-                onClose={() => setIsPrintLabelsOpen(false)}
-                detalles={lineasAuditoria.map(l => ({
-                    variante_id: l.variante_id,
-                    producto_nombre: l.descripcion.split(' - ')[0] || l.descripcion,
-                    nombre_variante: l.descripcion.split(' - ')[1] || '',
-                    cantidad: l.esperada || l.Auditada,
-                    tipo_gestion: l.tipo_gestion || 'granel',
-                    sku: null
-                }))}
-            />
 
             {/* Modal post-ingreso — etiquetas lote_individual con IDs reales */}
             <PrintLabelsModal

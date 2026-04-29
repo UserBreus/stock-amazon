@@ -12,13 +12,19 @@ export interface LabelItem {
   cantidad?: number;
 }
 
+export interface PrintConfig {
+  size: '10x15' | '4x4' | 'custom' | 'grid';
+  customWidth?: number;
+  customHeight?: number;
+}
+
 // Imprime una única etiqueta
-export const printLabel = async (item: LabelItem) => {
-  await printLabels([item]);
+export const printLabel = async (item: LabelItem, config?: PrintConfig) => {
+  await printLabels([item], config);
 };
 
 // Imprime múltiples etiquetas en una sola ventana
-export const printLabels = async (items: LabelItem[]) => {
+export const printLabels = async (items: LabelItem[], config: PrintConfig = { size: 'grid' }) => {
   if (items.length === 0) return;
 
   try {
@@ -49,31 +55,37 @@ export const printLabels = async (items: LabelItem[]) => {
         <img src="${qrDataUrls[i]}" alt="QR" class="qr-image" />
         <div class="product-name">${item.producto_padre}</div>
         ${item.nombre_variante ? `<div class="variant-name">${item.nombre_variante}</div>` : ''}
-        <div class="item-id">${esLoteInd ? `ETQ: ${item.id}` : `VAR: ${item.id}`}</div>
+        <div class="item-id-barcode">${item.id}</div>
         ${item.sku ? `<div class="sku-code">SKU: ${item.sku}</div>` : ''}
-        ${!esLoteInd && item.cantidad ? `<div class="qty-badge">QTY: ${item.cantidad}</div>` : ''}
       </div>
     `;
     }).join('');
+
+    const isGrid = config.size === 'grid';
+    const cw = config.size === '10x15' ? 100 : config.size === '4x4' ? 40 : (config.customWidth || 100);
+    const ch = config.size === '10x15' ? 150 : config.size === '4x4' ? 40 : (config.customHeight || 150);
+    
+    // Si no es grid, la página se define por la etiqueta y forzamos quiebre por cada una.
+    const pageCss = isGrid 
+      ? `@page { margin: 5mm; }` 
+      : `@page { size: ${cw}mm ${ch}mm; margin: 0; }
+         body { margin: 0; padding: 0; }`;
 
     printWindow.document.write(`
       <html>
         <head>
           <title>Etiquetas de Inventario</title>
           <style>
-            @page { margin: 5mm; }
+            ${pageCss}
             * { box-sizing: border-box; }
             body {
-              margin: 0;
-              padding: 4px;
+              ${isGrid ? "margin: 0; padding: 4px;" : ""}
               font-family: 'Arial', sans-serif;
               background: #fff;
               color: #000;
             }
-            .labels-grid {
-              display: grid;
-              grid-template-columns: repeat(3, 1fr);
-              gap: 4px;
+            .labels-container {
+              ${isGrid ? "display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px;" : "display: block;"}
             }
             .label-card {
               display: flex;
@@ -81,92 +93,92 @@ export const printLabels = async (items: LabelItem[]) => {
               align-items: center;
               justify-content: center;
               text-align: center;
-              padding: 6px 4px;
-              border: 1px dashed #bbb;
-              border-radius: 6px;
-              page-break-inside: avoid;
-              position: relative;
+              font-size: ${isGrid ? '10px' : '4vh'};
+              ${isGrid ? "padding: 6px 4px; border: 1px dashed #bbb; border-radius: 6px; page-break-inside: avoid; position: relative;" : `width: 100vw; height: 100vh; page-break-after: always; padding: 2vh; overflow: hidden; justify-content: center;`}
             }
-            .label-card.lote-individual {
-              border-color: #f59e0b;
-              border-width: 2px;
-            }
-            .label-card.granel {
-              border-color: #3b82f6;
-            }
+            .label-card.lote-individual { border: ${isGrid ? "2px solid #f59e0b" : "none"}; }
+            .label-card.granel { border: ${isGrid ? "1px solid #3b82f6" : "none"}; }
+            
             .tipo-badge {
-              font-size: 7px;
+              font-size: 0.7em;
               font-weight: 900;
               letter-spacing: 0.05em;
               text-transform: uppercase;
               padding: 1px 4px;
               border-radius: 3px;
-              margin-bottom: 3px;
+              margin-bottom: 0.5em;
             }
-            .lote-individual .tipo-badge {
-              background: #fef3c7;
-              color: #92400e;
-              border: 1px solid #f59e0b;
-            }
-            .granel .tipo-badge {
-              background: #eff6ff;
-              color: #1e40af;
-              border: 1px solid #3b82f6;
-            }
+            .lote-individual .tipo-badge { background: #fef3c7; color: #92400e; border: 1px solid #f59e0b; }
+            .granel .tipo-badge { background: #eff6ff; color: #1e40af; border: 1px solid #3b82f6; }
+            
             .qr-image {
-              width: 100px;
-              height: 100px;
+              height: ${isGrid ? '80px' : '35vh'};
+              max-width: 100%;
+              object-fit: contain;
               image-rendering: pixelated;
               display: block;
               margin: 0 auto;
+              flex-shrink: 1;
             }
+            
             .product-name {
-              font-size: 10px;
+              font-size: 1.4em;
+              padding: 0 2vw;
               font-weight: 900;
-              margin-top: 4px;
-              line-height: 1.2;
+              margin-top: 0.5em;
+              line-height: 1.1;
               text-transform: uppercase;
               word-break: break-word;
             }
             .variant-name {
-              font-size: 9px;
+              font-size: 1.1em;
               font-weight: 600;
               color: #444;
-              margin-top: 1px;
+              margin-top: 0.2em;
             }
-            .item-id {
-              font-size: 9px;
-              font-weight: bold;
-              margin-top: 3px;
-              background-color: #000;
-              color: #fff;
-              padding: 1px 5px;
-              border-radius: 3px;
+            .item-id-barcode { 
+                font-size: 0.6em; 
+                font-weight: 900; 
+                font-family: 'Courier New', monospace; 
+                background: #eee; 
+                padding: 0.4em 0.8em;
+                border-radius: 4px;
+                letter-spacing: 1px;
+                margin-top: 0.8em;
+                margin-bottom: 0.5em;
+                max-width: 90vw;
+                overflow: hidden;
             }
             .sku-code {
-              font-size: 8px;
-              margin-top: 2px;
+              font-size: 0.8em;
               color: #555;
-            }
-            .qty-badge {
-              font-size: 8px;
-              font-weight: bold;
-              margin-top: 2px;
-              background: #dcfce7;
-              color: #166534;
-              padding: 1px 4px;
-              border-radius: 3px;
             }
           </style>
         </head>
         <body>
-          <div class="labels-grid">
+          <div class="labels-container">
             ${labelsHtml}
           </div>
           <script>
             window.onload = () => {
-              window.print();
-              setTimeout(() => { window.close(); }, 400);
+              // Auto-shrink algorithm to ensure content fits within the label bounds
+              document.querySelectorAll('.label-card').forEach(card => {
+                 let f = 100;
+                 let imgH = ${isGrid ? 80 : 35};
+                 while (card.scrollHeight > card.clientHeight && f > 40) {
+                    f -= 5;
+                    imgH -= 2;
+                    card.style.fontSize = f + '%';
+                    const img = card.querySelector('.qr-image');
+                    if (img) img.style.height = imgH + '${isGrid ? 'px' : 'vh'}';
+                 }
+              });
+              
+              // Pequeño delay para permitir el renderizado de fuentes/ajustes
+              setTimeout(() => {
+                  window.print();
+                  setTimeout(() => { window.close(); }, 400);
+              }, 100);
             };
           </script>
         </body>

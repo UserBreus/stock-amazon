@@ -4,7 +4,7 @@ import {
   Plus, Scan, AlertCircle, ArchiveRestore, Printer, Search, CreditCard, Activity, 
   Box, ArrowUpRight, ChevronDown, ChevronRight, Layers, Receipt, Network, X, 
   Package, ShoppingCart, ListChecks, Tags, Camera, ArrowDownToLine, 
-  ArrowRightLeft, ArrowUpFromLine, LayoutDashboard, History, MapPin, Send, ClipboardList, CheckCircle, PackageCheck, ScanBarcode, ArrowLeft, User 
+  ArrowRightLeft, ArrowUpFromLine, LayoutDashboard, History, MapPin, Send, ClipboardList, CheckCircle, PackageCheck, ScanBarcode, ArrowLeft, User, Scale 
 } from 'lucide-react';
 import { executeAWSQuery } from '../lib/aws-client';
 import { printRemito } from '../lib/printRemito';
@@ -14,6 +14,7 @@ import { BarcodeScanner } from '../components/ui/BarcodeScanner';
 import { useAuth } from '../context/AuthContext';
 import { DespachoEgresos } from '../components/DespachoEgresos';
 import { RecepcionAuditoria } from '../components/RecepcionAuditoria';
+import { RegistroPesos } from '../components/RegistroPesos';
 
 import toast from 'react-hot-toast';
 
@@ -23,7 +24,7 @@ export function InventarioGerencial() {
 
   // Tabs Visuales Originales
   const [activeTab, setActiveTab] = useState<'panel' | 'inventario' | 'historial' | 'catalogo' | 'compras'>('panel');
-  const [panelView, setPanelView] = useState<'hub' | 'ingreso' | 'traslado' | 'retiro' | 'etiquetas' | 'solicitudes'>('hub');
+  const [panelView, setPanelView] = useState<'hub' | 'ingreso' | 'traslado' | 'retiro' | 'etiquetas' | 'solicitudes' | 'pesos'>('hub');
 
   // Stock and Filters
   const [stockConsolidado, setStockConsolidado] = useState<any[]>([]);
@@ -101,7 +102,7 @@ export function InventarioGerencial() {
   const fetchGlobalHistorial = async () => {
     try {
       const res = await executeAWSQuery(`
-        SELECT TOP 200 r.*, d_origen.nombre as origen_nombre, d_destino.nombre as destino_nombre, u.nombre_completo as usuario_emisor,
+        SELECT TOP 50 r.*, d_origen.nombre as origen_nombre, d_destino.nombre as destino_nombre, u.nombre_completo as usuario_emisor,
           (SELECT SUM(cantidad_enviada) FROM wms_remitos_internos_items i WHERE i.remito_id = r.id) as total_unidades
         FROM wms_remitos_internos r
         LEFT JOIN Usuarios u ON CAST(u.id AS VARCHAR(255)) = CAST(r.creado_por AS VARCHAR(255))
@@ -357,7 +358,7 @@ export function InventarioGerencial() {
   const openLabelDrillDown = async (prod: any) => {
     setVariationChartProduct(prod);
     try {
-      const q = `SELECT id, codigo_barras, cantidad_actual, deposito_id, ultima_actualizacion FROM Stock_Etiquetas WHERE variante_id = '${prod.variante_id}' AND estado = 'activo' AND cantidad_actual > 0 ${filterRef.current ? `AND deposito_id = ${filterRef.current}` : ''} ORDER BY ultima_actualizacion ASC`;
+      const q = `SELECT id, codigo_barras, cantidad_actual, peso, deposito_id, ultima_actualizacion FROM Stock_Etiquetas WHERE variante_id = '${prod.variante_id}' AND estado = 'activo' AND cantidad_actual > 0 ${filterRef.current ? `AND deposito_id = ${filterRef.current}` : ''} ORDER BY ultima_actualizacion ASC`;
       const res = await executeAWSQuery(q);
       setLabelCatalog(res || []);
       setIsLabelDrillDownOpen(true);
@@ -600,13 +601,23 @@ export function InventarioGerencial() {
                 </div>
             </button>
 
+            <button onClick={() => setPanelView('pesos')} className="bg-white dark:bg-slate-900 border-2 border-slate-100 hover:border-teal-200 dark:border-slate-800 dark:hover:border-teal-900 p-8 rounded-3xl text-left transition-all group flex flex-col items-start gap-6 hover:shadow-xl hover:shadow-teal-500/5">
+                <div className="p-4 bg-teal-50 dark:bg-teal-900/30 text-teal-600 dark:text-teal-400 rounded-2xl group-hover:scale-110 transition-transform">
+                   <Scale className="w-8 h-8" />
+                </div>
+                <div>
+                   <h3 className="text-2xl font-black text-slate-800 dark:text-white mb-2">Registro de Peso</h3>
+                   <p className="text-slate-500 font-medium text-sm">Cargar y vincular peso físico exacto a lotes y unidades mediante báscula o manualmente.</p>
+                </div>
+            </button>
+
          </motion.div>
       )}
 
       
       {/* HEADER DINÁMICO DE RETORNO A OPERACIONES PARA SUB-MÓDULOS */}
       {activeTab === 'panel' && panelView !== 'hub' && (
-         <div className="mb-6 flex items-center justify-between bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
+         <div className="print:hidden mb-6 flex items-center justify-between bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
              <div className="flex items-center gap-4">
                  <button onClick={()=>setPanelView('hub')} className="p-2.5 bg-slate-100 hover:bg-indigo-100 text-slate-600 hover:text-indigo-700 dark:bg-slate-800 dark:text-slate-300 rounded-xl transition-all shadow-sm">
                      <ArrowLeft className="w-5 h-5" />
@@ -616,6 +627,7 @@ export function InventarioGerencial() {
                         {panelView === 'ingreso' && "Ingreso de Mercadería"}
                         {panelView === 'traslado' && "Traslado Interno"}
                         {panelView === 'retiro' && "Retiro o Consumo Libre"}
+                        {panelView === 'pesos' && "Registro de Peso Físico"}
                     </h2>
                     <p className="text-[10px] uppercase font-black text-slate-400 tracking-[0.2em] mt-0.5">Operación en proceso</p>
                  </div>
@@ -628,10 +640,15 @@ export function InventarioGerencial() {
       )}
 
       {activeTab === 'panel' && panelView === 'traslado' && (
-         <div className="mt-4"><DespachoEgresos initialOperationType="traslado" initialMode="lote" /></div>
+         <div className="mt-4"><DespachoEgresos initialOperationType="traslado" initialMode="lote" onComplete={fetchData} /></div>
       )}
       {activeTab === 'panel' && panelView === 'retiro' && (
-         <div className="mt-4"><DespachoEgresos initialOperationType="venta_consumo" initialMode="lote" /></div>
+         <div className="mt-4"><DespachoEgresos initialOperationType="venta_consumo" initialMode="lote" onComplete={fetchData} /></div>
+      )}
+
+      {/* PANEL PESOS */}
+      {activeTab === 'panel' && panelView === 'pesos' && (
+         <RegistroPesos />
       )}
 
       {/* PESTAÑA INVENTARIO */}
@@ -1042,7 +1059,19 @@ export function InventarioGerencial() {
       {isViewingFullscreenPDF && selectedHistorialRemito && (
         <div id="print-root" className="fixed inset-0 z-[100] bg-slate-800/90 backdrop-blur-sm overflow-y-auto p-4 flex flex-col items-center">
             <div className="hide-on-print fixed top-6 right-6 flex gap-4 z-[110]">
-              <button onClick={() => { setTimeout(() => window.print(), 100); }} className="bg-indigo-600 text-white p-4 rounded-full hover:bg-indigo-700 flex items-center shadow-lg"><span className="font-black text-xs uppercase">Imprimir A4</span></button>
+              <button onClick={() => {
+                  printRemito(
+                    selectedHistorialRemito.cart,
+                    {
+                      codigo: selectedHistorialRemito.codigo,
+                      fecha: selectedHistorialRemito.fecha,
+                      estado: 'EN_TRANSITO',
+                      origen: selectedHistorialRemito.origen,
+                      destino: selectedHistorialRemito.destino,
+                    },
+                    'despacho'
+                  );
+              }} className="bg-indigo-600 text-white p-4 rounded-full hover:bg-indigo-700 flex items-center shadow-lg"><span className="font-black text-xs uppercase">Imprimir A4</span></button>
               <button onClick={() => { setIsViewingFullscreenPDF(false); setSelectedHistorialRemito(null); }} className="bg-white text-slate-900 p-4 rounded-full hover:bg-slate-200"><span className="font-black text-xs uppercase">Cerrar</span></button>
             </div>
             {(selectedHistorialRemito.cart.length > 0 ? selectedHistorialRemito.cart.reduce((acc:any, curr:any, i:number) => { if (i % 30 === 0) acc.push([]); acc[acc.length - 1].push(curr); return acc; }, []) : [[]]).map((pageItems:any, pageIndex:number) => (
@@ -1077,7 +1106,19 @@ export function InventarioGerencial() {
       {isViewingFullscreenPDF && remitoPDFInfo && !selectedHistorialRemito && (
         <div id="print-root" className="fixed inset-0 z-[100] bg-slate-800/90 backdrop-blur-sm overflow-y-auto p-4 flex flex-col items-center">
             <div className="hide-on-print fixed top-6 right-6 flex gap-4 z-[110]">
-              <button onClick={() => { setTimeout(() => window.print(), 100); }} className="bg-indigo-600 text-white p-4 rounded-full flex items-center shadow-lg"><span className="font-black text-xs">Imprimir A4</span></button>
+              <button onClick={() => {
+                  printRemito(
+                    remitoPDFInfo.cart,
+                    {
+                      codigo: remitoPDFInfo.codigo,
+                      fecha: remitoPDFInfo.fecha,
+                      estado: 'DESPACHADO',
+                      origen: remitoPDFInfo.origen,
+                      destino: remitoPDFInfo.destino,
+                    },
+                    'despacho'
+                  );
+              }} className="bg-indigo-600 text-white p-4 rounded-full flex items-center shadow-lg"><span className="font-black text-xs">Imprimir A4</span></button>
               <button onClick={() => { setIsViewingFullscreenPDF(false); setRemitoPDFInfo(null); setSelectedModalSol(null); }} className="bg-white p-4 rounded-full"><span className="font-black text-xs">Cerrar</span></button>
             </div>
             
@@ -1148,13 +1189,18 @@ export function InventarioGerencial() {
              ) : (
                labelCatalog.map((etq, i) => (
                   <div key={etq.id} className="flex flex-col bg-slate-50 dark:bg-slate-900 p-4 rounded-xl border border-slate-100 dark:border-slate-800">
-                     <div className="flex justify-between items-center mb-2">
+                     <div className="flex justify-between items-center mb-2 border-b border-slate-100 dark:border-slate-800 pb-2">
                         <span className="font-mono text-xs text-slate-500 font-black">{etq.codigo_barras}</span>
                         <span className="font-black text-indigo-600 bg-indigo-50 px-2 py-1 rounded text-xs">{etq.cantidad_actual} físicas</span>
                      </div>
-                     <span className="text-[10px] text-slate-400 uppercase tracking-widest flex items-center gap-1 mt-2">
-                        <ArrowUpRight className="w-3 h-3"/> Referencia Lote interno de Sistema: [{etq.id}]
-                     </span>
+                     <div className="flex justify-between items-center mt-1">
+                        <span className="text-[10px] text-slate-400 uppercase tracking-widest flex items-center gap-1">
+                           <ArrowUpRight className="w-3 h-3"/> Ref Lote: [{etq.id}]
+                        </span>
+                        <span className="text-xs font-black text-teal-600 bg-teal-50 dark:bg-teal-900/30 px-2 py-0.5 rounded">
+                           {etq.peso ? `${etq.peso} kg` : 'Sin peso'}
+                        </span>
+                     </div>
                   </div>
                ))
              )}

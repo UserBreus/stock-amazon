@@ -15,7 +15,7 @@ export function ComprasDashboard({ onCreateClick, onEditDraft }: { onCreateClick
    const fetchCompras = async () => {
        setIsLoading(true);
        try {
-           const data = await executeAWSQuery("SELECT c.*, p.nombre as proveedor_nombre FROM Stock_Compras c LEFT JOIN Stock_Proveedores p ON c.proveedor_id = p.id ORDER BY c.fecha_creacion DESC");
+           const data = await executeAWSQuery("SELECT c.*, p.nombre as proveedor_nombre, m.simbolo as moneda_simbolo FROM Stock_Compras c LEFT JOIN Stock_Proveedores p ON c.proveedor_id = p.id LEFT JOIN Stock_Monedas m ON c.moneda_id = m.id ORDER BY c.fecha_creacion DESC");
            if(data) { setCompras(data); setCompraActiva(prev => prev ? data.find(c => c.id === prev.id) || prev : null); }
        } catch(e) { console.error(e); } finally {
            setIsLoading(false);
@@ -56,7 +56,7 @@ export function ComprasDashboard({ onCreateClick, onEditDraft }: { onCreateClick
                                   <p className="text-[10px] uppercase tracking-widest font-bold text-slate-400">Progreso</p>
                                   <p className="text-sm font-black text-slate-700 capitalize">{String(c.progreso).replace(/_/g, ' ')}</p>
                                </div>
-                               <p className="font-black text-lg text-emerald-600">${c.total_compra}</p>
+                               <p className="font-black text-lg text-emerald-600">{c.moneda_simbolo || '$'}{c.total_compra}</p>
                            </div>
                        </button>
                    ))}

@@ -8,10 +8,11 @@ import toast from 'react-hot-toast';
 import { cn } from '../lib/utils';
 import { Modal } from './ui/Modal';
 import { CategoryDrillDownModal } from './ui/CategoryDrillDownModal';
+import { printRemito } from '../lib/printRemito';
 
-interface DespachoEgresosProps { initialOperationType?: 'traslado' | 'venta_consumo'; initialMode?: 'lote' | 'solicitudes' | 'historial'; }
+interface DespachoEgresosProps { initialOperationType?: 'traslado' | 'venta_consumo'; initialMode?: 'lote' | 'solicitudes' | 'historial'; onComplete?: () => void; }
 
-export function DespachoEgresos({ initialOperationType = 'traslado', initialMode = 'lote' }: DespachoEgresosProps) {
+export function DespachoEgresos({ initialOperationType = 'traslado', initialMode = 'lote', onComplete }: DespachoEgresosProps) {
   const { user, isAdminStock, isGerente } = useAuth();
   
   const [depositos, setDepositos] = useState<any[]>([]);
@@ -35,6 +36,13 @@ export function DespachoEgresos({ initialOperationType = 'traslado', initialMode
   const [isExecuting, setIsExecuting] = useState(false);
   const [remitoPDFInfo, setRemitoPDFInfo] = useState<any>(null);
   const [isViewingFullscreenPDF, setIsViewingFullscreenPDF] = useState(false);
+
+  // New states for forced physical selection
+  const [pendingPhysicalSelection, setPendingPhysicalSelection] = useState<string | null>(null);
+  const [physicalSelectorData, setPhysicalSelectorData] = useState<{ etiquetas: any[], tipo_gestion: string, isFetching: boolean }>({ etiquetas: [], tipo_gestion: 'granel', isFetching: false });
+  const [localPhysicalCart, setLocalPhysicalCart] = useState<{ [key: string]: number }>({});
+  const [physicalSearch, setPhysicalSearch] = useState('');
+
 
   // Historial state
   const [historial, setHistorial] = useState<any[]>([]);
@@ -156,94 +164,73 @@ export function DespachoEgresos({ initialOperationType = 'traslado', initialMode
   };
 
   const handleCatalogSelection = async (varianteId: string) => {
-      setLoadingCode(true);
+      // setIsCatalogOpen(false); // REMOVED: keep catalog open
+      setPendingPhysicalSelection(varianteId);
+      setPhysicalSelectorData({ etiquetas: [], tipo_gestion: 'granel', isFetching: true });
+      setLocalPhysicalCart({});
+      setPhysicalSearch('');
+      
       try {
-          // Primero verificar si el producto es lote_individual o granel
           const tipoRes = await executeAWSQuery(`
               SELECT pm.tipo_gestion FROM Stock_Variantes v
               INNER JOIN Stock_Productos_Maestros pm ON v.producto_maestro_id = pm.id
               WHERE v.id = ${varianteId}
           `);
-          const esLoteInd = tipoRes?.[0]?.tipo_gestion === 'lote_individual';
-
-          if (esLoteInd) {
-              // LOTE INDIVIDUAL: cargar cada etiqueta física por separado
-              const etqRes = await executeAWSQuery(`
-                  SELECT e.id, e.codigo_barras, e.cantidad_actual, e.variante_id,
-                         v.nombre_variante, pm.nombre as producto_nombre, d.nombre as deposito_nombre
-                  FROM Stock_Etiquetas e
-                  INNER JOIN Stock_Variantes v ON v.id = e.variante_id
-                  INNER JOIN Stock_Productos_Maestros pm ON pm.id = v.producto_maestro_id
-                  LEFT JOIN Stock_Depositos d ON d.id = e.deposito_id
-                  WHERE e.variante_id = ${varianteId}
-                    AND e.deposito_id = ${origenId}
-                    AND e.estado = 'activo'
-                    AND e.cantidad_actual >= 0
-                  ORDER BY e.id ASC
-              `);
-              if (etqRes && etqRes.length > 0) {
-                  // Agregar CADA etiqueta física como item individual — no se debe agrupar
-                  const newItems = etqRes
-                      .filter((e: any) => !cart.find(c => c.id === e.id))
-                      .map((e: any) => ({
-                          ...e,
-                          isBulk: false,
-                          tipo_gestion: 'lote_individual',
-                          // lote_individual: es una pieza única, la cantidad a extraer es 1 (toda la pieza)
-                          cantidad_a_extraer: 1,
-                          // sobreescribir cantidad_actual a 1 para que la validación funcione
-                          cantidad_actual: 1,
-                      }));
-                  if (newItems.length === 0) {
-                      toast.error("Todas las etiquetas de ese producto ya están en el carrito.");
-                  } else {
-                      setCart(prev => [...newItems, ...prev]);
-                      toast.success(`${newItems.length} pieza(s) física(s) cargadas al carrito`);
-                  }
-              } else {
-                  toast.error("No hay piezas físicas activas disponibles de este producto.");
-              }
-          } else {
-              // GRANEL: agrupar todo el stock en un solo item editable
-              const res = await executeAWSQuery(`
-                  SELECT v.id as variante_id, v.nombre_variante, pm.nombre as producto_nombre, d.nombre as deposito_nombre,
-                         SUM(e.cantidad_actual) as cantidad_total
-                  FROM Stock_Variantes v
-                  INNER JOIN Stock_Productos_Maestros pm ON v.producto_maestro_id = pm.id
-                  INNER JOIN Stock_Etiquetas e ON e.variante_id = v.id
-                  LEFT JOIN Stock_Depositos d ON e.deposito_id = d.id
-                  WHERE e.variante_id = ${varianteId} AND e.deposito_id = ${origenId} AND e.cantidad_actual > 0 AND e.estado = 'activo'
-                  GROUP BY v.id, v.nombre_variante, pm.nombre, d.nombre
-              `);
-              if(res && res.length > 0) {
-                  const bulkItem = res[0];
-                  const existingIndex = cart.findIndex(c => c.isBulk && c.variante_id === bulkItem.variante_id);
-                  if (existingIndex > -1) {
-                     toast.error("Este producto ya está en el nivel de volumen del carrito.");
-                  } else {
-                     setCart([{
-                        id: 'BULK_' + bulkItem.variante_id,
-                        isBulk: true,
-                        tipo_gestion: 'granel',
-                        variante_id: bulkItem.variante_id,
-                        codigo_barras: 'GRANEL-AUTO',
-                        producto_nombre: bulkItem.producto_nombre,
-                        nombre_variante: bulkItem.nombre_variante,
-                        cantidad_actual: bulkItem.cantidad_total,
-                        cantidad_a_extraer: '',
-                        deposito_id: origenId
-                     }, ...cart]);
-                     toast.success("Volumen de producto agregado al carrito");
-                  }
-              } else {
-                  toast.error("No hay stock físico activo disponible de este producto.");
-              }
+          const tipo = tipoRes?.[0]?.tipo_gestion || 'granel';
+          
+          const etqRes = await executeAWSQuery(`
+              SELECT e.id, e.codigo_barras, e.cantidad_actual, e.cantidad_inicial, e.variante_id,
+                     v.nombre_variante, pm.nombre as producto_nombre, d.nombre as deposito_nombre
+              FROM Stock_Etiquetas e
+              INNER JOIN Stock_Variantes v ON v.id = e.variante_id
+              INNER JOIN Stock_Productos_Maestros pm ON pm.id = v.producto_maestro_id
+              LEFT JOIN Stock_Depositos d ON d.id = e.deposito_id
+              WHERE e.variante_id = ${varianteId}
+                AND e.deposito_id = ${origenId}
+                AND e.estado = 'activo'
+                AND e.cantidad_actual > 0
+              ORDER BY e.id ASC
+          `);
+          
+          if (!etqRes || etqRes.length === 0) {
+              setPendingPhysicalSelection(null);
+              toast.error("No hay piezas físicas activas de este producto en este depósito.");
+              return;
           }
-      } catch(e: any) {
-          toast.error("Fallo al obtener stock físico: " + e.message);
-      } finally {
-          setLoadingCode(false);
+          
+          setPhysicalSelectorData({ etiquetas: etqRes, tipo_gestion: tipo, isFetching: false });
+      } catch (e: any) {
+          toast.error("Error al cargar lotes físicos: " + e.message);
+          setPendingPhysicalSelection(null);
       }
+  };
+
+  const confirmPhysicalSelection = () => {
+      const { etiquetas, tipo_gestion } = physicalSelectorData;
+      const newItems: any[] = [];
+      
+      for (const etq of etiquetas) {
+          const qty = localPhysicalCart[etq.id] || 0;
+          if (qty > 0) {
+              if (cart.find(c => c.id === etq.id)) {
+                  toast.error(`La etiqueta ${etq.codigo_barras} ya está en el carrito, saltando...`);
+                  continue;
+              }
+              newItems.push({
+                  ...etq,
+                  isBulk: false, // Ahora NUNCA usamos bulk ciego
+                  tipo_gestion: tipo_gestion,
+                  cantidad_a_extraer: qty, // Lote ind = 1 o qty
+                  cantidad_actual: tipo_gestion === 'lote_individual' ? 1 : etq.cantidad_actual
+              });
+          }
+      }
+      
+      if (newItems.length > 0) {
+          setCart(prev => [...newItems, ...prev]);
+          toast.success(`${newItems.length} etiqueta(s) agregadas con extracto explícito.`);
+      }
+      setPendingPhysicalSelection(null);
   };
 
   const handleManualCodeSubmit = (e: React.FormEvent) => {
@@ -263,18 +250,23 @@ export function DespachoEgresos({ initialOperationType = 'traslado', initialMode
           let queries = [];
           
           let remitoId = 'NULL';
+          const remitoCode = (isTransfer ? 'REM-' : 'EGR-') + Date.now().toString().slice(-6) + Math.floor(Math.random()*100).toString();
+          
           if (isTransfer) {
-              const remitoCode = 'REM-' + Date.now().toString().slice(-6) + Math.floor(Math.random()*100).toString();
               const destClean = Number(destinoId);
               queries.push(`
                   INSERT INTO wms_remitos_internos (numeracion, deposito_origen_id, deposito_destino_id, creado_por, estado) 
                   VALUES ('${remitoCode}', ${origenId}, ${destClean}, '${(user as any)?.id || ''}', 'EN_TRANSITO');
                   DECLARE @RemId INT = SCOPE_IDENTITY();
               `);
-              remitoId = '@RemId';
           } else {
-              queries.push("DECLARE @RemId INT = NULL;");
+              queries.push(`
+                  INSERT INTO wms_remitos_internos (numeracion, deposito_origen_id, deposito_destino_id, creado_por, estado) 
+                  VALUES ('${remitoCode}', ${origenId}, ${origenId}, '${(user as any)?.id || ''}', 'EGRESO');
+                  DECLARE @RemId INT = SCOPE_IDENTITY();
+              `);
           }
+          remitoId = '@RemId';
 
           let labelsToPrint: any[] = [];
           const opNameOut = isTransfer ? 'traslado_salida' : 'egreso_final';
@@ -304,6 +296,8 @@ export function DespachoEgresos({ initialOperationType = 'traslado', initialMode
                           UPDATE Stock_Etiquetas SET cantidad_actual = 0, estado = 'consumido' WHERE id = ${loteId};
                           INSERT INTO Stock_Movimientos (etiqueta_id, tipo_movimiento, cantidad_afectada, deposito_origen_id, remito_id, usuario_id)
                           VALUES (${loteId}, '${opNameOut}', ${allocQty}, ${origenFijoSQL}, @RemId, '${(user as any)?.id || ''}');
+                          INSERT INTO wms_remitos_internos_items (remito_id, variante_id, cantidad_enviada, etiqueta_generada_id, estado)
+                          VALUES (@RemId, ${info.variante_id}, ${allocQty}, ${loteId}, 'ENTREGADO');
                       `);
                   }
               } else {
@@ -328,6 +322,8 @@ export function DespachoEgresos({ initialOperationType = 'traslado', initialMode
                       queries.push(`
                           INSERT INTO Stock_Movimientos (etiqueta_id, tipo_movimiento, cantidad_afectada, deposito_origen_id, remito_id, usuario_id)
                           VALUES (${loteId}, '${opNameOut}', ${allocQty}, ${origenFijoSQL}, @RemId, '${(user as any)?.id || ''}');
+                          INSERT INTO wms_remitos_internos_items (remito_id, variante_id, cantidad_enviada, etiqueta_generada_id, estado)
+                          VALUES (@RemId, ${info.variante_id}, ${allocQty}, ${loteId}, 'ENTREGADO');
                       `);
                   }
               }
@@ -377,7 +373,7 @@ export function DespachoEgresos({ initialOperationType = 'traslado', initialMode
               }
           }
 
-          if (isTransfer) { queries.push(`SELECT numeracion as rem_code FROM wms_remitos_internos WHERE id = @RemId;`); }
+          if (isTransfer || !isTransfer) { queries.push(`SELECT numeracion as rem_code FROM wms_remitos_internos WHERE id = @RemId;`); }
 
           const executeRes = await executeAWSQuery(`BEGIN TRY BEGIN TRANSACTION; ${queries.join('\n')} COMMIT TRANSACTION; END TRY BEGIN CATCH ROLLBACK TRANSACTION; THROW; END CATCH`);
 
@@ -385,13 +381,14 @@ export function DespachoEgresos({ initialOperationType = 'traslado', initialMode
              cart: pdfItemsExtracted, 
              origen: depositos.find(d => d.id.toString() === origenId)?.nombre || 'Bodega Principal',
              destino: isTransfer ? (depositos.find(d => d.id.toString() === destinoId)?.nombre || 'Ubicación') : 'EGRESO OPERATIVO / RETIRO', 
-             codigo: isTransfer && Array.isArray(executeRes) && executeRes.length>0 ? executeRes[0].rem_code : `EXT-${Date.now()}`, 
+             codigo: Array.isArray(executeRes) && executeRes.length>0 ? executeRes[0].rem_code : `EXT-${Date.now()}`, 
              fecha: new Date().toLocaleString(), 
              nuevasEtiquetas: labelsToPrint 
           });
 
           setCart([]);
           toast.success("Operación ejecutada con éxito.");
+          onComplete?.();
       } catch (err: any) {
           toast.error("Error: " + err.message);
       } finally { setIsExecuting(false); }
@@ -556,14 +553,22 @@ export function DespachoEgresos({ initialOperationType = 'traslado', initialMode
       {isViewingFullscreenPDF && remitoPDFInfo && (
         <div id="print-root" className="fixed inset-0 z-[100] bg-slate-800/90 backdrop-blur-sm overflow-y-auto p-4 sm:p-10 flex justify-center print:static print:w-full print:bg-white print:p-0 print:block">
             <div className="hide-on-print fixed top-6 right-6 flex gap-4 z-[110]">
-              <button onClick={() => { setTimeout(() => window.print(), 100); }} className="bg-indigo-600 text-white p-4 rounded-full shadow-2xl hover:bg-indigo-700 transition-transform hover:scale-110 flex items-center justify-center">
+              <button onClick={() => { 
+                  printRemito(remitoPDFInfo.cart, {
+                      codigo: remitoPDFInfo.codigo,
+                      fecha: remitoPDFInfo.fecha,
+                      estado: 'DESPACHADO',
+                      origen: remitoPDFInfo.origen || depositos.find(d => d.id.toString() === origenId)?.nombre || 'Bodega Principal',
+                      destino: remitoPDFInfo.destino
+                  }, 'despacho');
+              }} className="bg-indigo-600 text-white p-4 rounded-full shadow-2xl hover:bg-indigo-700 transition-transform hover:scale-110 flex items-center justify-center">
                  <span className="font-black text-xs uppercase tracking-widest flex items-center gap-2"><Printer className="w-4 h-4"/> Imprimir Hoja</span>
               </button>
               <button onClick={() => { setIsViewingFullscreenPDF(false); setRemitoPDFInfo(null); }} className="bg-white text-slate-900 p-4 rounded-full shadow-2xl hover:bg-slate-200 transition-transform hover:scale-110 flex items-center justify-center">
                  <span className="font-black text-xs uppercase tracking-widest">X Cerrar</span>
               </button>
             </div>
-            <div className="w-full max-w-[900px] bg-white text-slate-800 font-sans p-12 min-h-[1056px] shadow-2xl relative border border-slate-100 rounded-3xl my-10 flex flex-col print:block print:shadow-none print:border-none print:m-0 print:p-0 print:w-full print:max-w-full print:rounded-none">
+            <div className="w-full max-w-[900px] bg-white text-slate-800 font-sans p-12 min-h-[1056px] shadow-2xl relative border border-slate-100 rounded-3xl my-10 flex flex-col print:hidden">
                 <div className="flex justify-between items-start border-b border-slate-100 pb-8 mb-8 relative">
                     <div className="w-1/2 pr-6">
                         <h1 className="text-4xl font-black mb-2 tracking-tighter text-slate-900 leading-none">REMITO DE SALIDA</h1>
@@ -642,6 +647,8 @@ export function DespachoEgresos({ initialOperationType = 'traslado', initialMode
         </div>
       )}
     </div>
+
+        
         <AnimatePresence>
             <CategoryDrillDownModal 
                isOpen={isCatalogOpen} 
@@ -655,73 +662,163 @@ export function DespachoEgresos({ initialOperationType = 'traslado', initialMode
             />
         </AnimatePresence>
 
-        {/* GLOBAL PRINT PORTAL - MOVED OUTSIDE OF HIDDEN ROOT PARENT */}
-        {remitoPDFInfo && (
-            <div className="hidden print:block w-full bg-white text-black font-sans p-8">
-                <div className="flex justify-between items-start border-2 border-black rounded-xl p-4 relative mb-6">
-                    <div className="absolute top-0 left-1/2 -translate-x-1/2 bg-white border-2 border-black border-t-0 p-2 font-black text-3xl">X</div>
-                    
-                    <div className="w-1/2 pr-6 border-r-2 border-black">
-                        <h1 className="text-3xl font-black mb-1 leading-tight">DOCUMENTO NO VÁLIDO COMO FACTURA</h1>
-                        <p className="font-bold text-lg leading-tight uppercase">SISTEMA INTERNO WMS</p>
-                        <p className="text-sm mt-4 tracking-widest font-mono text-slate-600">COMPROBANTE DE TRASLADO FÍSICO</p>
+        {/* PHYSICAL EXPLIXIT LOT SELECTOR MODAL */}
+        <Modal isOpen={pendingPhysicalSelection !== null} onClose={()=>setPendingPhysicalSelection(null)} title="Selección Exacta de Lote Físico" maxWidth="max-w-5xl">
+           <div className="p-6">
+              {physicalSelectorData.isFetching ? (
+                 <div className="flex flex-col items-center justify-center py-10 opacity-60">
+                    <div className="animate-spin w-10 h-10 border-4 border-indigo-600 border-t-transparent rounded-full mb-4"></div>
+                    <p className="font-bold">Rastreando ubicaciones físicas...</p>
+                 </div>
+              ) : (
+                 <div className="space-y-6 flex flex-col h-full">
+                    {/* STICKY HEADER ACTIONS AND SEARCH */}
+                    <div className="sticky top-0 z-10 bg-white dark:bg-slate-900 pb-4 border-b border-slate-100 dark:border-slate-800 flex flex-col md:flex-row gap-4 items-center justify-between">
+                       <div className="flex-1 w-full relative">
+                           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                           <input 
+                               type="text" 
+                               placeholder="Filtrar por código de barras o descripción..." 
+                               value={physicalSearch} 
+                               onChange={e => setPhysicalSearch(e.target.value)}
+                               className="w-full pl-10 pr-4 py-3 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl outline-none focus:border-indigo-500 transition-colors"
+                           />
+                       </div>
+                       <div className="flex w-full md:w-auto gap-2">
+                           <button onClick={()=>setPendingPhysicalSelection(null)} className="px-6 py-3 rounded-xl font-bold text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800 transition-colors">Cancelar</button>
+                           <button onClick={confirmPhysicalSelection} disabled={Object.values(localPhysicalCart).filter(v=>v>0).length===0} className="px-8 py-3 rounded-xl font-black bg-indigo-600 text-white shadow-[0_0_15px_rgba(79,70,229,0.3)] hover:bg-indigo-700 disabled:opacity-50 transition-all flex items-center justify-center gap-2">
+                               Cargar <ArrowRightLeft className="w-4 h-4"/>
+                           </button>
+                       </div>
                     </div>
-                    <div className="w-1/2 pl-6 text-right">
-                        <h2 className="text-3xl font-black uppercase mb-4 tracking-tight">REMITO</h2>
-                        <div className="inline-block text-left">
-                            <p className="text-sm mb-1"><strong>N° Documento:</strong> <span className="font-mono text-base">{remitoPDFInfo.codigo}</span></p>
-                            <p className="text-sm mb-1"><strong>Fecha Emisión:</strong> <span className="font-mono text-base">{remitoPDFInfo.fecha}</span></p>
-                            <p className="text-sm"><strong>Operador Logístico:</strong> <span className="font-mono text-base">{(user as any)?.nombre || 'Automático'}</span></p>
+
+                    <div className="overflow-y-auto max-h-[60vh] custom-scrollbar pr-2">
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                           {physicalSelectorData.etiquetas.filter(etq => !physicalSearch || etq.codigo_barras.toLowerCase().includes(physicalSearch.toLowerCase()) || etq.producto_nombre.toLowerCase().includes(physicalSearch.toLowerCase())).map(etq => (
+                              <div key={etq.id} className={cn("border rounded-xl p-4 flex flex-col justify-between gap-4 transition-all duration-200 cursor-pointer", localPhysicalCart[etq.id] > 0 ? "border-indigo-500 shadow-md shadow-indigo-500/10 bg-indigo-50/30 dark:bg-indigo-900/10" : "border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50")} onClick={() => { if(physicalSelectorData.tipo_gestion === 'lote_individual') setLocalPhysicalCart(prev => ({...prev, [etq.id]: prev[etq.id] ? 0 : 1}))}}>
+                                 <div>
+                                    <h4 className="font-black text-slate-800 dark:text-slate-100 line-clamp-2 leading-tight">{etq.producto_nombre}</h4>
+                                    <span className="inline-block mt-1 text-xs font-bold bg-slate-200 dark:bg-slate-800 px-2 py-0.5 rounded text-slate-600 dark:text-slate-300">{etq.nombre_variante}</span>
+                                    
+                                    <div className="flex items-center gap-2 mt-3">
+                                       <p className="text-xs font-mono font-bold bg-indigo-50 text-indigo-600 dark:bg-indigo-900/30 dark:text-indigo-400 px-2 py-1 rounded border border-indigo-100 dark:border-indigo-800/50 flex items-center gap-1"><Scan className="w-3 h-3"/> {etq.codigo_barras}</p>
+                                    </div>
+                                    <p className="text-[10px] uppercase font-black text-slate-500 tracking-widest mt-2 bg-slate-200/50 dark:bg-slate-800/50 inline-block px-2 py-1 rounded-md">Saldo: {etq.cantidad_actual} <span className="opacity-50">/ Orig: {etq.cantidad_inicial}</span></p>
+                                 </div>
+                                 
+                                 <div className="flex items-center justify-end border-t border-slate-200 dark:border-slate-800 pt-3 mt-1">
+                                    {physicalSelectorData.tipo_gestion === 'lote_individual' ? (
+                                       <button 
+                                          className={cn("w-full h-12 rounded-xl flex items-center justify-center font-bold text-sm transition-all border-2", localPhysicalCart[etq.id] ? "bg-emerald-500 border-emerald-500 text-white" : "bg-white border-slate-200 text-slate-400 hover:border-slate-300")}
+                                       >
+                                          {localPhysicalCart[etq.id] ? <><CheckCircle className="w-5 h-5 mr-2"/> Lote Seleccionado</> : "Haz clic para seleccionar"}
+                                       </button>
+                                    ) : (
+                                       <div className="flex items-center w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden focus-within:ring-2 ring-indigo-500 focus-within:border-indigo-500 h-12" onClick={(e)=>e.stopPropagation()}>
+                                          <span className="px-3 flex-1 text-[11px] font-black uppercase text-slate-400 bg-slate-50 dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 h-full flex items-center">Extraer cant.</span>
+                                          <input 
+                                             type="number" 
+                                             min="0"
+                                             max={etq.cantidad_actual}
+                                             value={localPhysicalCart[etq.id] || ''}
+                                             placeholder="0"
+                                             onChange={e => {
+                                                const v = Number(e.target.value);
+                                                setLocalPhysicalCart(prev => ({...prev, [etq.id]: Math.min(v, etq.cantidad_actual)}));
+                                             }}
+                                             className="w-24 px-3 py-2 text-lg font-black text-center text-indigo-600 bg-transparent outline-none focus:ring-0" 
+                                          />
+                                       </div>
+                                    )}
+                                 </div>
+                              </div>
+                           ))}
+                           {physicalSelectorData.etiquetas.filter(etq => !physicalSearch || etq.codigo_barras.toLowerCase().includes(physicalSearch.toLowerCase()) || etq.producto_nombre.toLowerCase().includes(physicalSearch.toLowerCase())).length === 0 && (
+                               <div className="col-span-full py-10 text-center text-slate-400 font-bold">No se encontraron etiquetas con ese filtro.</div>
+                           )}
                         </div>
                     </div>
-                </div>
+                 </div>
+              )}
+           </div>
+        </Modal>
 
-                <div className="grid grid-cols-2 gap-4 mb-6">
-                    <div className="border-2 border-black p-4 rounded-xl bg-slate-50">
-                        <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1">Sale desde (Origen Logístico)</p>
-                        <p className="font-black text-xl text-slate-900">{remitoPDFInfo.origen || depositos.find(d => d.id.toString() === origenId)?.nombre || 'Bodega Principal'}</p>
-                    </div>
-                    <div className="border-2 border-black p-4 rounded-xl bg-slate-50">
-                        <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1">Llega a (Destino Físico)</p>
-                        <p className="font-black text-xl text-slate-900">{remitoPDFInfo.destino}</p>
-                    </div>
-                </div>
+        {/* GLOBAL PRINT PORTAL - MOVED OUTSIDE OF HIDDEN ROOT PARENT */}
+        {remitoPDFInfo && (
+            <div className="hidden print:block w-full text-black font-sans bg-white">
+                {(remitoPDFInfo.cart.length > 0 ? remitoPDFInfo.cart.reduce((acc:any, curr:any, i:number) => { if (i % 30 === 0) acc.push([]); acc[acc.length - 1].push(curr); return acc; }, []) : [[]]).map((pageItems:any, pageIndex:number, pagesArray:any[]) => (
+                    <div key={pageIndex} className="w-[210mm] min-h-[297mm] p-8 flex flex-col justify-between" style={{ pageBreakAfter: 'always' }}>
+                        <div>
+                            <div className="flex justify-between items-start border-2 border-black rounded-xl p-4 relative mb-6">
+                                <div className="absolute top-0 left-1/2 -translate-x-1/2 bg-white border-2 border-black border-t-0 p-2 font-black text-3xl">X</div>
+                                
+                                <div className="w-1/2 pr-6 border-r-2 border-black">
+                                    <h1 className="text-3xl font-black mb-1 leading-tight">DOCUMENTO NO VÁLIDO COMO FACTURA</h1>
+                                    <p className="font-bold text-lg leading-tight uppercase">SISTEMA INTERNO WMS</p>
+                                    <p className="text-sm mt-4 tracking-widest font-mono text-slate-600">COMPROBANTE DE TRASLADO FÍSICO</p>
+                                </div>
+                                <div className="w-1/2 pl-6 text-right">
+                                    <h2 className="text-3xl font-black uppercase mb-4 tracking-tight">REMITO</h2>
+                                    <div className="inline-block text-left">
+                                        <p className="text-sm mb-1"><strong>N° Documento:</strong> <span className="font-mono text-base">{remitoPDFInfo.codigo}</span></p>
+                                        <p className="text-sm mb-1"><strong>Fecha Emisión:</strong> <span className="font-mono text-base">{remitoPDFInfo.fecha}</span></p>
+                                        <p className="text-sm"><strong>Operador Logístico:</strong> <span className="font-mono text-base">{(user as any)?.nombre || 'Automático'}</span></p>
+                                    </div>
+                                </div>
+                            </div>
 
-                <table className="w-full mb-10 border-2 border-black">
-                   <thead>
-                      <tr className="bg-slate-200 border-b-2 border-black">
-                          <th className="text-center py-3 border-r-2 border-black w-24 text-sm font-black">CANT.</th>
-                          <th className="text-center py-3 border-r-2 border-black w-48 text-sm font-black">CÓDIGO (LOTE)</th>
-                          <th className="text-left py-3 px-4 border-r-2 border-black text-sm font-black">DESCRIPCIÓN DEL ARTÍCULO</th>
-                          <th className="text-center py-3 text-sm font-black w-32">VARIACIÓN</th>
-                      </tr>
-                   </thead>
-                   <tbody>
-                      {remitoPDFInfo.cart.map((c:any, idx:number)=>(
-                         <tr key={c.id + '-' + idx} className="border-b border-black">
-                            <td className="text-center py-4 border-r-2 border-black font-black text-xl">{c.cantidad_a_extraer}</td>
-                            <td className="text-center py-4 border-r-2 border-black font-mono font-bold text-sm tracking-tighter">{c.codigo_barras}</td>
-                            <td className="text-left py-4 px-4 border-r-2 border-black font-bold uppercase text-slate-800">{c.producto_nombre}</td>
-                            <td className="text-center py-4 font-bold text-xs uppercase bg-slate-50">{c.nombre_variante}</td>
-                         </tr>
-                      ))}
-                   </tbody>
-                </table>
+                            <div className="grid grid-cols-2 gap-4 mb-6">
+                                <div className="border-2 border-black p-4 rounded-xl bg-slate-50">
+                                    <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1">Sale desde (Origen Logístico)</p>
+                                    <p className="font-black text-xl text-slate-900">{remitoPDFInfo.origen || depositos.find((d:any) => d.id.toString() === origenId)?.nombre || 'Bodega Principal'}</p>
+                                </div>
+                                <div className="border-2 border-black p-4 rounded-xl bg-slate-50">
+                                    <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1">Llega a (Destino Físico)</p>
+                                    <p className="font-black text-xl text-slate-900">{remitoPDFInfo.destino}</p>
+                                </div>
+                            </div>
 
-                <div className="grid grid-cols-2 gap-24 mt-32 px-10">
-                    <div className="border-t-2 border-black text-center pt-2">
-                        <p className="font-black uppercase tracking-widest text-sm">Firma de Entrega (Origen)</p>
-                        <p className="text-xs text-slate-500 font-medium tracking-wide mt-1">Aclaración y DNI</p>
-                    </div>
-                    <div className="border-t-2 border-black text-center pt-2">
-                        <p className="font-black uppercase tracking-widest text-sm">Firma de Recepción (Destino)</p>
-                        <p className="text-xs text-slate-500 font-medium tracking-wide mt-1">Aclaración y Fecha de Ingreso</p>
-                    </div>
-                </div>
+                            <table className="w-full mb-10 border-2 border-black">
+                               <thead>
+                                  <tr className="bg-slate-200 border-b-2 border-black">
+                                      <th className="text-center py-3 border-r-2 border-black w-24 text-sm font-black">CANT.</th>
+                                      <th className="text-center py-3 border-r-2 border-black w-48 text-sm font-black">CÓDIGO (LOTE)</th>
+                                      <th className="text-left py-3 px-4 border-r-2 border-black text-sm font-black">DESCRIPCIÓN DEL ARTÍCULO</th>
+                                      <th className="text-center py-3 text-sm font-black w-32">VARIACIÓN</th>
+                                  </tr>
+                               </thead>
+                               <tbody>
+                                  {pageItems.map((c:any, idx:number)=>(
+                                     <tr key={c.id + '-' + idx} className="border-b border-black">
+                                        <td className="text-center py-4 border-r-2 border-black font-black text-xl">{c.cantidad_a_extraer}</td>
+                                        <td className="text-center py-4 border-r-2 border-black font-mono font-bold text-sm tracking-tighter">{c.codigo_barras}</td>
+                                        <td className="text-left py-4 px-4 border-r-2 border-black font-bold uppercase text-slate-800">{c.producto_nombre}</td>
+                                        <td className="text-center py-4 font-bold text-xs uppercase bg-slate-50">{c.nombre_variante}</td>
+                                     </tr>
+                                  ))}
+                               </tbody>
+                            </table>
+                        </div>
 
-                <div className="mt-12 text-center border-t border-slate-300 pt-4">
-                     <p className="text-[9px] uppercase font-mono text-slate-400 font-bold tracking-widest">Documento Remito X generado mediante Módulo Despachos WMS</p>
-                </div>
+                        <div className="mt-auto">
+                            <div className="grid grid-cols-2 gap-24 mt-12 px-10">
+                                <div className="border-t-2 border-black text-center pt-2">
+                                    <p className="font-black uppercase tracking-widest text-sm">Firma de Entrega (Origen)</p>
+                                    <p className="text-xs text-slate-500 font-medium tracking-wide mt-1">Aclaración y DNI</p>
+                                </div>
+                                <div className="border-t-2 border-black text-center pt-2">
+                                    <p className="font-black uppercase tracking-widest text-sm">Firma de Recepción (Destino)</p>
+                                    <p className="text-xs text-slate-500 font-medium tracking-wide mt-1">Aclaración y Fecha de Ingreso</p>
+                                </div>
+                            </div>
+            
+                            <div className="mt-8 flex justify-between items-center text-center border-t border-slate-300 pt-4">
+                                 <p className="text-[9px] uppercase font-mono text-slate-400 font-bold tracking-widest">Documento Remito X generado mediante Módulo Despachos WMS</p>
+                                 <p className="text-[9px] uppercase font-mono text-slate-600 font-black tracking-widest">HOJA {pageIndex + 1} DE {pagesArray.length}</p>
+                            </div>
+                        </div>
+                    </div>
+                ))}
             </div>
         )}
 

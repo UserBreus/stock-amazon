@@ -40,7 +40,7 @@ export function CompraDetalleModal({ isOpen, compra, onClose, onUpdate, onEditDr
                executeAWSQuery(`SELECT d.*, v.nombre_variante, p.nombre as producto_nombre FROM Stock_Compras_Detalle d INNER JOIN Stock_Variantes v ON d.variante_id = v.id INNER JOIN Stock_Productos_Maestros p ON v.producto_maestro_id = p.id WHERE d.compra_id = '${compra.id}'`),
                executeAWSQuery(`IF OBJECT_ID('Stock_Compras_Costos_Extra', 'U') IS NOT NULL EXEC('SELECT * FROM Stock_Compras_Costos_Extra WHERE compra_id = ''${compra.id}'' ORDER BY fecha ASC')`).catch(() => []),
                executeAWSQuery(`
-                   SELECT e.id as etiqueta_id, e.variante_id, v.nombre_variante, p.nombre as producto_nombre, p.tipo_gestion, e.cantidad_inicial as cantidad
+                   SELECT e.id as etiqueta_id, e.codigo_barras, e.variante_id, v.nombre_variante, p.nombre as producto_nombre, p.tipo_gestion, e.cantidad_inicial as cantidad, e.compra_id
                    FROM Stock_Etiquetas e
                    INNER JOIN Stock_Variantes v ON e.variante_id = v.id
                    INNER JOIN Stock_Productos_Maestros p ON v.producto_maestro_id = p.id
@@ -50,7 +50,27 @@ export function CompraDetalleModal({ isOpen, compra, onClose, onUpdate, onEditDr
            ]);
            if(res) setDetalles(res);
            if(costosRes) setCostosExtra(costosRes);
-           if(etqRes) setEtiquetasPendientes(etqRes);
+           if(etqRes) {
+               // Agrupar por variante_id: cada variante = 1 entrada con todos sus IDs reales
+               const grouped: Record<string, any> = {};
+               for (const e of etqRes) {
+                   const key = String(e.variante_id);
+                   if (!grouped[key]) {
+                       grouped[key] = {
+                           ...e,
+                           etiqueta_id: e.codigo_barras || e.etiqueta_id,
+                           etiqueta_ids: [e.codigo_barras || e.etiqueta_id],
+                           // Para granel: cantidad_inicial por bulto; para lote_individual: 1 unidad por etiqueta
+                           cantidad: e.tipo_gestion === 'lote_individual' ? 1 : e.cantidad,
+                           bultos_predefinidos: 1,
+                       };
+                   } else {
+                       grouped[key].etiqueta_ids.push(e.codigo_barras || e.etiqueta_id);
+                       grouped[key].bultos_predefinidos = grouped[key].etiqueta_ids.length;
+                   }
+               }
+               setEtiquetasPendientes(Object.values(grouped));
+           }
        } catch(e) { console.error(e); }
       setIsLoading(false);
    };
@@ -148,7 +168,7 @@ export function CompraDetalleModal({ isOpen, compra, onClose, onUpdate, onEditDr
                 <div className="card-nexus p-6 bg-slate-50 dark:bg-indigo-900/10 border-indigo-100 dark:border-indigo-800/50 flex justify-between items-center relative overflow-visible z-10">
                    <div>
                        <h4 className="font-black text-indigo-900 dark:text-indigo-200 text-lg mb-1">Monto Total</h4>
-                       <p className="text-xs font-bold text-indigo-400 uppercase tracking-widest">Gastos / Fletes Extra: ${compra.gastos_extras || 0}</p>
+                       <p className="text-xs font-bold text-indigo-400 uppercase tracking-widest">Gastos / Fletes Extra: {compra.moneda_simbolo || '$'}{compra.gastos_extras || 0}</p>
                    </div>
                     <div className="flex gap-4 items-center">
                        {compra.estado !== 'recibido' && (
@@ -175,7 +195,7 @@ export function CompraDetalleModal({ isOpen, compra, onClose, onUpdate, onEditDr
                                        <div className="flex gap-2">
                                            <input 
                                               type="number" 
-                                              placeholder="$ Monto" 
+                                              placeholder="Monto" 
                                               className="input-nexus flex-1 text-sm py-2 px-3"
                                               value={nuevoCostoItem.monto}
                                               onChange={(e) => setNuevoCostoItem({...nuevoCostoItem, monto: e.target.value})}
@@ -192,7 +212,7 @@ export function CompraDetalleModal({ isOpen, compra, onClose, onUpdate, onEditDr
                                )}
                            </div>
                        )}
-                       <p className="text-4xl font-black text-indigo-600">${compra.total_compra}</p>
+                       <p className="text-4xl font-black text-indigo-600">{compra.moneda_simbolo || '$'}{compra.total_compra}</p>
                    </div>
                </div>
 
@@ -208,8 +228,8 @@ export function CompraDetalleModal({ isOpen, compra, onClose, onUpdate, onEditDr
                                          <th className="p-4 w-12 text-center">QR</th>
                                          <th className="p-4">Producto</th>
                                          <th className="p-4 text-center">Cantidad</th>
-                                         <th className="p-4 text-right hidden sm:table-cell">Real ($)</th>
-                                         <th className="p-4 text-right text-indigo-600 hidden sm:table-cell">Local ($)</th>
+                                         <th className="p-4 text-right hidden sm:table-cell">Real ({compra.moneda_simbolo || '$'})</th>
+                                         <th className="p-4 text-right text-indigo-600 hidden sm:table-cell">Local ({compra.moneda_simbolo || '$'})</th>
                                          <th className="p-4 text-right">Total</th>
                                       </tr>
                                    </thead>
@@ -235,9 +255,9 @@ export function CompraDetalleModal({ isOpen, compra, onClose, onUpdate, onEditDr
                                                   {d.producto_nombre} <span className="text-slate-500 font-medium">({d.nombre_variante})</span>
                                                </td>
                                                <td className="p-4 text-center font-black">{d.cantidad}</td>
-                                               <td className="p-4 text-right font-medium text-slate-400 hidden sm:table-cell">${d.precio_unitario}</td>
-                                               <td className="p-4 text-right font-bold text-indigo-600 hidden sm:table-cell">${d.costo_puesto_local ? Number(d.costo_puesto_local).toFixed(2) : d.precio_unitario}</td>
-                                               <td className="p-4 text-right font-black text-emerald-600">${(d.precio_unitario * d.cantidad).toFixed(2)}</td>
+                                               <td className="p-4 text-right font-medium text-slate-400 hidden sm:table-cell">{compra.moneda_simbolo || '$'}{Number(d.precio_unitario).toFixed(2)}</td>
+                                               <td className="p-4 text-right font-bold text-indigo-600 hidden sm:table-cell">{compra.moneda_simbolo || '$'}{d.costo_puesto_local ? Number(d.costo_puesto_local).toFixed(2) : Number(d.precio_unitario).toFixed(2)}</td>
+                                               <td className="p-4 text-right font-black text-emerald-600">{compra.moneda_simbolo || '$'}{(d.precio_unitario * d.cantidad).toFixed(2)}</td>
                                            </tr>
                                        ))}
                                    </tbody>

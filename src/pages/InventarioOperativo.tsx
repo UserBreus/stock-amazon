@@ -47,6 +47,7 @@ export function InventarioOperativo() {
   // Modal selector de sector para supers
   const [isSectorModalOpen, setIsSectorModalOpen] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [selectedVariant, setSelectedVariant] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
@@ -94,7 +95,7 @@ export function InventarioOperativo() {
     try {
       const [etiqRes, remitosRes, historialRes, solRes] = await Promise.all([
         executeAWSQuery(`
-          SELECT e.*, p.nombre as producto_nombre, v.nombre_variante as producto_sku, p.unidad_base as unidad, c.nombre as familia_nombre
+          SELECT e.*, p.nombre as producto_nombre, p.tipo_gestion, v.nombre_variante as producto_sku, p.unidad_base as unidad, c.nombre as familia_nombre
           FROM Stock_Etiquetas e
           INNER JOIN Stock_Variantes v ON e.variante_id = v.id
           INNER JOIN Stock_Productos_Maestros p ON v.producto_maestro_id = p.id
@@ -485,8 +486,9 @@ export function InventarioOperativo() {
                       );
                   }
 
-                  const grouped = etiquetasLocales.reduce((acc: any, curr: any) => {
-                      const fam = curr.familia_nombre || 'Sin Familia Asignada';
+                  // LEVEL 1: GROUP BY FAMILY
+                  const groupedByFamily = etiquetasLocales.reduce((acc: any, curr: any) => {
+                      const fam = curr.familia_nombre || 'Sin Familia';
                       if (!acc[fam]) acc[fam] = [];
                       acc[fam].push(curr);
                       return acc;
@@ -495,37 +497,83 @@ export function InventarioOperativo() {
                   if (!selectedCategory) {
                       return (
                           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                              {Object.entries(grouped).map(([familia, tags]: [string, any]) => (
+                              {Object.entries(groupedByFamily).map(([familia, tags]: [string, any]) => (
                                   <button
                                       key={familia}
                                       onClick={() => setSelectedCategory(familia)}
-                                      className="flex flex-col items-center justify-center text-center p-8 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-indigo-400 hover:shadow-lg hover:shadow-indigo-500/10 hover:-translate-y-1 transition-all rounded-[2rem] group"
+                                      className="flex flex-col items-center justify-center text-center p-6 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-indigo-400 hover:shadow-lg hover:shadow-indigo-500/10 hover:-translate-y-1 transition-all rounded-[2rem] group"
                                   >
-                                      <div className="w-14 h-14 bg-slate-50 dark:bg-slate-800 text-slate-500 group-hover:bg-indigo-50 group-hover:text-indigo-500 rounded-2xl flex items-center justify-center mb-4 transition-colors">
-                                          <Box className="w-7 h-7" />
+                                      <div className="w-12 h-12 bg-slate-50 dark:bg-slate-800 text-slate-500 group-hover:bg-indigo-50 group-hover:text-indigo-500 rounded-2xl flex items-center justify-center mb-3 transition-colors">
+                                          <Box className="w-6 h-6" />
                                       </div>
-                                      <h4 className="font-black text-slate-800 dark:text-white text-lg tracking-tight">{familia}</h4>
-                                      <span className="text-xs font-bold text-slate-500 mt-2 bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-full">{tags.length} Lotes físicos</span>
+                                      <h4 className="font-black text-slate-800 dark:text-white text-sm leading-tight tracking-tight">{familia}</h4>
+                                      <span className="text-xs font-bold text-slate-500 mt-3 bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-full">{tags.length} Lotes físicos</span>
                                   </button>
                               ))}
                           </div>
                       );
                   }
 
-                  const tags = grouped[selectedCategory] || [];
+                  const currentFamilyTags = groupedByFamily[selectedCategory] || [];
+                  
+                  // LEVEL 2: GROUP BY VARIANT
+                  const groupedByVariant = currentFamilyTags.reduce((acc: any, curr: any) => {
+                      const varName = curr.producto_nombre + (curr.producto_sku ? ` (${curr.producto_sku})` : '');
+                      if (!acc[varName]) acc[varName] = [];
+                      acc[varName].push(curr);
+                      return acc;
+                  }, {});
+
+                  if (!selectedVariant) {
+                      return (
+                          <div className="bg-slate-50/50 dark:bg-slate-950/20 rounded-3xl border border-slate-100 dark:border-slate-800/60 p-6">
+                              <div className="flex items-center gap-4 mb-6">
+                                  <button 
+                                     onClick={() => setSelectedCategory(null)}
+                                     className="w-10 h-10 flex items-center justify-center bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl transition-colors shrink-0 shadow-sm"
+                                  >
+                                      <ArrowRight className="w-5 h-5 opacity-70 rotate-180" />
+                                  </button>
+                                  <div>
+                                      <h4 className="font-black text-slate-700 dark:text-slate-300 text-2xl flex items-center gap-3">
+                                          <div className="w-2 h-6 bg-indigo-400 rounded-full"></div>
+                                          {selectedCategory}
+                                      </h4>
+                                      <p className="text-sm font-bold text-slate-500">Seleccioná la variante para operar</p>
+                                  </div>
+                              </div>
+                              
+                              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                                  {Object.entries(groupedByVariant).map(([varName, tags]: [string, any]) => (
+                                      <button
+                                          key={varName}
+                                          onClick={() => setSelectedVariant(varName)}
+                                          className="flex flex-col items-center justify-center text-center p-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-indigo-400 hover:shadow-lg hover:shadow-indigo-500/10 hover:-translate-y-1 transition-all rounded-[1.5rem] group"
+                                      >
+                                          <h4 className="font-black text-slate-800 dark:text-white text-sm leading-tight tracking-tight">{varName}</h4>
+                                          <span className="text-xs font-bold text-slate-500 mt-3 bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-full">{tags.length} Lotes físicos</span>
+                                      </button>
+                                  ))}
+                              </div>
+                          </div>
+                      );
+                  }
+
+                  // LEVEL 3: SHOW ETIQUETAS
+                  const tags = groupedByVariant[selectedVariant] || [];
                   return (
                       <div className="bg-slate-50/50 dark:bg-slate-950/20 rounded-3xl border border-slate-100 dark:border-slate-800/60 p-6">
                           <div className="flex items-center gap-4 mb-6">
                               <button 
-                                 onClick={() => setSelectedCategory(null)}
-                                 className="w-10 h-10 flex items-center justify-center bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl transition-colors shrink-0 shadow-sm"
+                                 onClick={() => setSelectedVariant(null)}
+                                 className="px-4 h-10 flex items-center gap-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl transition-colors shrink-0 shadow-sm font-bold text-sm"
                               >
-                                  <ArrowRight className="w-5 h-5 opacity-70 rotate-180" />
+                                  <ArrowRight className="w-4 h-4 opacity-70 rotate-180" /> Volver
                               </button>
                               <div>
                                   <h4 className="font-black text-slate-700 dark:text-slate-300 text-2xl flex items-center gap-3">
                                       <div className="w-2 h-6 bg-indigo-400 rounded-full"></div>
-                                      {selectedCategory}
+                                      {selectedVariant}
                                   </h4>
                                   <p className="text-sm font-bold text-slate-500">{tags.length} lotes encontrados</p>
                               </div>
@@ -536,8 +584,13 @@ export function InventarioOperativo() {
                                   <div key={et.id} className="card-nexus p-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-indigo-300 transition-colors flex flex-col group">
                                       <div className="flex justify-between items-start mb-3">
                                           <div>
-                                              <span className="text-[10px] font-black uppercase tracking-widest text-indigo-500 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20 px-2 py-0.5 rounded">{et.producto_sku || 'Artículo'}</span>
-                                              <h4 className="font-black text-slate-900 dark:text-white mt-1.5 leading-tight pr-4">{et.producto_nombre}</h4>
+                                              <div className="flex gap-2 items-center mb-1.5">
+                                                  <span className="text-[10px] font-black uppercase tracking-widest text-indigo-500 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20 px-2 py-0.5 rounded">{et.producto_sku || 'Artículo'}</span>
+                                                  <span className="text-[10px] font-black uppercase tracking-widest text-slate-500 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded shadow-sm border border-slate-200 dark:border-slate-700">
+                                                      {et.tipo_gestion === 'lote_individual' ? 'UNIDAD' : 'LOTE'}: #{et.id}
+                                                  </span>
+                                              </div>
+                                              <h4 className="font-black text-slate-900 dark:text-white leading-tight pr-4">{et.producto_nombre}</h4>
                                           </div>
                                       </div>
                                       
@@ -829,7 +882,20 @@ export function InventarioOperativo() {
                          
                          <div>
                              <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-2">Cantidad Extirpada</label>
-                             <input type="number" min="0.01" step="0.01" max={bajaEtiqueta.cantidad_actual} value={bajaCantidad} onChange={e => setBajaCantidad(Number(e.target.value))} className="input-nexus w-full h-14 text-center text-3xl font-black text-slate-900 dark:text-white focus:ring-red-500 focus:border-red-500 selection:bg-red-200" required />
+                             <input 
+                                 type="number" 
+                                 min={bajaEtiqueta.tipo_gestion === 'lote_individual' ? "1" : "0.01"} 
+                                 step={bajaEtiqueta.tipo_gestion === 'lote_individual' ? "1" : "0.01"} 
+                                 max={bajaEtiqueta.cantidad_actual} 
+                                 value={bajaCantidad} 
+                                 onChange={e => setBajaCantidad(Number(e.target.value))} 
+                                 readOnly={bajaEtiqueta.tipo_gestion === 'lote_individual'}
+                                 className={cn("input-nexus w-full h-14 text-center text-3xl font-black text-slate-900 dark:text-white focus:ring-red-500 focus:border-red-500 selection:bg-red-200", bajaEtiqueta.tipo_gestion === 'lote_individual' && 'opacity-80 cursor-not-allowed bg-slate-100 dark:bg-slate-800')} 
+                                 required 
+                             />
+                             {bajaEtiqueta.tipo_gestion === 'lote_individual' && (
+                                 <p className="text-[10px] text-center text-slate-400 mt-2 font-bold uppercase tracking-widest">Las unidades individuales se consumen enteras</p>
+                             )}
                          </div>
                          <div className="flex gap-2 pt-2">
                              <button type="button" onClick={() => setBajaEtiqueta(null)} className="btn-secondary flex-1 py-3.5">Cancelar</button>

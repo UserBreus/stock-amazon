@@ -201,13 +201,32 @@ export function ConfiguracionMaestros() {
   }, [pmNombre, pmCatId, categorias, productos]);
 
   useEffect(() => {
-    if (varProdIds) {
-       const prod = productos.find(p => p.id.toString() === varProdIds[0]);
-       if (prod && prod.atributos_config) {
-          try { setAtributos(JSON.parse(prod.atributos_config)); } catch(e) { setAtributos([]); }
-       } else {
-          setAtributos([]);
-       }
+    if (varProdIds && varProdIds.length > 0) {
+       const mergedAtributos: {nombre: string, valores: string[]}[] = [];
+       
+       varProdIds.forEach(pid => {
+           const prod = productos.find(p => p.id.toString() === pid);
+           if (prod && prod.atributos_config) {
+               try {
+                   const config = JSON.parse(prod.atributos_config);
+                   if (Array.isArray(config)) {
+                       config.forEach(attr => {
+                           const existing = mergedAtributos.find(a => a.nombre.toLowerCase() === attr.nombre.toLowerCase());
+                           if (existing) {
+                               attr.valores.forEach(v => {
+                                   if (!existing.valores.includes(v)) {
+                                       existing.valores.push(v);
+                                   }
+                               });
+                           } else {
+                               mergedAtributos.push({...attr});
+                           }
+                       });
+                   }
+               } catch(e) { console.error("Error parsing config", e); }
+           }
+       });
+       setAtributos(mergedAtributos);
     } else {
        setAtributos([]);
     }
@@ -264,12 +283,7 @@ export function ConfiguracionMaestros() {
      if(!atributos.some(a => a.valores.length > 0)) {
          setVariantesGeneradas([]);
          return;
-     }
-
-     const prod = productos.find(p => p.id.toString() === varProdIds[0]);
-     const prefixBase = prod?.sku || (prod?.nombre ? prod.nombre.substring(0, 3).toUpperCase() : 'VAR');
-
-     const combinaciones = atributos.reduce((acc, curr) => {
+     }     const combinaciones = atributos.reduce((acc, curr) => {
          if (curr.valores.length === 0) return acc;
          if (acc.length === 0) return curr.valores.map(v => [v]);
          const newAcc: string[][] = [];
@@ -281,16 +295,33 @@ export function ConfiguracionMaestros() {
          return newAcc;
      }, [] as string[][]);
 
-     const generadas = combinaciones.map(comb => {
-         const suffix = comb.map(v => v.substring(0,3).toUpperCase().replace(/[^A-Z0-9]/g, '')).join('-');
-         return { 
-             nombre: comb.join(' - '), 
-             sku: `${prefixBase}-${suffix}`, 
-             activa: true 
-         };
+     const generadas: any[] = [];
+     varProdIds.forEach(pid => {
+         const prod = productos.find(p => p.id.toString() === pid);
+         const prefixBase = prod?.sku || (prod?.nombre ? prod.nombre.substring(0, 3).toUpperCase() : 'VAR');
+         
+         combinaciones.forEach(comb => {
+             const suffix = comb.map(v => v.substring(0,3).toUpperCase().replace(/[^A-Z0-9]/g, '')).join('-');
+             const nombreVar = comb.join(' - ');
+             const skuVar = `${prefixBase}-${suffix}`;
+             
+             // Buscar si ya existe para este producto maestro específico
+             const existe = variantes.find(v => v.producto_maestro_id.toString() === pid && v.nombre_variante === nombreVar);
+             
+             generadas.push({ 
+                 prodId: pid,
+                 prodNombre: prod?.nombre || 'Desconocido',
+                 nombre: nombreVar, 
+                 sku: skuVar, 
+                 activa: !existe,
+                 yaExiste: !!existe,
+                 metadata: comb
+             });
+         });
      });
+
      setVariantesGeneradas(generadas);
-  }, [atributos, varProdIds, productos]);
+   }, [atributos, varProdIds, productos, variantes]);
 
   const createVariantesMasivas = async () => {
     if(varProdIds.length === 0) return toast.error("Selecciona al menos un artículo base.");
@@ -321,13 +352,38 @@ export function ConfiguracionMaestros() {
     }
   };
 
-  const updateVarianteInline = async (id: number, nuevoNombre: string, nuevoSku: string) => {
+  const updateVarianteInline = async (id: any, nuevoNombre: string, nuevoSku: string) => {
       try {
-          await executeAWSQuery(`UPDATE Stock_Variantes SET nombre_variante='${nuevoNombre.replace(/'/g, "''")}', codigo_variante='${nuevoSku.replace(/'/g, "''")}' WHERE id = ${id}`);
+          await executeAWSQuery(`UPDATE Stock_Variantes SET nombre_variante='${nuevoNombre.replace(/'/g, "''")}', codigo_variante='${nuevoSku.replace(/'/g, "''")}' WHERE id = '${id}'`);
           toast.success('Variante actualizada.');
           fetchData();
       } catch (e: any) {
           toast.error('Error al actualizar variante.');
+          console.error(e);
+      }
+  };
+
+  const deleteVariante = async (id: any) => {
+      // Remover window.confirm porque el navegador puede estar bloqueándolo
+      try {
+          toast.loading('Eliminando variante...', { id: 'del-var' });
+          await executeAWSQuery(`DELETE FROM Stock_Variantes WHERE id = '${id}'`);
+          toast.success('Variante eliminada exitosamente.', { id: 'del-var' });
+          fetchData();
+      } catch (e: any) {
+          toast.error('No se pudo eliminar. Puede tener stock o movimientos.', { id: 'del-var' });
+          console.error(e);
+      }
+  };
+
+  const deleteProductoMaestro = async (id: any) => {
+      try {
+          toast.loading('Eliminando artículo...', { id: 'del-pm' });
+          await executeAWSQuery(`DELETE FROM Stock_Productos_Maestros WHERE id = '${id}'`);
+          toast.success('Artículo eliminado exitosamente.', { id: 'del-pm' });
+          fetchData();
+      } catch (e: any) {
+          toast.error('No se pudo eliminar. Puede tener variantes, stock o movimientos.', { id: 'del-pm' });
           console.error(e);
       }
   };
@@ -342,7 +398,7 @@ export function ConfiguracionMaestros() {
         executeAWSQuery("SELECT * FROM Stock_Categorias ORDER BY nombre"),
         executeAWSQuery("SELECT * FROM Stock_Proveedores ORDER BY nombre"),
         executeAWSQuery("SELECT p.*, c.nombre as cat_nombre FROM Stock_Productos_Maestros p LEFT JOIN Stock_Categorias c ON p.categoria_id = c.id ORDER BY p.nombre"),
-        executeAWSQuery("SELECT v.*, p.nombre as prod_nombre FROM Stock_Variantes v INNER JOIN Stock_Productos_Maestros p ON v.producto_maestro_id = p.id ORDER BY p.nombre, v.nombre_variante")
+        executeAWSQuery("SELECT v.id, v.nombre_variante, v.codigo_variante, v.producto_maestro_id, p.nombre as prod_nombre FROM Stock_Variantes v INNER JOIN Stock_Productos_Maestros p ON v.producto_maestro_id = p.id ORDER BY p.nombre, v.nombre_variante")
       ]);
       if(cats) setCategorias(cats);
       if(provs) setProveedores(provs);
@@ -480,12 +536,19 @@ export function ConfiguracionMaestros() {
   const saveProductoMaestro = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!pmCatId) return toast.error("Por favor, selecciona una familia primero.");
+    
+    const normalizedName = pmNombre.trim().toLowerCase();
+    const exists = productos.some(p => p.nombre.toLowerCase() === normalizedName && p.id.toString() !== editProdId);
+    if (exists) {
+        return toast.error(`El artículo maestro "${pmNombre.trim()}" ya existe.`);
+    }
+
     try {
       if (editProdId) {
-          await executeAWSQuery(`UPDATE Stock_Productos_Maestros SET nombre='${pmNombre.replace(/'/g, "''")}', categoria_id=${pmCatId}, unidad_base='${pmUnidad.replace(/'/g, "''")}', tipo_gestion='${pmTipoGestion}' WHERE id=${editProdId}`);
+          await executeAWSQuery(`UPDATE Stock_Productos_Maestros SET nombre='${pmNombre.replace(/'/g, "''").trim()}', categoria_id=${pmCatId}, unidad_base='${pmUnidad.replace(/'/g, "''")}', tipo_gestion='${pmTipoGestion}' WHERE id=${editProdId}`);
           toast.success("Producto Actualizado");
       } else {
-          await executeAWSQuery(`INSERT INTO Stock_Productos_Maestros (sku, nombre, categoria_id, unidad_base, tipo_gestion) VALUES ('${pmSKU.replace(/'/g, "''")}', '${pmNombre.replace(/'/g, "''")}', ${pmCatId}, '${pmUnidad.replace(/'/g, "''")}', '${pmTipoGestion}')`);
+          await executeAWSQuery(`INSERT INTO Stock_Productos_Maestros (sku, nombre, categoria_id, unidad_base, tipo_gestion) VALUES ('${pmSKU.replace(/'/g, "''")}', '${pmNombre.replace(/'/g, "''").trim()}', ${pmCatId}, '${pmUnidad.replace(/'/g, "''")}', '${pmTipoGestion}')`);
           toast.success("Producto Registrado");
       }
       setPmSKU(''); setPmNombre(''); setPmCatId(''); setPmTipoGestion('granel'); setPmUnidad('ud'); setEditProdId(null); 
@@ -1142,16 +1205,21 @@ export function ConfiguracionMaestros() {
                                         {grouped[cat].map(p => (
                                             <div key={p.id} className="p-4 border border-slate-100 dark:border-slate-800/60 bg-slate-50 dark:bg-slate-950 rounded-xl flex flex-col hover:border-blue-200 dark:hover:border-blue-900/50 transition-colors relative group">
                                                 
-                                                <button onClick={() => {
-                                                    setEditProdId(p.id.toString());
-                                                    setPmNombre(p.nombre);
-                                                    setPmCatId(p.categoria_id?.toString() || '');
-                                                    setPmUnidad(p.unidad_base || 'ud');
-                                                    setPmTipoGestion(p.tipo_gestion || 'granel');
-                                                    setPmSKU(p.sku);
-                                                }} className="absolute top-4 right-4 bg-white dark:bg-slate-900 p-1.5 rounded-md border border-slate-200 dark:border-slate-700 shadow-sm opacity-0 group-hover:opacity-100 transition-opacity hover:text-blue-500 z-10">
-                                                    <Settings className="w-4 h-4" />
-                                                </button>
+                                                <div className="absolute top-4 right-4 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                                                    <button onClick={() => deleteProductoMaestro(p.id)} className="bg-white dark:bg-slate-900 p-1.5 rounded-md border border-slate-200 dark:border-slate-700 shadow-sm hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors" title="Eliminar Maestro">
+                                                        <Trash2 className="w-4 h-4" />
+                                                    </button>
+                                                    <button onClick={() => {
+                                                        setEditProdId(p.id.toString());
+                                                        setPmNombre(p.nombre);
+                                                        setPmCatId(p.categoria_id?.toString() || '');
+                                                        setPmUnidad(p.unidad_base || 'ud');
+                                                        setPmTipoGestion(p.tipo_gestion || 'granel');
+                                                        setPmSKU(p.sku);
+                                                    }} className="bg-white dark:bg-slate-900 p-1.5 rounded-md border border-slate-200 dark:border-slate-700 shadow-sm hover:text-blue-500 transition-colors">
+                                                        <Settings className="w-4 h-4" />
+                                                    </button>
+                                                </div>
 
                                                 <span className="font-black text-sm text-slate-900 dark:text-slate-200 mb-2 pr-8 leading-tight">{p.nombre}</span>
                                                 <div className="flex items-center justify-between mt-auto">
@@ -1516,29 +1584,84 @@ export function ConfiguracionMaestros() {
                         )}
                     </div>
                     
-                    {variantesGeneradas.length === 0 ? (
-                        <div className="flex-1 min-h-[300px] flex items-center justify-center border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-xl">
-                            <p className="text-slate-400 font-bold text-xs">Las combinaciones aparecerán aquí a medida que ingreses valores en la matriz.</p>
-                        </div>
-                    ) : (
-                        <div className="flex-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden shadow-sm flex flex-col">
-                            <div className="bg-slate-100 dark:bg-slate-800 p-3 grid grid-cols-[auto_1fr_auto] gap-4 items-center border-b border-slate-200 dark:border-slate-700">
-                                <span className="text-[10px] uppercase font-black text-slate-500 w-5 text-center">Inc</span>
-                                <span className="text-[10px] uppercase font-black text-slate-500">Formulación del Modelo</span>
-                                <span className="text-[10px] uppercase font-black text-slate-500">Cód. Sistema</span>
+                    {variantesGeneradas.length > 0 && (
+                        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden shadow-sm flex flex-col mb-8">
+                            <div className="bg-blue-50 dark:bg-blue-900/20 p-3 grid grid-cols-[auto_1fr_auto] gap-4 items-center border-b border-blue-100 dark:border-blue-800">
+                                <span className="text-[10px] uppercase font-black text-blue-600 w-5 text-center">Inc</span>
+                                <span className="text-[10px] uppercase font-black text-blue-600">Nuevas Combinaciones sugeridas por Matriz</span>
+                                <span className="text-[10px] uppercase font-black text-blue-600">Cód. sugerido</span>
                             </div>
-                            <div className="overflow-y-auto max-h-[550px] custom-scrollbar p-2 space-y-1">
+                            <div className="overflow-y-auto max-h-[350px] custom-scrollbar p-2 space-y-1">
                                 {variantesGeneradas.map((vg, i) => (
                                     <div key={i} className={cn("grid grid-cols-[auto_1fr_auto] gap-4 items-center p-2.5 rounded-lg border transition-all", vg.activa ? "bg-white dark:bg-slate-950 border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-900" : "bg-slate-50/50 dark:bg-slate-900/30 border-transparent opacity-40")}>
                                         <div className="flex items-center justify-center w-5">
-                                            <input type="checkbox" checked={vg.activa} onChange={(e)=>{
+                                            <input type="checkbox" checked={vg.activa} disabled={vg.yaExiste} onChange={(e)=>{
                                                 const ng = [...variantesGeneradas]; ng[i].activa = e.target.checked; setVariantesGeneradas(ng);
                                             }} className="w-4 h-4 cursor-pointer accent-blue-600 rounded" />
                                         </div>
-                                        <span className="font-bold text-xs text-slate-800 dark:text-slate-200 truncate pr-2">{vg.nombre}</span>
+                                        <div className="flex flex-col truncate pr-2">
+                                            <span className="text-[9px] font-black text-slate-400 uppercase tracking-tighter">{vg.prodNombre}</span>
+                                            <span className="font-bold text-xs text-slate-800 dark:text-slate-200">
+                                                {vg.nombre} {vg.yaExiste && <span className="ml-2 text-[8px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-black border border-amber-200">[YA EXISTE]</span>}
+                                            </span>
+                                        </div>
                                         <span className="text-[10px] font-black px-2 py-1 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 rounded cursor-copy" title="Doble clic para copiar" onDoubleClick={() => navigator.clipboard.writeText(vg.sku)}>{vg.sku}</span>
                                     </div>
                                 ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* SECCIÓN DE VARIANTES EXISTENTES */}
+                    {varProdIds.length > 0 && (
+                        <div className="flex-1 flex flex-col min-h-0">
+                            <div className="flex items-center justify-between mb-3 px-1">
+                                <h5 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                                    <Box className="w-3 h-3"/> Modelos actuales en Sistema ({variantes.filter(v => varProdIds.includes(v.producto_maestro_id.toString())).length})
+                                </h5>
+                            </div>
+                            <div className="flex-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden shadow-sm flex flex-col">
+                                <div className="bg-slate-100 dark:bg-slate-800 p-3 grid grid-cols-[1fr_auto_auto] gap-4 items-center border-b border-slate-200 dark:border-slate-700">
+                                    <span className="text-[10px] uppercase font-black text-slate-500">Nombre de Variante</span>
+                                    <span className="text-[10px] uppercase font-black text-slate-500">Código</span>
+                                    <span className="text-[10px] uppercase font-black text-slate-500 w-10 text-center">Acción</span>
+                                </div>
+                                <div className="overflow-y-auto max-h-[400px] custom-scrollbar p-2 space-y-1">
+                                    {variantes.filter(v => varProdIds.includes(v.producto_maestro_id.toString())).length === 0 ? (
+                                        <div className="py-8 text-center text-slate-400 text-xs font-bold italic">No hay modelos creados aún para este artículo.</div>
+                                    ) : (
+                                        variantes.filter(v => varProdIds.includes(v.producto_maestro_id.toString())).map((v, i) => (
+                                            <div key={v.id} className="grid grid-cols-[1fr_auto_auto] gap-4 items-center p-2.5 rounded-lg border border-slate-50 dark:border-slate-800/50 bg-white dark:bg-slate-950 hover:bg-slate-50 dark:hover:bg-slate-900 transition-all group">
+                                                <div className="flex flex-col min-w-0">
+                                                    {varProdIds.length > 1 && <span className="text-[8px] font-black text-slate-400 uppercase leading-none mb-1">{v.prod_nombre}</span>}
+                                                    <input 
+                                                        className="font-bold text-xs bg-transparent border-none p-0 focus:ring-0 text-slate-800 dark:text-slate-200 w-full"
+                                                        defaultValue={v.nombre_variante}
+                                                        onBlur={(e) => {
+                                                            if(e.target.value !== v.nombre_variante) updateVarianteInline(v.id, e.target.value, v.codigo_variante);
+                                                        }}
+                                                    />
+                                                </div>
+                                                <input 
+                                                    className="text-[10px] font-black px-2 py-1 bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-400 rounded border-none focus:ring-0 text-right w-32"
+                                                    defaultValue={v.codigo_variante}
+                                                    onBlur={(e) => {
+                                                        if(e.target.value !== v.codigo_variante) updateVarianteInline(v.id, v.nombre_variante, e.target.value);
+                                                    }}
+                                                />
+                                                <div className="flex items-center justify-center w-10">
+                                                    <button 
+                                                        onClick={() => deleteVariante(v.id)}
+                                                        className="text-slate-300 hover:text-red-500 p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                                                        title="Eliminar Variante"
+                                                    >
+                                                        &times;
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        ))
+                                    )}
+                                </div>
                             </div>
                         </div>
                     )}

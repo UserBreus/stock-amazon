@@ -28,9 +28,13 @@ export function Ingresos() {
   const [provId, setProvId] = useState('');
   const [tipoFacturaId, setTipoFacturaId] = useState('');
   const [referencia, setReferencia] = useState('');
+  const [refError, setRefError] = useState(false);
   const [gastosExtras, setGastosExtras] = useState<string>('');
   const [monedas, setMonedas] = useState<any[]>([]);
   const [monedaId, setMonedaId] = useState<string>('1');
+
+  const monedaObj = monedas.find(m => m.id.toString() === monedaId.toString());
+  const monedaSimbolo = monedaObj ? monedaObj.simbolo : '$';
   
   // Dashboard State
   const [viewMode, setViewMode] = useState<'list' | 'form'>('list');
@@ -63,7 +67,7 @@ export function Ingresos() {
         executeAWSQuery("SELECT * FROM Stock_Proveedores ORDER BY nombre"),
         executeAWSQuery("SELECT * FROM Stock_TiposFactura ORDER BY nombre"),
         executeAWSQuery("SELECT * FROM Stock_Categorias ORDER BY nombre"),
-        executeAWSQuery("SELECT v.*, p.nombre as producto_padre, p.categoria_id, p.unidad_base, p.tipo_gestion FROM Stock_Variantes v INNER JOIN Stock_Productos_Maestros p ON v.producto_maestro_id = p.id ORDER BY p.nombre, v.nombre_variante"),
+        executeAWSQuery("SELECT v.*, p.nombre as producto_padre, p.categoria_id, p.unidad_base, p.tipo_gestion, c.nombre as cat_nombre FROM Stock_Variantes v INNER JOIN Stock_Productos_Maestros p ON v.producto_maestro_id = p.id LEFT JOIN Stock_Categorias c ON p.categoria_id = c.id ORDER BY p.nombre, v.nombre_variante"),
         executeAWSQuery("SELECT id FROM Stock_Depositos WHERE tipo='central' ORDER BY id ASC"),
         executeAWSQuery("SELECT * FROM Stock_Productos_Maestros ORDER BY nombre"),
         executeAWSQuery("SELECT * FROM Stock_Monedas ORDER BY id")
@@ -102,21 +106,45 @@ export function Ingresos() {
      setCarrito(carrito.filter((_, i) => i !== idx));
   };
 
+  const handleBlurReferencia = async () => {
+      if (!referencia || !provId || tipoIngreso !== 'compra') return;
+      const refLimpia = referencia.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+      if (!refLimpia) return;
+      
+      const checkQuery = `SELECT id FROM Stock_Compras WHERE proveedor_id = '${provId}' AND UPPER(REPLACE(REPLACE(referencia_factura, ' ', ''), '-', '')) = '${refLimpia}' ${editingDraftId ? `AND id != '${editingDraftId}'` : ''}`;
+      try {
+          const existe = await executeAWSQuery(checkQuery);
+          if (existe && existe.length > 0) {
+              setRefError(true);
+          } else {
+              setRefError(false);
+          }
+      } catch(e) {
+          console.error("Error check ref on blur:", e);
+      }
+  };
+
   const guardarCompra = async (esDraft: boolean = false) => {
      if(!almacenId) return toast.error("Falta depósito central.");
      
-     if (tipoIngreso === 'compra') {
-         if(!provId || !tipoFacturaId || !referencia) return toast.error("Completa los datos del proveedor y factura.");
-     } else {
-         if(!referencia) return toast.error("Indica el motivo del ajuste libre.");
-     }
-
-     if(carrito.length === 0) return toast.error("No hay productos.");
-
+     if (carrito.length === 0) return toast.error("Por favor agrega al menos un artículo");
+     if (tipoIngreso === 'compra' && (!provId || !referencia || !tipoFacturaId)) return toast.error("Llena Proveedor, Factura y Referencia");
+     
+     const refLimpia = tipoIngreso === 'compra' ? referencia.replace(/[^a-zA-Z0-9]/g, '').toUpperCase() : '';
      const total = carrito.reduce((acc, current) => acc + (current.cantidad * current.precio_unitario), 0);
+
      setIsProcesando(true);
 
      try {
+        if (tipoIngreso === 'compra') {
+            const checkQuery = `SELECT id FROM Stock_Compras WHERE proveedor_id = '${provId}' AND UPPER(REPLACE(REPLACE(referencia_factura, ' ', ''), '-', '')) = '${refLimpia}' ${editingDraftId ? `AND id != '${editingDraftId}'` : ''}`;
+            const existe = await executeAWSQuery(checkQuery);
+            if (existe && existe.length > 0) {
+                setIsProcesando(false);
+                setRefError(true);
+                return;
+            }
+        }
         let q = '';
         
         if (tipoIngreso === 'compra') {
@@ -165,6 +193,7 @@ export function Ingresos() {
         }
 
         // Detalles y Stock físico
+        q += `DECLARE @CompraSeq INT = 1; \n`;
         for(const item of carrito) {
             if (tipoIngreso === 'compra') {
                 q += `
@@ -178,14 +207,23 @@ export function Ingresos() {
                        WHILE @Iter_${rand} < ${item.cantidad}
                        BEGIN
                          INSERT INTO Stock_Etiquetas (codigo_barras, variante_id, deposito_id, cantidad_inicial, cantidad_actual, compra_id, costo_unitario_real, estado)
-                         VALUES (CONVERT(varchar(255), NEWID()), '${item.variante.id}', ${almacenId}, 0, 0, @CompraId, ${item.precio_unitario || 0}, 'pendiente_recepcion');
+                         VALUES ('${provId}${refLimpia}' + CAST(@CompraSeq AS VARCHAR), '${item.variante.id}', ${almacenId}, 1, 0, @CompraId, ${item.precio_unitario || 0}, 'pendiente_recepcion');
                          SET @Iter_${rand} = @Iter_${rand} + 1;
+                         SET @CompraSeq = @CompraSeq + 1;
                        END
                     `;
                 } else {
+                    const cantBultos = Number(item.cantidad_bultos) || 1;
+                    const cPerBulto = (item.cantidad / cantBultos).toFixed(4);
                     q += `
-                       INSERT INTO Stock_Etiquetas (codigo_barras, variante_id, deposito_id, cantidad_inicial, cantidad_actual, compra_id, costo_unitario_real, estado)
-                       VALUES (CONVERT(varchar(255), NEWID()), '${item.variante.id}', ${almacenId}, ${item.cantidad}, 0, @CompraId, ${item.precio_unitario || 0}, 'pendiente_recepcion');
+                       DECLARE @IterB_${rand} INT = 0;
+                       WHILE @IterB_${rand} < ${cantBultos}
+                       BEGIN
+                         INSERT INTO Stock_Etiquetas (codigo_barras, variante_id, deposito_id, cantidad_inicial, cantidad_actual, compra_id, costo_unitario_real, estado)
+                         VALUES ('${provId}${refLimpia}' + CAST(@CompraSeq AS VARCHAR), '${item.variante.id}', ${almacenId}, ${cPerBulto}, 0, @CompraId, ${item.precio_unitario || 0}, 'pendiente_recepcion');
+                         SET @IterB_${rand} = @IterB_${rand} + 1;
+                         SET @CompraSeq = @CompraSeq + 1;
+                       END
                     `;
                 }
             } else {
@@ -220,7 +258,7 @@ export function Ingresos() {
         }
         
         // Reset
-        setProvId(''); setReferencia(''); setTipoFacturaId('');
+        setProvId(''); setReferencia(''); setTipoFacturaId(''); setRefError(false);
         setCarrito([]);
         setEditingDraftId(null);
      } catch(e: any) {
@@ -268,6 +306,7 @@ export function Ingresos() {
                      setCarrito([]);
                      setProvId('');
                      setReferencia('');
+                     setRefError(false);
                      setTipoFacturaId('');
                      setEditingDraftId(null);
                      setViewMode('form');
@@ -348,15 +387,19 @@ export function Ingresos() {
                             </button>
                         </div>
                         <div className="space-y-2">
-                            <label className="text-[10px] font-bold uppercase text-slate-500 tracking-widest pl-1">
-                                Nº Referencia Asoc. (Remito/Tkt)
+                            <label className={`text-[10px] font-bold uppercase tracking-widest pl-1 transition-colors ${refError ? 'text-rose-500' : 'text-slate-500'}`}>
+                                {refError ? 'Referencia ya emitida' : 'Nº Referencia Asoc. (Remito/Tkt)'}
                             </label>
                             <input 
                                 type="text"
                                 placeholder="A-0001-090234"
-                                className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg font-bold text-sm uppercase transition-colors focus:border-indigo-400 shadow-sm outline-none"
+                                className={`w-full px-3 py-2 bg-white border rounded-lg font-bold text-sm uppercase transition-colors shadow-sm outline-none ${refError ? 'border-rose-500 text-rose-600 focus:border-rose-600 focus:ring-1 focus:ring-rose-500/20' : 'border-slate-200 focus:border-indigo-400'}`}
                                 value={referencia}
-                                onChange={e=>setReferencia(e.target.value)}
+                                onChange={e => {
+                                    setReferencia(e.target.value);
+                                    if(refError) setRefError(false);
+                                }}
+                                onBlur={handleBlurReferencia}
                             />
                         </div>
                         <div className="space-y-2">
@@ -404,16 +447,17 @@ export function Ingresos() {
                 ) : (
                     <div className="p-4 space-y-2 bg-white">
                         {/* Cabecera Tabla Fake */}
-                        <div className="hidden md:grid grid-cols-12 gap-4 px-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                        <div className="hidden md:grid grid-cols-12 gap-2 px-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">
                              <div className="col-span-1">Action</div>
-                             <div className="col-span-5">Producto Asentado</div>
-                             <div className="col-span-2 text-center">Cantidad Recibida</div>
-                             <div className="col-span-2 text-right">Costo Unit ($)</div>
+                             <div className="col-span-4">Producto Asentado</div>
+                             <div className="col-span-2 text-center">Bultos/Cajas</div>
+                             <div className="col-span-2 text-center">Cant. Recibida</div>
+                             <div className="col-span-1 text-right">Cost. Unit</div>
                              <div className="col-span-2 text-right">Subtotal</div>
                         </div>
                         {carrito.map((item, idx) => (
-                            <div key={idx} className="bg-white p-3 md:px-4 md:py-2 rounded-xl border border-slate-100 hover:border-slate-300 transition-colors flex flex-col md:grid md:grid-cols-12 md:items-center gap-2 md:gap-3 relative group">
-                                <div className="hidden md:flex col-span-2 justify-center gap-1">
+                            <div key={idx} className="bg-white p-3 md:px-4 md:py-2 rounded-xl border border-slate-100 hover:border-slate-300 transition-colors flex flex-col md:grid md:grid-cols-12 md:items-center gap-2 md:gap-2 relative group">
+                                <div className="hidden md:flex col-span-1 justify-center gap-1">
                                     <button 
                                       onClick={() => printLabel({
                                         id: item.variante.id,
@@ -451,7 +495,31 @@ export function Ingresos() {
                                      </div>
                                 </div>
                                 <div className="col-span-2 flex justify-center">
-                                    <div className="flex items-center gap-2 w-full max-w-[120px]">
+                                    <div className="flex flex-col items-center gap-0.5 w-full max-w-[90px]">
+                                        {item.variante.tipo_gestion === 'lote_individual' ? (
+                                            <div className="w-full bg-slate-100/50 text-slate-400 border border-slate-100 px-2 py-1.5 rounded-lg font-bold text-sm text-center cursor-not-allowed">
+                                                L. Ind.
+                                            </div>
+                                        ) : (
+                                            <input 
+                                                type="number"
+                                                min="1"
+                                                step="1"
+                                                placeholder="Bultos"
+                                                className="w-full bg-amber-50 text-amber-900 border border-amber-200 px-2 py-1.5 rounded-lg font-bold text-sm outline-none text-center focus:border-amber-400 transition-colors"
+                                                value={item.cantidad_bultos || ''}
+                                                onChange={(e) => {
+                                                    const nc = [...carrito];
+                                                    nc[idx].cantidad_bultos = Number(e.target.value);
+                                                    setCarrito(nc);
+                                                }}
+                                            />
+                                        )}
+                                        <span className="text-[9px] font-bold text-slate-400 uppercase leading-none block">Cajas Físicas</span>
+                                    </div>
+                                </div>
+                                <div className="col-span-2 flex justify-center">
+                                    <div className="flex flex-col items-center gap-0.5 w-full max-w-[100px]">
                                         <input 
                                             type="number"
                                             min="0"
@@ -465,10 +533,10 @@ export function Ingresos() {
                                                 setCarrito(nc);
                                             }}
                                         />
-                                        <span className="text-[10px] font-bold text-slate-400 uppercase">{item.variante.unidad_base}</span>
+                                        <span className="text-[9px] font-bold text-slate-400 uppercase leading-none block">{item.variante.unidad_base} Total</span>
                                     </div>
                                 </div>
-                                <div className="col-span-2 flex justify-end">
+                                <div className="col-span-1 flex justify-end">
                                     <input 
                                         type="number"
                                         min="0"
@@ -484,7 +552,7 @@ export function Ingresos() {
                                     />
                                 </div>
                                 <div className="col-span-2 flex justify-end">
-                                    <p className="font-bold text-sm text-slate-800">${((item.cantidad || 0) * (item.precio_unitario || 0)).toFixed(2)}</p>
+                                    <p className="font-bold text-sm text-slate-800">{monedaSimbolo}{((item.cantidad || 0) * (item.precio_unitario || 0)).toFixed(2)}</p>
                                 </div>
                             </div>
                         ))}
@@ -495,7 +563,7 @@ export function Ingresos() {
                     <div className="flex flex-col md:flex-row justify-between items-center gap-6">
                         <div className="text-center md:text-left">
                             <span className="text-[11px] font-black uppercase text-slate-400 tracking-widest block mb-1">Total Declarado A Pagar</span>
-                            <span className="text-3xl font-black text-emerald-600 tracking-tighter">${carrito.reduce((acc, c) => acc + ((c.cantidad||0) * (c.precio_unitario||0)), 0).toFixed(2)}</span>
+                            <span className="text-3xl font-black text-emerald-600 tracking-tighter">{monedaSimbolo}{carrito.reduce((acc, c) => acc + ((c.cantidad||0) * (c.precio_unitario||0)), 0).toFixed(2)}</span>
                         </div>
                         <div className="w-full md:w-auto flex flex-col sm:flex-row gap-3">
                            <button onClick={() => guardarCompra(true)} disabled={isProcesando} className="px-4 py-2.5 rounded-xl font-bold text-slate-500 bg-white border border-slate-200 hover:bg-slate-100 transition whitespace-nowrap text-xs">
@@ -521,10 +589,11 @@ export function Ingresos() {
            id: v.id.toString(),
            nombre: v.nombre_variante ? `${v.producto_padre} (${v.nombre_variante})` : v.producto_padre,
            nombre_variante: v.nombre_variante,
-           sku: v.sku,
+           sku: v.codigo_variante || v.sku, // El código de la variante manda en compra
            categoria_id: v.categoria_id,
            producto_maestro_id: v.producto_maestro_id,
            producto_nombre: v.producto_padre,
+           cat_nombre: v.cat_nombre,
            unidad_base: v.unidad_base
         }))}
         multiSelect={true}
@@ -534,15 +603,15 @@ export function Ingresos() {
                return { variante: {...v, producto_padre: v.producto_padre}, cantidad: 0, precio_unitario: 0 };
            });
            
-           setCarrito(prev => {
-               const filtradas = nuevasVariantes.filter(nv => !prev.some(p => p.variante.id === nv.variante.id));
-               if (filtradas.length > 0) {
-                   toast.success(`${filtradas.length} artículos añadidos a la factura.`);
-               } else if (ids.length > 0) {
-                   toast.error('Estos artículos ya están en la factura.');
-               }
-               return [...prev, ...filtradas];
-           });
+           const previousIds = carrito.map(c => c.variante.id.toString());
+           const filtradas = nuevasVariantes.filter(nv => !previousIds.includes(nv.variante.id.toString()));
+           
+           if (filtradas.length > 0) {
+               toast.success(`${filtradas.length} artículos añadidos a la factura.`);
+               setCarrito([...carrito, ...filtradas]);
+           } else if (ids.length > 0) {
+               toast.error('Estos artículos ya están en la factura.');
+           }
         }}
         activeItemIds={carrito.map(c => c.variante.id.toString())}
       />

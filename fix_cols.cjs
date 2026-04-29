@@ -1,17 +1,21 @@
 const fs = require('fs');
-const file = 'src/components/DespachoEgresos.tsx';
-let c = fs.readFileSync(file, 'utf8');
+let c = fs.readFileSync('src/pages/ConfiguracionMaestros.tsx', 'utf8');
 
-c = c.replace(/INSERT INTO wms_remitos_internos \(codigo_remito, destino_id, usuario_id\)/g, 
-              'INSERT INTO wms_remitos_internos (numeracion, deposito_origen_id, deposito_destino_id, creado_por, estado)');
+const startIdx = c.indexOf('className="grid grid-cols-2');
+const endIdx = c.indexOf('</motion.div>', startIdx);
+let gridBlock = c.substring(startIdx, endIdx);
 
-// Just replacing the values string block completely
-let oldValues = "VALUES ('${remitoCode}', ${destClean}, '${(user as any)?.id || ''}');";
-let newValues = "VALUES ('${remitoCode}', ${origenFijoSQL}, ${destClean}, '${(user as any)?.id || ''}', 'EN_TRANSITO');";
-c = c.replace(oldValues, newValues);
+const colors = ['blue', 'red', 'purple', 'emerald', 'orange', 'cyan', 'pink', 'rose', 'green', 'amber'];
 
-c = c.replace(/SELECT codigo_remito as rem_code FROM wms_remitos_internos WHERE id = @RemId;/g,
-              'SELECT numeracion as rem_code FROM wms_remitos_internos WHERE id = @RemId;');
+colors.forEach(col => {
+    gridBlock = gridBlock.replace(new RegExp('hover:border-' + col + '-300', 'g'), 'hover:border-indigo-300');
+    gridBlock = gridBlock.replace(new RegExp('dark:hover:border-' + col + '-900', 'g'), 'dark:hover:border-indigo-900');
+    gridBlock = gridBlock.replace(new RegExp('bg-' + col + '-50', 'g'), 'bg-indigo-50');
+    gridBlock = gridBlock.replace(new RegExp('bg-' + col + '-900\\\\/30', 'g'), 'bg-indigo-900/30');
+    gridBlock = gridBlock.replace(new RegExp('text-' + col + '-600', 'g'), 'text-indigo-600');
+    gridBlock = gridBlock.replace(new RegExp('text-' + col + '-400', 'g'), 'text-indigo-400');
+});
 
-fs.writeFileSync(file, c);
-console.log('Fixed names');
+c = c.substring(0, startIdx) + gridBlock + c.substring(endIdx);
+fs.writeFileSync('src/pages/ConfiguracionMaestros.tsx', c);
+console.log('Fixed colors');

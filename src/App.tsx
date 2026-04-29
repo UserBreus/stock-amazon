@@ -25,7 +25,40 @@ export default function App() {
     <ErrorBoundary>
       <AuthProvider>
         <UIProvider>
-          <Toaster position="top-right" toastOptions={{ style: { background: '#1e293b', color: '#fff', fontSize: '14px', borderRadius: '12px' } }} />
+          <Toaster 
+            position="top-center" 
+            toastOptions={{ 
+              style: { 
+                background: '#0f172a', 
+                color: '#fff', 
+                fontSize: '16px', 
+                fontWeight: '900',
+                padding: '16px 24px', 
+                borderRadius: '16px',
+                boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.1)',
+                border: '1px solid #1e293b',
+                marginTop: '10vh'
+              },
+              error: {
+                  style: {
+                      background: '#450a0a',
+                      color: '#fecaca',
+                      border: '2px solid #dc2626',
+                      boxShadow: '0 20px 25px -5px rgba(220, 38, 38, 0.3)'
+                  },
+                  iconTheme: { primary: '#ef4444', secondary: '#450a0a' }
+              },
+              success: {
+                  style: {
+                      background: '#022c22',
+                      color: '#a7f3d0',
+                      border: '2px solid #10b981',
+                      boxShadow: '0 20px 25px -5px rgba(16, 185, 129, 0.3)'
+                  },
+                  iconTheme: { primary: '#10b981', secondary: '#022c22' }
+              }
+            }} 
+          />
           <UiEditorPanel />
           
           <Router>
