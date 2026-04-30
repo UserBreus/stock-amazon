@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Settings, Box, Network, Truck, Search, Folder, ArrowLeft, Palette, LayoutDashboard, Tag, Layers, ArchiveRestore, History, Edit3, Trash2, Banknote, FileText, ChevronRight } from 'lucide-react';
+import { Settings, Box, Network, Truck, Search, Folder, ArrowLeft, Palette, LayoutDashboard, Tag, Layers, ArchiveRestore, History, Edit3, Trash2, Banknote, FileText, ChevronRight, AlertOctagon } from 'lucide-react';
 import { IconManager } from '../components/IconManager';
 import { useUIConfig, DynamicUIIcon } from '../context/UIContext';
 
