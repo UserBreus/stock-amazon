@@ -27,15 +27,29 @@ export function Dashboard() {
       const [metricasRes, capRes, alertasRes] = await Promise.all([
         executeAWSQuery(`
           SELECT TOP 10 
-              v.nombre_variante, 
-              ISNULL(SUM(m.cantidad_afectada), 0) as total_movimiento
-          FROM Stock_Movimientos m
-          INNER JOIN Stock_Etiquetas e ON m.etiqueta_id = e.id
-          INNER JOIN Stock_Variantes v ON e.variante_id = v.id
-          WHERE m.tipo_movimiento = 'consumo' 
-            AND m.fecha >= DATEADD(day, -7, GETDATE())
-          GROUP BY v.id, v.nombre_variante
-          ORDER BY total_movimiento DESC
+                v.nombre_variante, 
+                (
+                    ISNULL((SELECT SUM(m.cantidad_afectada) 
+                            FROM Stock_Movimientos m 
+                            INNER JOIN Stock_Etiquetas e ON m.etiqueta_id = e.id 
+                            WHERE e.variante_id = v.id AND m.tipo_movimiento = 'consumo'), 0)
+                    +
+                    ISNULL((SELECT SUM(h.cantidad_consumida) 
+                            FROM Stock_Consumo_Historico h 
+                            WHERE h.variante_id = v.id), 0)
+                ) as total_movimiento
+            FROM Stock_Variantes v
+            WHERE (
+                    ISNULL((SELECT SUM(m.cantidad_afectada) 
+                            FROM Stock_Movimientos m 
+                            INNER JOIN Stock_Etiquetas e ON m.etiqueta_id = e.id 
+                            WHERE e.variante_id = v.id AND m.tipo_movimiento = 'consumo'), 0)
+                    +
+                    ISNULL((SELECT SUM(h.cantidad_consumida) 
+                            FROM Stock_Consumo_Historico h 
+                            WHERE h.variante_id = v.id), 0)
+                ) > 0
+            ORDER BY total_movimiento DESC
         `),
         executeAWSQuery(`
           SELECT 
@@ -208,7 +222,7 @@ export function Dashboard() {
           <div className="flex items-center justify-between mb-8">
             <div>
               <h3 className="text-xl font-black text-blue-950 dark:text-white tracking-tight group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">Top 10 Insumos con Mayor Movimiento</h3>
-              <p className="text-xs text-slate-500 font-medium mt-1">Últimos 7 días. Clic para ver historial detallado por mes y familia.</p>
+              <p className="text-xs text-slate-500 font-medium mt-1">Histórico global y WMS. Clic para ver historial detallado por mes y familia.</p>
             </div>
             <div className="flex gap-2">
               <div className="flex items-center gap-2 px-3 py-1 rounded-lg bg-blue-50 dark:bg-blue-900/20">
