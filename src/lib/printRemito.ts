@@ -242,12 +242,12 @@ export function buildRemitoPage(
 
   <div class="locations">
     <div class="location-box">
-      <div class="location-label">&#8599; Sale desde (Origen Log&iacute;stico)</div>
+      <div class="location-label">&#8599; Sale desde (Origen)</div>
       <div class="location-name">${meta.origen}</div>
     </div>
     <div class="location-box">
-      <div class="location-label">&#8644; Llega a (Destino F&iacute;sico)</div>
-      <div class="location-name">${meta.destino}</div>
+      <div class="location-label">${meta.estado === 'EGRESO' ? 'Tipo de Operación' : '&#8644; Llega a (Destino F&iacute;sico)'}</div>
+      <div class="location-name">${meta.estado === 'EGRESO' ? 'Retiro Libre (Egreso)' : meta.destino}</div>
     </div>
   </div>
 

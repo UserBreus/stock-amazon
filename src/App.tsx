@@ -66,19 +66,19 @@ export default function App() {
             <Route path="/login" element={<Login />} />
             
             <Route path="/" element={
-              <ProtectedRoute>
+              <ProtectedRoute moduleId="sidebar_dashboard">
                 <Layout><Dashboard /></Layout>
               </ProtectedRoute>
             } />
             
             <Route path="/inventario-gerencial" element={
-              <ProtectedRoute roles={['gerente_stock', 'admin', 'operario_stock', 'administrativo_stock', 'atencion']}>
+              <ProtectedRoute roles={['gerente_stock', 'admin', 'operario_stock', 'administrativo_stock', 'atencion']} moduleId="sidebar_inventario">
                 <Layout><InventarioGerencial /></Layout>
               </ProtectedRoute>
             } />
             
             <Route path="/inventario-operativo" element={
-              <ProtectedRoute roles={['gerente_stock', 'admin', 'operario', 'operario_stock', 'atencion']}>
+              <ProtectedRoute roles={['gerente_stock', 'admin', 'operario', 'operario_stock', 'atencion']} moduleId="sidebar_sectores">
                 <Layout><InventarioOperativo /></Layout>
               </ProtectedRoute>
             } />
@@ -87,13 +87,13 @@ export default function App() {
 
 
             <Route path="/configuracion-maestros" element={
-              <ProtectedRoute roles={['gerente_stock', 'admin', 'administrativo_stock']}>
+              <ProtectedRoute roles={['gerente_stock', 'admin', 'administrativo_stock']} moduleId="sidebar_sistema">
                 <Layout><ConfiguracionMaestros /></Layout>
               </ProtectedRoute>
             } />
 
             <Route path="/ingresos" element={
-              <ProtectedRoute roles={['gerente_stock', 'admin', 'administrativo_stock']}>
+              <ProtectedRoute roles={['gerente_stock', 'admin', 'administrativo_stock']} moduleId="sidebar_compras">
                 <Layout><Ingresos /></Layout>
               </ProtectedRoute>
             } />

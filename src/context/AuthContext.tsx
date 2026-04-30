@@ -8,6 +8,8 @@ export interface UserProfile {
   rol: UserRole;
   sucursal_activa_id?: number;
   sucursal_activa_nombre?: string;
+  permisos?: string[];
+  avatar?: string;
 }
 
 interface AuthContextType {

@@ -167,7 +167,13 @@ export function Sidebar({ isMobileMenuOpen, setIsMobileMenuOpen }: SidebarProps)
 
         <nav className="flex-1 px-4 space-y-1.5 overflow-y-auto">
           {menuItems.map((item) => {
-            if (!profile?.rol || !item.roles.includes(profile.rol)) return null;
+            if (!profile) return null;
+            
+            if (profile.permisos && Array.isArray(profile.permisos)) {
+                if (!profile.permisos.includes(item.id)) return null;
+            } else {
+                if (!profile.rol || !item.roles.includes(profile.rol)) return null;
+            }
             
             const isActive = location.pathname === item.path;
             return (

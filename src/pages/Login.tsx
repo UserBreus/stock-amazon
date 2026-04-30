@@ -15,7 +15,7 @@ export function Login() {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    executeAWSQuery('SELECT id, nombre, tipo FROM Stock_Depositos WHERE estado = \'activo\'')
+    executeAWSQuery('SELECT id, nombre, tipo FROM Stock_Depositos')
       .then(data => setDepositos(data || []))
       .catch(err => console.error("Error loading depositos", err));
   }, []);
@@ -43,7 +43,7 @@ export function Login() {
       const depoRecord = depositos.find(d => d.id.toString() === selectedDeposito);
 
       // Consulta al Proxy de AWS
-      const query = `SELECT id, rol, nombre_completo, cedula FROM usuarios WHERE id = '${username.replace(/'/g, "''").trim()}' AND pass = '${password.replace(/'/g, "''")}'`;
+      const query = `SELECT id, rol, nombre_completo, cedula, permisos, avatar FROM usuarios WHERE id = '${username.replace(/'/g, "''").trim()}' AND pass = '${password.replace(/'/g, "''")}'`;
       const data = await executeAWSQuery(query);
 
       if (!data || data.length === 0) {
@@ -57,8 +57,18 @@ export function Login() {
         console.error("No se pudo registrar la sesión de auditoría", audErr);
       }
       
+      // Parsear permisos si existen
+      let permisosParsed: string[] | undefined = undefined;
+      try {
+          if (data[0].permisos) {
+              permisosParsed = JSON.parse(data[0].permisos);
+          }
+      } catch (e) {
+          console.error("Error parsing permisos:", e);
+      }
+
       // Llamar al contexto manual para guardar sesión
-      login(username.trim(), data[0], parseInt(selectedDeposito), depoRecord?.nombre);
+      login(username.trim(), { ...data[0], permisos: permisosParsed }, parseInt(selectedDeposito), depoRecord?.nombre);
       
     } catch (error: any) {
       console.error('Login falló:', error);

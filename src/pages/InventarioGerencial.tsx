@@ -291,6 +291,7 @@ export function InventarioGerencial() {
              cart: detailRes || [],
              origen: rem.origen_nombre,
              destino: rem.destino_nombre,
+             estado: rem.estado,
              codigo: rem.numeracion,
              fecha: new Date(rem.fecha_creacion).toLocaleString()
           });
@@ -342,6 +343,7 @@ export function InventarioGerencial() {
       setDepositos(depRes || []);
       setTiposProducto(catRes || []);
       setComprasPendientes(compRes || []);
+      fetchGlobalHistorial();
     } catch (error) {
       console.error(error);
     } finally {
@@ -1034,8 +1036,12 @@ export function InventarioGerencial() {
                                        <span className="bg-slate-900 text-white text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded-md shadow-sm">{rem.numeracion}</span>
                                        <span className="text-[10px] font-bold text-slate-500 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded-md">{new Date(rem.fecha_creacion).toLocaleDateString()}</span>
                                    </div>
-                                   <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1 flex items-center gap-1"><ArrowUpRight className="w-3 h-3 text-rose-400"/> {rem.origen_nombre}</p>
-                                   <p className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1"><ArrowRightLeft className="w-3 h-3 text-indigo-400"/> {rem.destino_nombre}</p>
+                                   <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1 flex items-center gap-1"><ArrowUpRight className="w-3 h-3 text-rose-400"/> Salida: {rem.origen_nombre}</p>
+                                     {rem.estado === 'EGRESO' ? (
+                                         <p className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1"><ArrowRightLeft className="w-3 h-3 text-slate-400"/> Retiro Libre (Egreso)</p>
+                                     ) : (
+                                         <p className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1"><ArrowRightLeft className="w-3 h-3 text-indigo-400"/> Destino: {rem.destino_nombre}</p>
+                                     )}
                                </div>
                            </div>
                            <div className="flex justify-between items-center pt-4 border-t border-slate-100 dark:border-slate-800">
@@ -1065,7 +1071,7 @@ export function InventarioGerencial() {
                     {
                       codigo: selectedHistorialRemito.codigo,
                       fecha: selectedHistorialRemito.fecha,
-                      estado: 'EN_TRANSITO',
+                      estado: selectedHistorialRemito.estado,
                       origen: selectedHistorialRemito.origen,
                       destino: selectedHistorialRemito.destino,
                     },
@@ -1087,7 +1093,7 @@ export function InventarioGerencial() {
                         </div>
                         <div className="grid grid-cols-2 gap-4 mb-5">
                             <div className="border border-slate-200 p-4 rounded-xl"><p className="text-[10px] font-bold text-slate-400">Origen</p><p className="font-black">{selectedHistorialRemito.origen}</p></div>
-                            <div className="border border-slate-200 p-4 rounded-xl"><p className="text-[10px] font-bold text-slate-400">Destino</p><p className="font-black">{selectedHistorialRemito.destino}</p></div>
+                            <div className="border border-slate-200 p-4 rounded-xl"><p className="text-[10px] font-bold text-slate-400">Destino</p><p className="font-black">{selectedHistorialRemito.estado === 'EGRESO' ? 'Retiro Libre (Egreso)' : selectedHistorialRemito.destino}</p></div>
                         </div>
                         <table className="w-full text-left bg-white border border-slate-200 rounded-xl border-collapse">
                             <thead><tr className="border-b"><th className="py-2 px-3 text-[10px] border-r">Cantidad</th><th className="py-2 px-3 text-[10px] border-r">Lotes (Multi-Secuencia)</th><th className="py-2 px-3 text-[10px]">Artículo</th></tr></thead>
@@ -1254,7 +1260,7 @@ export function InventarioGerencial() {
                     {
                       codigo: selectedHistorialRemito.codigo,
                       fecha: selectedHistorialRemito.fecha,
-                      estado: 'EN_TRANSITO',
+                      estado: selectedHistorialRemito.estado,
                       origen: selectedHistorialRemito.origen,
                       destino: selectedHistorialRemito.destino,
                     },
@@ -1290,7 +1296,7 @@ export function InventarioGerencial() {
                                     </div>
                                     <div className="flex justify-between">
                                         <span className="text-[10px] uppercase font-bold text-slate-400 tracking-widest">Estado</span>
-                                        <span className="font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded text-[10px]">EN_TRANSITO</span>
+                                        <span className="font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded text-[10px]">{selectedHistorialRemito.estado}</span>
                                     </div>
                                 </div>
                             </div>
@@ -1302,7 +1308,7 @@ export function InventarioGerencial() {
                                 <p className="font-black text-lg text-slate-800 leading-tight">{selectedHistorialRemito.origen}</p>
                             </div>
                             <div className="border border-slate-100 p-4 rounded-xl bg-white shadow-sm">
-                                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1 flex items-center gap-1"><ArrowRightLeft className="w-3 h-3 text-indigo-400"/> Llega a (Destino Físico)</p>
+                                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1 flex items-center gap-1"><ArrowRightLeft className="w-3 h-3 text-indigo-400"/> {selectedHistorialRemito.estado === 'EGRESO' ? 'Tipo de Operación' : 'Llega a (Destino Físico)'}</p>
                                 <p className="font-black text-lg text-slate-800 leading-tight">{selectedHistorialRemito.destino}</p>
                             </div>
                         </div>

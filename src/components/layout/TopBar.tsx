@@ -3,11 +3,14 @@ import { useAuth } from '../../context/AuthContext';
 import toast from 'react-hot-toast';
 import { useUIConfig } from '../../context/UIContext';
 import { Edit3 } from 'lucide-react';
+import { UserProfileModal } from '../ui/UserProfileModal';
+import { useState } from 'react';
 
 export function TopBar({ onMenuToggle }: { onMenuToggle?: () => void }) {
   const { user, profile, isGerente, isAdminStock, darkMode, toggleDarkMode } = useAuth();
   const { isEditMode, setIsEditMode, saveAllToDB } = useUIConfig();
   const canEditUI = profile?.rol === 'admin' || isGerente || isAdminStock;
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
 
   return (
     <header className="print:hidden bg-white/80 dark:bg-slate-950/80 backdrop-blur-xl sticky top-0 z-40 border-b border-slate-200 dark:border-slate-900 transition-colors duration-500">
@@ -63,16 +66,16 @@ export function TopBar({ onMenuToggle }: { onMenuToggle?: () => void }) {
             </div>
           </div>
 
-          <div className="flex items-center gap-4 pl-6 border-l border-slate-100 dark:border-slate-900">
+          <div className="flex items-center gap-4 pl-6 border-l border-slate-100 dark:border-slate-900 cursor-pointer" onClick={() => setIsProfileModalOpen(true)}>
             <div className="text-right hidden sm:block">
-              <p className="text-sm font-black text-blue-950 dark:text-white tracking-tight leading-none mb-1">{user?.usuario || 'Usuario'}</p>
+              <p className="text-sm font-black text-blue-950 dark:text-white tracking-tight leading-none mb-1">{profile?.nombre_completo || user?.usuario || 'Usuario'}</p>
               <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest">{profile?.rol?.replace('_', ' ') || 'Cargando...'}</p>
             </div>
-            <div className="relative group cursor-pointer">
+            <div className="relative group">
               <img 
                 alt="Avatar" 
                 className="w-10 h-10 rounded-2xl object-cover ring-2 ring-slate-50 dark:ring-slate-900 group-hover:ring-blue-500/50 transition-all duration-300" 
-                src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.usuario || 'nexus'}`} 
+                src={profile?.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.usuario || 'nexus'}`} 
                 referrerPolicy="no-referrer"
               />
               <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 rounded-full border-2 border-white dark:border-slate-950"></div>
@@ -80,6 +83,11 @@ export function TopBar({ onMenuToggle }: { onMenuToggle?: () => void }) {
           </div>
         </div>
       </div>
+
+      <UserProfileModal 
+        isOpen={isProfileModalOpen} 
+        onClose={() => setIsProfileModalOpen(false)} 
+      />
     </header>
   );
 }

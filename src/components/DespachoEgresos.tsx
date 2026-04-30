@@ -42,6 +42,7 @@ export function DespachoEgresos({ initialOperationType = 'traslado', initialMode
   const [physicalSelectorData, setPhysicalSelectorData] = useState<{ etiquetas: any[], tipo_gestion: string, isFetching: boolean }>({ etiquetas: [], tipo_gestion: 'granel', isFetching: false });
   const [localPhysicalCart, setLocalPhysicalCart] = useState<{ [key: string]: number }>({});
   const [physicalSearch, setPhysicalSearch] = useState('');
+  const [lastSelectedIndex, setLastSelectedIndex] = useState<number | null>(null);
 
 
   // Historial state
@@ -694,8 +695,26 @@ export function DespachoEgresos({ initialOperationType = 'traslado', initialMode
 
                     <div className="overflow-y-auto max-h-[60vh] custom-scrollbar pr-2">
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                           {physicalSelectorData.etiquetas.filter(etq => !physicalSearch || etq.codigo_barras.toLowerCase().includes(physicalSearch.toLowerCase()) || etq.producto_nombre.toLowerCase().includes(physicalSearch.toLowerCase())).map(etq => (
-                              <div key={etq.id} className={cn("border rounded-xl p-4 flex flex-col justify-between gap-4 transition-all duration-200 cursor-pointer", localPhysicalCart[etq.id] > 0 ? "border-indigo-500 shadow-md shadow-indigo-500/10 bg-indigo-50/30 dark:bg-indigo-900/10" : "border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50")} onClick={() => { if(physicalSelectorData.tipo_gestion === 'lote_individual') setLocalPhysicalCart(prev => ({...prev, [etq.id]: prev[etq.id] ? 0 : 1}))}}>
+                           {(physicalSelectorData.etiquetas.filter(etq => !physicalSearch || etq.codigo_barras.toLowerCase().includes(physicalSearch.toLowerCase()) || etq.producto_nombre.toLowerCase().includes(physicalSearch.toLowerCase()))).map((etq, index, arr) => (
+                              <div key={etq.id} className={cn("border rounded-xl p-4 flex flex-col justify-between gap-4 transition-all duration-200 cursor-pointer select-none", localPhysicalCart[etq.id] > 0 ? "border-indigo-500 shadow-md shadow-indigo-500/10 bg-indigo-50/30 dark:bg-indigo-900/10" : "border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50")} onClick={(e) => { 
+                                  if(physicalSelectorData.tipo_gestion === 'lote_individual') {
+                                      setLocalPhysicalCart(prev => { 
+                                          const next = {...prev}; 
+                                          const isSelected = !prev[etq.id]; 
+                                          if (e.shiftKey && lastSelectedIndex !== null && lastSelectedIndex !== index) { 
+                                              const start = Math.min(lastSelectedIndex, index); 
+                                              const end = Math.max(lastSelectedIndex, index); 
+                                              for (let i = start; i <= end; i++) { 
+                                                  next[arr[i].id] = 1; 
+                                              } 
+                                          } else { 
+                                              next[etq.id] = isSelected ? 1 : 0; 
+                                          } 
+                                          return next; 
+                                      }); 
+                                      setLastSelectedIndex(index); 
+                                  }
+                               }}>
                                  <div>
                                     <h4 className="font-black text-slate-800 dark:text-slate-100 line-clamp-2 leading-tight">{etq.producto_nombre}</h4>
                                     <span className="inline-block mt-1 text-xs font-bold bg-slate-200 dark:bg-slate-800 px-2 py-0.5 rounded text-slate-600 dark:text-slate-300">{etq.nombre_variante}</span>
