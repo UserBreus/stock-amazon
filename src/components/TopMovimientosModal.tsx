@@ -54,17 +54,48 @@ export function TopMovimientosModal({ isOpen, onClose }: TopMovimientosModalProp
                     v.nombre_variante, 
                     p.nombre as prod_nombre, 
                     c.nombre as categoria_nombre,
-                    ISNULL(SUM(m.cantidad_afectada), 0) as total_movimiento
-                FROM Stock_Movimientos m
-                INNER JOIN Stock_Etiquetas e ON m.etiqueta_id = e.id
-                INNER JOIN Stock_Variantes v ON e.variante_id = v.id
+                    (
+                        ISNULL((
+                            SELECT SUM(m.cantidad_afectada)
+                            FROM Stock_Movimientos m
+                            INNER JOIN Stock_Etiquetas e ON m.etiqueta_id = e.id
+                            WHERE e.variante_id = v.id 
+                              AND m.tipo_movimiento = 'consumo'
+                              AND MONTH(m.fecha) = ${mes}
+                              AND YEAR(m.fecha) = ${anio}
+                        ), 0)
+                        +
+                        ISNULL((
+                            SELECT SUM(h.cantidad_consumida)
+                            FROM Stock_Consumo_Historico h
+                            WHERE h.variante_id = v.id
+                              AND h.mes = ${mes}
+                              AND h.anio = ${anio}
+                        ), 0)
+                    ) as total_movimiento
+                FROM Stock_Variantes v
                 INNER JOIN Stock_Productos_Maestros p ON v.producto_maestro_id = p.id
                 LEFT JOIN Stock_Categorias c ON p.categoria_id = c.id
-                WHERE m.tipo_movimiento = 'consumo' 
-                  AND MONTH(m.fecha) = ${mes}
-                  AND YEAR(m.fecha) = ${anio}
-                  ${catFilter}
-                GROUP BY v.id, v.nombre_variante, p.nombre, c.nombre
+                WHERE 1=1 ${catFilter}
+                  AND (
+                        ISNULL((
+                            SELECT SUM(m.cantidad_afectada)
+                            FROM Stock_Movimientos m
+                            INNER JOIN Stock_Etiquetas e ON m.etiqueta_id = e.id
+                            WHERE e.variante_id = v.id 
+                              AND m.tipo_movimiento = 'consumo'
+                              AND MONTH(m.fecha) = ${mes}
+                              AND YEAR(m.fecha) = ${anio}
+                        ), 0)
+                        +
+                        ISNULL((
+                            SELECT SUM(h.cantidad_consumida)
+                            FROM Stock_Consumo_Historico h
+                            WHERE h.variante_id = v.id
+                              AND h.mes = ${mes}
+                              AND h.anio = ${anio}
+                        ), 0)
+                  ) > 0
                 ORDER BY total_movimiento DESC
             `;
             const data = await executeAWSQuery(query);
