@@ -2,14 +2,15 @@ import React, { useState, useEffect } from 'react';
 import { executeAWSQuery } from '../../lib/aws-client';
 import toast from 'react-hot-toast';
 import { History, Save, Search, Archive, Trash2 } from 'lucide-react';
-import { ModalSelector } from '../ui/ModalSelector';
+import { CategoryDrillDownModal } from '../ui/CategoryDrillDownModal';
 
 export function GestionHistoricos() {
     const [mes, setMes] = useState<string>((new Date().getMonth() + 1).toString());
     const [anio, setAnio] = useState<string>(new Date().getFullYear().toString());
     const [cantidad, setCantidad] = useState<string>('');
     const [varianteSelected, setVarianteSelected] = useState<any>(null);
-    const [variantes, setVariantes] = useState<any[]>([]);
+    const [catalogCategorias, setCatalogCategorias] = useState<any[]>([]);
+    const [catalogProductos, setCatalogProductos] = useState<any[]>([]);
     const [isVarianteModalOpen, setIsVarianteModalOpen] = useState(false);
     const [historyList, setHistoryList] = useState<any[]>([]);
     const [isLoading, setIsLoading] = useState(false);
@@ -34,14 +35,21 @@ export function GestionHistoricos() {
                 )
             `);
 
-            // Fetch variantes
-            const varRes = await executeAWSQuery(`
-                SELECT v.id, v.nombre_variante, v.codigo_variante, p.nombre as producto_nombre
+                        // Fetch categorias and productos
+            const catRes = await executeAWSQuery("SELECT id, nombre FROM Stock_Categorias ORDER BY nombre");
+            const prodRes = await executeAWSQuery(`
+                SELECT v.id, 
+                       v.nombre_variante,
+                       v.nombre_variante as nombre,
+                       v.codigo_variante,
+                       pm.id as producto_maestro_id, pm.nombre as producto_nombre, pm.categoria_id,
+                       pm.tipo_gestion,
+                       0 as stock_total
                 FROM Stock_Variantes v
-                JOIN Stock_Productos_Maestros p ON v.producto_maestro_id = p.id
-                ORDER BY p.nombre, v.nombre_variante
+                INNER JOIN Stock_Productos_Maestros pm ON v.producto_maestro_id = pm.id
             `);
-            if (varRes) setVariantes(varRes);
+            if (catRes) setCatalogCategorias(catRes);
+            if (prodRes) setCatalogProductos(prodRes);
 
             fetchHistory();
         } catch (error: any) {
@@ -206,16 +214,17 @@ export function GestionHistoricos() {
                 </div>
             </div>
 
-            <ModalSelector
-                title="Selecciona el Artículo"
-                isOpen={isVarianteModalOpen}
-                onClose={() => setIsVarianteModalOpen(false)}
-                options={variantes.map(v => ({ id: v.id, title: v.producto_nombre, subtitle: `${v.nombre_variante} | ${v.codigo_variante}` }))}
+            <CategoryDrillDownModal 
+                isOpen={isVarianteModalOpen} 
+                onClose={() => setIsVarianteModalOpen(false)} 
+                title="Selección Manual: Artículo" 
+                categorias={catalogCategorias} 
+                productos={catalogProductos} 
                 onSelect={(id) => {
-                    setVarianteSelected(variantes.find(v => v.id === id));
+                    setVarianteSelected(catalogProductos.find(v => v.id.toString() === id.toString()));
                     setIsVarianteModalOpen(false);
-                }}
-                searchPlaceholder="Buscar por nombre o código..."
+                }} 
+                closeOnSelect={true}
             />
         </div>
     );
