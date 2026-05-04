@@ -15,6 +15,7 @@ import { useAuth } from '../context/AuthContext';
 import { DespachoEgresos } from '../components/DespachoEgresos';
 import { RecepcionAuditoria } from '../components/RecepcionAuditoria';
 import { RegistroPesos } from '../components/RegistroPesos';
+import { AlertSummaryPanel } from '../components/ui/AlertSummaryPanel';
 
 import toast from 'react-hot-toast';
 
@@ -544,7 +545,9 @@ export function InventarioGerencial() {
 
       {/* PANEL HUB CON TARJETAS GIGANTES */}
       {activeTab === 'panel' && panelView === 'hub' && (
-         <motion.div initial={{opacity:0, y:20}} animate={{opacity:1, y:0}} className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 py-4">
+         <motion.div initial={{opacity:0, y:20}} animate={{opacity:1, y:0}} className="w-full">
+            <AlertSummaryPanel />
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 py-4">
             
             <button onClick={() => setPanelView('ingreso')} className="bg-white dark:bg-slate-900 border-2 border-slate-100 hover:border-blue-200 dark:border-slate-800 dark:hover:border-blue-900 p-8 rounded-3xl text-left transition-all group flex flex-col items-start gap-6 hover:shadow-xl hover:shadow-blue-500/5">
                 <div className="p-4 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-2xl group-hover:scale-110 transition-transform">
@@ -613,6 +616,7 @@ export function InventarioGerencial() {
                 </div>
             </button>
 
+         </div>
          </motion.div>
       )}
 
@@ -658,39 +662,6 @@ export function InventarioGerencial() {
       <AnimatePresence>
       <motion.div initial={{opacity:0, y:10}} animate={{opacity:1, y:0}} exit={{opacity:0}}>
       
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-        <div className="card-nexus p-6 border-l-4 border-l-emerald-500">
-          <div className="flex items-center gap-4 mb-4">
-            <div className="p-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600">
-              <CreditCard className="w-5 h-5" />
-            </div>
-            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Capital Inmovilizado</p>
-          </div>
-          <div className="space-y-1">
-             <h3 className="text-xl font-black text-blue-950 dark:text-white tracking-tighter truncate">{formatCurrency(totalUSD, 'USD')}</h3>
-             {totalUYU > 0 && <h3 className="text-md font-bold text-slate-500 dark:text-slate-400 truncate tracking-tight">{formatCurrency(totalUYU, 'UYU')}</h3>}
-          </div>
-        </div>
-        <div className="card-nexus p-6">
-          <div className="flex items-center gap-4 mb-4">
-            <div className="p-2.5 rounded-xl bg-green-50 dark:bg-green-900/20 text-green-600">
-              <ArchiveRestore className="w-5 h-5" />
-            </div>
-            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Familias en Stock Real</p>
-          </div>
-          <h3 className="text-2xl font-black text-blue-950 dark:text-white tracking-tighter">{qtyActivos} Familias</h3>
-        </div>
-        <div className="card-nexus p-6">
-           <div className="flex items-center gap-4 mb-4">
-            <div className="p-2.5 rounded-xl bg-red-50 dark:bg-red-900/20 text-red-600">
-              <AlertCircle className="w-5 h-5" />
-            </div>
-            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Agotados Críticos</p>
-          </div>
-          <h3 className="text-2xl font-black text-blue-950 dark:text-white tracking-tighter">{qtyInactivos} Atributos</h3>
-        </div>
-      </div>
-
       {/* FILTROS GEOGRÁFICOS AQUÍ */}
       <h3 className="text-sm font-black uppercase text-slate-400 tracking-widest mb-4">Filtrar por Locación (Almacenes)</h3>
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 mb-8">

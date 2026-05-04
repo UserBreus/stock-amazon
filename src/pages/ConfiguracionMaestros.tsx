@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Settings, Box, Network, Truck, Search, Folder, ArrowLeft, Palette, LayoutDashboard, Tag, Layers, ArchiveRestore, History, Edit3, Trash2, Banknote, FileText, ChevronRight, AlertOctagon } from 'lucide-react';
+import { Settings, Box, Network, Truck, Search, Folder, ArrowLeft, Palette, LayoutDashboard, Tag, Layers, ArchiveRestore, History, Edit3, Trash2, Banknote, FileText, ChevronRight , AlertOctagon, DollarSign} from 'lucide-react';
 import { IconManager } from '../components/IconManager';
 import { useUIConfig, DynamicUIIcon } from '../context/UIContext';
 
@@ -13,6 +13,7 @@ import { CategoryDrillDownModal } from '../components/ui/CategoryDrillDownModal'
 import { GestionUsuarios } from '../components/gestion/GestionUsuarios';
 import { GestionHistoricos } from '../components/gestion/GestionHistoricos';
 import { GestionAlertasStock } from '../components/gestion/GestionAlertasStock';
+import { GestionCostosCero } from '../components/gestion/GestionCostosCero';
 
 export function ConfiguracionMaestros() {
   const [activeTab, setActiveTab] = useState<'hub'|'categorias'|'titulos_base'|'diccionario'|'modelos'|'proveedores'|'rendimientos'|'iconos'|'almacenes'|'monedas'|'usuarios'|'historicos'>('hub');
@@ -577,7 +578,6 @@ export function ConfiguracionMaestros() {
     }
   };
 
-  
   const handleDragStart = (e: React.DragEvent, id: string) => {
       if (!isEditMode) return;
       e.dataTransfer.setData('text/plain', id);
@@ -610,8 +610,7 @@ export function ConfiguracionMaestros() {
                  <h1 className="text-xl font-black tracking-tighter">Gestión de Sistema</h1>
               </div>
           </div>
-          
-          
+
   <motion.div initial={{opacity:0, y:20}} animate={{opacity:1, y:0}} className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 xl:grid-cols-6 gap-4 max-w-[1400px] mx-auto py-4 px-4">
       <button 
            draggable={isEditMode}
@@ -808,40 +807,58 @@ export function ConfiguracionMaestros() {
               <div className="p-3 bg-transparent text-slate-700 dark:text-slate-300 group-hover:scale-110 transition-transform flex items-center justify-center">
                  <DynamicUIIcon id="btn_sys_historicos" fallback={History} className={`w-6 h-6 ${uiConfigs['btn_sys_historicos']?.icon_color || ''}`} />
               </div>
-
-             <div 
-               id="btn_sys_alertas_stock"
-               draggable={isEditMode}
-               onDragStart={(e) => handleDragStart(e, 'btn_sys_alertas_stock')}
-               onDragOver={handleDragOver}
-               onDrop={(e) => handleDrop(e, 'btn_sys_alertas_stock')}
-               onClick={(e) => {
-                   if (isEditMode) { e.preventDefault(); setEditingComponentId('btn_sys_alertas_stock'); }
-                   else { setActiveTab('alertas_stock'); }
-               }} 
-               style={{ order: uiConfigs['btn_sys_alertas_stock']?.order_index || 11 }}
-               className={`${isEditMode ? 'ring-2 ring-indigo-500 hover:ring-indigo-500/50 cursor-move border-dashed shadow-[0_0_15px_rgba(99,102,241,0.5)]' : ''} bg-white dark:bg-slate-900 border border-slate-200 hover:border-slate-400 dark:border-slate-800 dark:hover:border-slate-600 p-4 rounded-2xl text-center transition-all h-full group flex flex-col items-center gap-2 hover:shadow-md hover:-translate-y-0.5`}
-             >
-                 <div className="bg-rose-50 dark:bg-rose-900/30 p-3 rounded-xl group-hover:scale-110 transition-transform">
-                     <AlertOctagon className="w-6 h-6 text-rose-500 dark:text-rose-400" />
-                 </div>
-                 <span className="font-bold text-slate-700 dark:text-slate-200 text-sm">Alertas de Stock</span>
-                 {uiConfigs['btn_sys_alertas_stock']?.descripcion && (
-                     <p className="text-[10px] text-slate-500 dark:text-slate-400 line-clamp-2 mt-auto">
-                         {uiConfigs['btn_sys_alertas_stock'].descripcion}
-                     </p>
-                 )}
-             </div>
-    
               <div className="flex-1 flex flex-col items-center">
                  <h3 className="text-xs font-black text-slate-800 dark:text-white mb-1 leading-tight text-center">{uiConfigs['btn_sys_historicos']?.label || 'Históricos'}</h3>
                  <p className="text-slate-400 font-medium text-[10px] leading-tight text-center line-clamp-2 max-w-[120px]">{uiConfigs['btn_sys_historicos']?.sub_label || 'Egresos manuales.'}</p>
               </div>
         </button>
-    </motion.div>
 
-      </div>
-      ) : (
+        <button 
+             draggable={isEditMode}
+             onDragStart={(e) => handleDragStart(e, 'btn_sys_alertas_stock')}
+             onDragOver={handleDragOver}
+             onDrop={(e) => handleDrop(e, 'btn_sys_alertas_stock')}
+             onClick={(e) => {
+                 if (isEditMode) { e.preventDefault(); setEditingComponentId('btn_sys_alertas_stock'); }
+                 else { setActiveTab('alertas_stock'); }
+             }} 
+             style={{ order: uiConfigs['btn_sys_alertas_stock']?.order_index || 11 }}
+             className={`${isEditMode ? 'ring-2 ring-indigo-500 hover:ring-indigo-500/50 cursor-move border-dashed shadow-[0_0_15px_rgba(99,102,241,0.5)]' : ''} bg-white dark:bg-slate-900 border border-slate-200 hover:border-slate-400 dark:border-slate-800 dark:hover:border-slate-600 p-4 rounded-2xl text-center transition-all h-full group flex flex-col items-center gap-2 hover:shadow-md hover:-translate-y-0.5`}
+          >
+              <div className="p-3 bg-transparent text-slate-700 dark:text-slate-300 group-hover:scale-110 transition-transform flex items-center justify-center">
+                 <DynamicUIIcon id="btn_sys_alertas_stock" fallback={AlertOctagon} className={`w-6 h-6 ${uiConfigs['btn_sys_alertas_stock']?.icon_color || ''}`} />
+              </div>
+              <div className="flex-1 flex flex-col items-center">
+                 <h3 className="text-xs font-black text-slate-800 dark:text-white mb-1 leading-tight text-center">{uiConfigs['btn_sys_alertas_stock']?.label || 'Alertas Stock'}</h3>
+                 <p className="text-slate-400 font-medium text-[10px] leading-tight text-center line-clamp-2 max-w-[120px]">{uiConfigs['btn_sys_alertas_stock']?.sub_label || 'Límites críticos.'}</p>
+              </div>
+        </button>
+
+        <button 
+             draggable={isEditMode}
+             onDragStart={(e) => handleDragStart(e, 'btn_sys_costos_cero')}
+             onDragOver={handleDragOver}
+             onDrop={(e) => handleDrop(e, 'btn_sys_costos_cero')}
+             onClick={(e) => {
+                 if (isEditMode) { e.preventDefault(); setEditingComponentId('btn_sys_costos_cero'); }
+                 else { setActiveTab('costos_cero'); }
+             }} 
+             style={{ order: uiConfigs['btn_sys_costos_cero']?.order_index || 12 }}
+             className={`${isEditMode ? 'ring-2 ring-indigo-500 hover:ring-indigo-500/50 cursor-move border-dashed shadow-[0_0_15px_rgba(99,102,241,0.5)]' : ''} bg-white dark:bg-slate-900 border border-slate-200 hover:border-slate-400 dark:border-slate-800 dark:hover:border-slate-600 p-4 rounded-2xl text-center transition-all h-full group flex flex-col items-center gap-2 hover:shadow-md hover:-translate-y-0.5`}
+          >
+              <div className="p-3 bg-transparent text-slate-700 dark:text-slate-300 group-hover:scale-110 transition-transform flex items-center justify-center">
+                 <DynamicUIIcon id="btn_sys_costos_cero" fallback={DollarSign} className={`w-6 h-6 ${uiConfigs['btn_sys_costos_cero']?.icon_color || ''}`} />
+              </div>
+              <div className="flex-1 flex flex-col items-center">
+                 <h3 className="text-xs font-black text-slate-800 dark:text-white mb-1 leading-tight text-center">{uiConfigs['btn_sys_costos_cero']?.label || 'Artículos sin costo'}</h3>
+                 <p className="text-slate-400 font-medium text-[10px] leading-tight text-center line-clamp-2 max-w-[120px]">{uiConfigs['btn_sys_costos_cero']?.sub_label || 'Asignar costos.'}</p>
+              </div>
+        </button>
+
+      </motion.div>
+
+        </div>
+        ) : (
           <div className="mb-6">
               <button onClick={()=>setActiveTab('hub')} className="text-sm font-black text-slate-500 hover:text-indigo-600 transition-colors flex items-center gap-2">← VOLVER AL PANEL DE SISTEMA</button>
           </div>
@@ -1310,7 +1327,6 @@ export function ConfiguracionMaestros() {
         </motion.div>
       )}
 
-      
       {activeTab === 'rendimientos' && (
         <motion.div initial={{opacity:0}} animate={{opacity:1}} className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
             <div className="lg:col-span-5 card-nexus p-8 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
@@ -1760,7 +1776,6 @@ export function ConfiguracionMaestros() {
         selectedValue="" multiSelect={true} onSelectMultiple={setVarProdIds} activeItemIds={varProdIds}
         onSelect={() => {}}
       />
-    
 
       {activeTab === 'tipos_facturas' && (
         <motion.div initial={{opacity:0}} animate={{opacity:1}} className="card-nexus p-8 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
@@ -1788,7 +1803,12 @@ export function ConfiguracionMaestros() {
               <GestionAlertasStock />
           </motion.div>
         )}
-    
+
+        {activeTab === 'costos_cero' && (
+          <motion.div initial={{opacity:0}} animate={{opacity:1}} className="w-full">
+              <GestionCostosCero />
+          </motion.div>
+        )}
 
 </div>
   );
