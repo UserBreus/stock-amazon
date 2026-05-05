@@ -55,26 +55,62 @@ export function DespachoEgresos({ initialOperationType = 'traslado', initialMode
   // Recomendaciones state
   const [showRecommendationsModal, setShowRecommendationsModal] = useState(false);
   const [almacenAuditName, setAlmacenAuditName] = useState('');
+  const [recomendacionesList, setRecomendacionesList] = useState<any[]>([]);
 
-  const handleDestinoChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+  const handleDestinoChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
       const val = e.target.value;
       setDestinoId(val);
       if (val && operationType === 'traslado') {
           const dep = depositos.find(d => d.id.toString() === val);
           setAlmacenAuditName(dep?.nombre || 'Destino');
-          setShowRecommendationsModal(true);
+          
+          try {
+              const res = await executeAWSQuery(`
+                 SELECT 
+                    a.variante_id,
+                    v.nombre_variante,
+                    pm.nombre as producto_nombre,
+                    pm.unidad_base,
+                    pm.tipo_gestion,
+                    a.cantidad_ideal,
+                    ISNULL(v.costo, 0) as costo_unitario_real,
+                    ISNULL((SELECT SUM(cantidad_actual) FROM Stock_Etiquetas WHERE variante_id = a.variante_id AND deposito_id = ${val} AND estado = 'activo'), 0) as stock_actual
+                 FROM Stock_Alertas_Depositos a
+                 JOIN Stock_Variantes v ON a.variante_id = v.id
+                 JOIN Stock_Productos_Maestros pm ON v.producto_maestro_id = pm.id
+                 WHERE a.deposito_id = ${val}
+              `);
+              
+              if (res) {
+                  const recs = res.map((r: any) => {
+                      const falta = Number(r.cantidad_ideal) - Number(r.stock_actual);
+                      return { ...r, falta: falta > 0 ? falta : 0 };
+                  });
+                  
+                  // Even if lacking is zero, we show the modal with "all set" UI
+                  setRecomendacionesList(recs);
+                  setShowRecommendationsModal(true);
+              } else {
+                  setRecomendacionesList([]);
+                  setShowRecommendationsModal(true);
+              }
+          } catch(err) {
+              console.error("Error cargando recomendaciones", err);
+              setRecomendacionesList([]);
+              setShowRecommendationsModal(true);
+          }
       }
   };
 
-  const handleAcceptRecommendations = (selectedRecommendations: any[]) => {
-      const newItems = selectedRecommendations.map(rec => ({
+  const handleAcceptRecommendations = (seleccionadas: any[], cantidades: Record<string, number>) => {
+      const newItems = seleccionadas.map(rec => ({
           id: 'temp-' + Date.now() + Math.random(),
           variante_id: rec.variante_id,
           producto_nombre: rec.producto_nombre,
           nombre_variante: rec.nombre_variante,
           codigo_barras: 'ASIGNACIÓN AUTOMÁTICA',
           cantidad_actual: 999999, // We allow setting it, execution will validate origin availability
-          cantidad_a_extraer: rec.cantidad_sugerida,
+          cantidad_a_extraer: cantidades[rec.variante_id] || rec.falta,
           isBulk: true
       }));
 
@@ -798,9 +834,8 @@ export function DespachoEgresos({ initialOperationType = 'traslado', initialMode
             <RecomendacionesIngresoModal
                 isOpen={showRecommendationsModal}
                 onClose={() => setShowRecommendationsModal(false)}
-                almacenId={destinoId}
-                almacenNombre={almacenAuditName}
-                onAccept={handleAcceptRecommendations}
+                recomendaciones={recomendacionesList}
+                onConfirm={handleAcceptRecommendations}
             />
         )}
 
