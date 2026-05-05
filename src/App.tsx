@@ -61,7 +61,7 @@ export default function App() {
           />
           <UiEditorPanel />
           
-          <Router basename="/Stock">
+          <Router basename="/stock">
           <Routes>
             <Route path="/login" element={<Login />} />
             
