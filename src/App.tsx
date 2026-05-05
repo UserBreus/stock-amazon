@@ -1,4 +1,4 @@
-import { HashRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 
 // Context & UI
@@ -61,7 +61,7 @@ export default function App() {
           />
           <UiEditorPanel />
           
-          <Router>
+          <Router basename="/Stock">
           <Routes>
             <Route path="/login" element={<Login />} />
             
