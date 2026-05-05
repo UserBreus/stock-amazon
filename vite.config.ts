@@ -3,8 +3,8 @@ import react from '@vitejs/plugin-react';
 import path from 'path';
 import { defineConfig } from 'vite';
 
-export default defineConfig(() => ({
-  base: '/stock/',
+export default defineConfig(({ command }) => ({
+  base: command === 'serve' ? '/' : '/stock/',
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {

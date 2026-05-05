@@ -1,4 +1,8 @@
-const AWS_URL = '/api/sql';
+// Si estamos en desarrollo local (PC), conectamos directo a la IP de Amazon.
+// Si estamos en producción (Amazon, empaquetado), usamos el proxy de Nginx.
+const AWS_URL = import.meta.env.PROD 
+    ? '/api/sql' 
+    : 'http://3.85.26.173:5005/sql';
 
 export async function executeAWSQuery(query: string): Promise<any[]> {
     try {

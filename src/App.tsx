@@ -61,7 +61,7 @@ export default function App() {
           />
           <UiEditorPanel />
           
-          <Router basename="/stock">
+          <Router basename={import.meta.env.PROD ? '/stock' : '/'}>
           <Routes>
             <Route path="/login" element={<Login />} />
             
