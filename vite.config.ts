@@ -16,9 +16,8 @@ export default defineConfig(({ command }) => ({
     hmr: process.env.DISABLE_HMR !== 'true',
     proxy: {
       '/api/sql': {
-        target: 'http://3.85.26.173:5005/sql',
+        target: 'https://administracionuser.uy',
         changeOrigin: true,
-        rewrite: (requestPath) => requestPath.replace(/^\/api\/sql/, ''),
       },
     },
   },
