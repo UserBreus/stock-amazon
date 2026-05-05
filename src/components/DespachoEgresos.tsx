@@ -9,6 +9,7 @@ import { cn } from '../lib/utils';
 import { Modal } from './ui/Modal';
 import { CategoryDrillDownModal } from './ui/CategoryDrillDownModal';
 import { printRemito } from '../lib/printRemito';
+import { RecomendacionesIngresoModal } from './ui/RecomendacionesIngresoModal';
 
 interface DespachoEgresosProps { initialOperationType?: 'traslado' | 'venta_consumo'; initialMode?: 'lote' | 'solicitudes' | 'historial'; onComplete?: () => void; }
 
@@ -50,6 +51,37 @@ export function DespachoEgresos({ initialOperationType = 'traslado', initialMode
   
   // Solicitudes state
   const [solicitudes, setSolicitudes] = useState<any[]>([]);
+
+  // Recomendaciones state
+  const [showRecommendationsModal, setShowRecommendationsModal] = useState(false);
+  const [almacenAuditName, setAlmacenAuditName] = useState('');
+
+  const handleDestinoChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+      const val = e.target.value;
+      setDestinoId(val);
+      if (val && operationType === 'traslado') {
+          const dep = depositos.find(d => d.id.toString() === val);
+          setAlmacenAuditName(dep?.nombre || 'Destino');
+          setShowRecommendationsModal(true);
+      }
+  };
+
+  const handleAcceptRecommendations = (selectedRecommendations: any[]) => {
+      const newItems = selectedRecommendations.map(rec => ({
+          id: 'temp-' + Date.now() + Math.random(),
+          variante_id: rec.variante_id,
+          producto_nombre: rec.producto_nombre,
+          nombre_variante: rec.nombre_variante,
+          codigo_barras: 'ASIGNACIÓN AUTOMÁTICA',
+          cantidad_actual: 999999, // We allow setting it, execution will validate origin availability
+          cantidad_a_extraer: rec.cantidad_sugerida,
+          isBulk: true
+      }));
+
+      setCart(prev => [...newItems, ...prev]);
+      setShowRecommendationsModal(false);
+      toast.success(`${newItems.length} recomendación(es) agregada(s) a la orden de traslado.`);
+  };
 
   useEffect(() => {
     fetchBaseData();
@@ -500,7 +532,7 @@ export function DespachoEgresos({ initialOperationType = 'traslado', initialMode
                          {operationType === 'traslado' && (
                             <div className="mb-6 animate-in slide-in-from-top-2">
                                 <label className="text-[10px] font-black uppercase text-indigo-500 mb-2 block flex items-center gap-1"><ArrowUpRight className="w-3 h-3"/> Destino de los lotes</label>
-                                <select value={destinoId} onChange={e=>setDestinoId(e.target.value)} className="w-full h-12 px-3 border border-indigo-200 bg-white dark:bg-slate-900 dark:border-indigo-800 rounded-xl font-bold text-indigo-900 dark:text-indigo-100 outline-none focus:ring-2 focus:ring-indigo-500">
+                                <select value={destinoId} onChange={handleDestinoChange} className="w-full h-12 px-3 border border-indigo-200 bg-white dark:bg-slate-900 dark:border-indigo-800 rounded-xl font-bold text-indigo-900 dark:text-indigo-100 outline-none focus:ring-2 focus:ring-indigo-500">
                                     <option value="" disabled>Seleccione Galpón Físico...</option>
                                     {depositos.map(d=><option key={d.id} value={d.id}>{d.nombre}</option>)}
                                 </select>
@@ -761,6 +793,16 @@ export function DespachoEgresos({ initialOperationType = 'traslado', initialMode
               )}
            </div>
         </Modal>
+
+        {showRecommendationsModal && destinoId && (
+            <RecomendacionesIngresoModal
+                isOpen={showRecommendationsModal}
+                onClose={() => setShowRecommendationsModal(false)}
+                almacenId={destinoId}
+                almacenNombre={almacenAuditName}
+                onAccept={handleAcceptRecommendations}
+            />
+        )}
 
         {/* GLOBAL PRINT PORTAL - MOVED OUTSIDE OF HIDDEN ROOT PARENT */}
         {remitoPDFInfo && (
