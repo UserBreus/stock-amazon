@@ -49,7 +49,8 @@ export function GestionCostosCero() {
             const found = productosCero.find(p => p.id.toString() === id.toString());
             return {
                 ...found,
-                nuevoCosto: 0
+                nuevoCosto: 0,
+                nuevaMoneda: 'USD'
             };
         }).filter(p => p.id); // Filter out any undefined
         setSelectedItems(selected);
@@ -65,7 +66,7 @@ export function GestionCostosCero() {
         try {
             // Actualización por lotes
             for (const item of selectedItems) {
-                await executeAWSQuery(`UPDATE Stock_Variantes SET costo = ${item.nuevoCosto} WHERE id = ${item.id}`);
+                await executeAWSQuery(`UPDATE Stock_Variantes SET costo = ${item.nuevoCosto}, moneda = '${item.nuevaMoneda}' WHERE id = ${item.id}`);
             }
             
             toast.success("Costos actualizados correctamente");
@@ -133,9 +134,21 @@ export function GestionCostosCero() {
                                                     updated[idx].nuevoCosto = newVal;
                                                     setSelectedItems(updated);
                                                 }}
-                                                className="w-full pl-9 pr-4 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl font-bold text-slate-800 dark:text-white outline-none focus:border-emerald-500 transition-colors"
+                                                className="w-full pl-9 pr-16 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl font-bold text-slate-800 dark:text-white outline-none focus:border-emerald-500 transition-colors"
                                                 placeholder="0.00"
                                             />
+                                            <select 
+                                                value={item.nuevaMoneda || 'USD'}
+                                                onChange={(e) => {
+                                                    const updated = [...selectedItems];
+                                                    updated[idx].nuevaMoneda = e.target.value;
+                                                    setSelectedItems(updated);
+                                                }}
+                                                className="absolute right-2 top-1/2 -translate-y-1/2 bg-transparent text-xs font-bold text-slate-500 outline-none cursor-pointer"
+                                            >
+                                                <option value="USD">USD</option>
+                                                <option value="UYU">UYU</option>
+                                            </select>
                                         </div>
                                         <button 
                                             onClick={() => setSelectedItems(selectedItems.filter((_, i) => i !== idx))}

@@ -331,7 +331,7 @@ export function Dashboard() {
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
                 <KPICard 
                     title="Activos Valorizados (USD)" 
-                    value={new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(capital.usd)}
+                    value={`USD ${new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(capital.usd)}`}
                     icon={DollarSign}
                     colorClass="text-emerald-500"
                     bgClass="bg-emerald-50 dark:bg-emerald-900/20 border-emerald-100 dark:border-emerald-800/30"
