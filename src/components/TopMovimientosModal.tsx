@@ -105,7 +105,7 @@ export function TopMovimientosModal({ isOpen, onClose }: TopMovimientosModalProp
             const totalesRaw = await executeAWSQuery(queryTotales);
             const totales = (totalesRaw || []).map((d: any) => ({
                 id: d.variante_id,
-                name: d.nombre_variante,
+                name: d.nombre_variante ? `${d.prod_nombre} (${d.nombre_variante})` : d.prod_nombre,
                 product: d.prod_nombre,
                 category: d.categoria_nombre || 'Sin Familia',
                 consumo: d.total_movimiento
@@ -122,6 +122,7 @@ export function TopMovimientosModal({ isOpen, onClose }: TopMovimientosModalProp
                     SELECT 
                         m.fecha,
                         v.nombre_variante,
+                        p.nombre as prod_nombre,
                         m.cantidad_afectada as cantidad
                     FROM Stock_Movimientos m
                     INNER JOIN Stock_Etiquetas e ON m.etiqueta_id = e.id
@@ -138,6 +139,7 @@ export function TopMovimientosModal({ isOpen, onClose }: TopMovimientosModalProp
                     SELECT 
                         DATEFROMPARTS(h.anio, h.mes, 1) as fecha,
                         v.nombre_variante,
+                        p.nombre as prod_nombre,
                         h.cantidad_consumida as cantidad
                     FROM Stock_Consumo_Historico h
                     INNER JOIN Stock_Variantes v ON h.variante_id = v.id
@@ -167,9 +169,10 @@ export function TopMovimientosModal({ isOpen, onClose }: TopMovimientosModalProp
                     else if (agrupacion === 'mensual') key = `${yyyy}-${mm}`;
                     else if (agrupacion === 'semestral') key = `${yyyy}-${d.getMonth() <= 5 ? 'S1' : 'S2'}`;
 
+                    const formattedName = r.nombre_variante ? `${r.prod_nombre} (${r.nombre_variante})` : r.prod_nombre;
                     if(!groupedMap[key]) groupedMap[key] = { fecha: key };
-                    if(!groupedMap[key][r.nombre_variante]) groupedMap[key][r.nombre_variante] = 0;
-                    groupedMap[key][r.nombre_variante] += r.cantidad;
+                    if(!groupedMap[key][formattedName]) groupedMap[key][formattedName] = 0;
+                    groupedMap[key][formattedName] += r.cantidad;
                 }
 
                 const sortedKeys = Object.keys(groupedMap).sort();
@@ -368,7 +371,6 @@ export function TopMovimientosModal({ isOpen, onClose }: TopMovimientosModalProp
                                                 </div>
                                                 <div className="flex-1 min-w-0">
                                                     <p className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate">{d.name}</p>
-                                                    <p className="text-[10px] text-slate-500 truncate">{d.product}</p>
                                                 </div>
                                                 <div className="text-right shrink-0">
                                                     <p className="text-sm font-black text-indigo-600 dark:text-indigo-400">{d.consumo}</p>
