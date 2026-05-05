@@ -278,21 +278,24 @@ export function RecepcionAuditoria({ onRecargaRequerida, onCartChange }: Recepci
           return;
       }
       
-      const existe = lineasAuditoria.findIndex(x => x.variante_id.toString() === varianteId.toString());
-      if(existe >= 0) {
-          const nw = [...lineasAuditoria];
-          nw[existe].Auditada += 1;
-          setLineasAuditoria(nw);
-      } else {
-          setLineasAuditoria([
-              { 
-                  variante_id: varianteId, descripcion: p.nombre, esperada: 0, Auditada: 1, estado: 'listo',
-                  unidad_base: p.unidad_base, gramos_por_metro_lineal: p.gramos_por_metro_lineal, cantidadSecundaria: 0,
-                  tipo_gestion: p.tipo_gestion
-              },
-              ...lineasAuditoria
-          ]);
-      }
+      setLineasAuditoria(prev => {
+          const existe = prev.findIndex(x => x.variante_id.toString() === varianteId.toString());
+          if(existe >= 0) {
+              const nw = [...prev];
+              nw[existe].Auditada += 1;
+              return nw;
+          } else {
+              return [
+                  { 
+                      variante_id: varianteId, descripcion: p.nombre, esperada: 0, Auditada: 1, estado: 'listo',
+                      unidad_base: p.unidad_base, gramos_por_metro_lineal: p.gramos_por_metro_lineal, cantidadSecundaria: 0,
+                      tipo_gestion: p.tipo_gestion,
+                      precio_unitario: p.costo_unitario_real || 0
+                  },
+                  ...prev
+              ];
+          }
+      });
   };
 
   const eliminarLineaAuditoria = (idx: number) => {
