@@ -74,7 +74,8 @@ export function DespachoEgresos({ initialOperationType = 'traslado', initialMode
                     pm.tipo_gestion,
                     a.cantidad_ideal,
                     ISNULL(v.costo, 0) as costo_unitario_real,
-                    ISNULL((SELECT SUM(cantidad_actual) FROM Stock_Etiquetas WHERE variante_id = a.variante_id AND deposito_id = ${val} AND estado = 'activo'), 0) as stock_actual
+                    ISNULL((SELECT SUM(cantidad_actual) FROM Stock_Etiquetas WHERE variante_id = a.variante_id AND deposito_id = ${val} AND estado = 'activo'), 0) as stock_actual,
+                    ISNULL((SELECT SUM(cantidad_actual) FROM Stock_Etiquetas WHERE variante_id = a.variante_id AND deposito_id = ${origenId || 0} AND estado = 'activo'), 0) as stock_en_origen
                  FROM Stock_Alertas_Depositos a
                  JOIN Stock_Variantes v ON a.variante_id = v.id
                  JOIN Stock_Productos_Maestros pm ON v.producto_maestro_id = pm.id
@@ -109,7 +110,7 @@ export function DespachoEgresos({ initialOperationType = 'traslado', initialMode
           producto_nombre: rec.producto_nombre,
           nombre_variante: rec.nombre_variante,
           codigo_barras: 'ASIGNACIÓN AUTOMÁTICA',
-          cantidad_actual: 999999, // We allow setting it, execution will validate origin availability
+          cantidad_actual: rec.stock_en_origen,
           cantidad_a_extraer: cantidades[rec.variante_id] || rec.falta,
           isBulk: true
       }));
@@ -569,10 +570,26 @@ export function DespachoEgresos({ initialOperationType = 'traslado', initialMode
                             <div className="mb-6 animate-in slide-in-from-top-2">
                                 <label className="text-[10px] font-black uppercase text-indigo-500 mb-2 flex items-center justify-between">
                                     <span className="flex items-center gap-1"><ArrowUpRight className="w-3 h-3"/> Destino de los lotes</span>
-                                    {destinoId && (
-                                        <button onClick={() => setShowRecommendationsModal(true)} className="text-indigo-600 hover:text-indigo-800 flex items-center gap-1 font-bold bg-indigo-50 dark:bg-indigo-900/30 px-2 py-0.5 rounded-full transition-colors">
-                                            <Sparkles className="w-3 h-3"/> Ver Recomendaciones
-                                        </button>
+                                    {destinoId && recomendacionesList.length > 0 && (
+                                        (() => {
+                                            const pendingCount = recomendacionesList.filter(rec => rec.falta > 0 && !cart.some(c => c.variante_id === rec.variante_id && c.isBulk)).length;
+                                            return (
+                                                <button 
+                                                    onClick={() => setShowRecommendationsModal(true)} 
+                                                    className={cn(
+                                                        "flex items-center gap-1.5 px-3 py-1 rounded-full transition-all duration-300 border",
+                                                        pendingCount > 0 
+                                                          ? "text-amber-600 bg-amber-50 border-amber-200 dark:bg-amber-900/30 dark:border-amber-800/50 font-black shadow-[0_0_15px_-3px_rgba(245,158,11,0.4)] hover:scale-105" 
+                                                          : "text-slate-500 bg-slate-100 border-slate-200 dark:bg-slate-800 dark:border-slate-700 font-bold hover:bg-slate-200"
+                                                    )}
+                                                >
+                                                    <Sparkles className={cn("w-3.5 h-3.5", pendingCount > 0 && "animate-pulse")} /> 
+                                                    <span className="text-[10px] tracking-widest uppercase">
+                                                        {pendingCount > 0 ? `${pendingCount} Sugerencias Pendientes` : 'Recomendaciones al día'}
+                                                    </span>
+                                                </button>
+                                            );
+                                        })()
                                     )}
                                 </label>
                                 <select value={destinoId} onChange={handleDestinoChange} className="w-full h-12 px-3 border border-indigo-200 bg-white dark:bg-slate-900 dark:border-indigo-800 rounded-xl font-bold text-indigo-900 dark:text-indigo-100 outline-none focus:ring-2 focus:ring-indigo-500">
