@@ -53,7 +53,7 @@ export function DespachoEgresos({ initialOperationType = 'traslado', initialMode
   const [solicitudes, setSolicitudes] = useState<any[]>([]);
 
   // Recomendaciones state
-  const [showRecommendationsModal, setShowRecommendationsModal] = useState(false);
+  const [showRecommendationsModal, setShowRecommendationsModal] = useState(false); // Used now as inline view toggle
   const [almacenAuditName, setAlmacenAuditName] = useState('');
   const [recomendacionesList, setRecomendacionesList] = useState<any[]>([]);
 
@@ -103,22 +103,7 @@ export function DespachoEgresos({ initialOperationType = 'traslado', initialMode
       }
   };
 
-  const handleAcceptRecommendations = (seleccionadas: any[], cantidades: Record<string, number>) => {
-      const newItems = seleccionadas.map(rec => ({
-          id: 'temp-' + Date.now() + Math.random(),
-          variante_id: rec.variante_id,
-          producto_nombre: rec.producto_nombre,
-          nombre_variante: rec.nombre_variante,
-          codigo_barras: 'ASIGNACIÓN AUTOMÁTICA',
-          cantidad_actual: rec.stock_en_origen,
-          cantidad_a_extraer: cantidades[rec.variante_id] || rec.falta,
-          isBulk: true
-      }));
 
-      setCart(prev => [...newItems, ...prev]);
-      setShowRecommendationsModal(false);
-      toast.success(`${newItems.length} recomendación(es) agregada(s) a la orden de traslado.`);
-  };
 
   useEffect(() => {
     fetchBaseData();
@@ -562,44 +547,104 @@ export function DespachoEgresos({ initialOperationType = 'traslado', initialMode
 
                      <div className="bg-slate-50 dark:bg-slate-950 p-6 border border-slate-200 dark:border-slate-800 rounded-2xl relative overflow-hidden">
                          <div className={cn("absolute top-0 right-0 w-2 h-full transition-colors", operationType === 'traslado' ? "bg-indigo-500" : "bg-rose-500")}></div>
-                         <label className={cn("text-[10px] font-black uppercase mb-4 block", operationType === 'traslado' ? "text-indigo-500" : "text-rose-500")}>
-                            Modo Actual: {operationType === 'traslado' ? 'TRASLADO ENTRE ALMACENES' : 'EGRESO / RETIRO FINAL'}
-                         </label>
+                         
+                         {showRecommendationsModal ? (
+                             <div className="animate-in slide-in-from-right-4 duration-300">
+                                 <div className="flex justify-between items-center mb-4">
+                                     <label className="text-[10px] font-black uppercase text-indigo-500 flex items-center gap-1">
+                                         <Sparkles className="w-3 h-3"/> Sugerencias de Ingreso
+                                     </label>
+                                     <button 
+                                         onClick={() => setShowRecommendationsModal(false)}
+                                         className="text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-slate-600 bg-slate-200 dark:bg-slate-800 px-3 py-1 rounded-lg transition-colors"
+                                     >
+                                         Volver
+                                     </button>
+                                 </div>
+                                 <div className="max-h-[300px] overflow-y-auto pr-2 custom-scrollbar mb-4 space-y-2">
+                                     {recomendacionesList.length === 0 ? (
+                                         <p className="text-center text-sm font-bold text-slate-400 py-4">No hay sugerencias para este almacén.</p>
+                                     ) : (
+                                         recomendacionesList.map((rec, i) => {
+                                             const addedQuantity = cart.filter(c => c.variante_id === rec.variante_id).reduce((acc, curr) => acc + Number(curr.cantidad_a_extraer || 0), 0);
+                                             const isFulfilled = addedQuantity >= rec.falta;
+                                             return (
+                                                 <div key={i} className={cn("p-3 rounded-xl border flex flex-col gap-2 transition-colors", isFulfilled ? "bg-emerald-50 border-emerald-200 dark:bg-emerald-900/10 dark:border-emerald-800/30 opacity-70" : "bg-white border-slate-200 dark:bg-slate-900 dark:border-slate-800")}>
+                                                     <div className="flex justify-between items-start">
+                                                         <div>
+                                                             <p className="font-bold text-xs leading-tight text-slate-700 dark:text-slate-300">{rec.producto_nombre}</p>
+                                                             <p className="text-[10px] font-bold text-slate-400">{rec.nombre_variante}</p>
+                                                         </div>
+                                                         {isFulfilled && <CheckCircle className="w-4 h-4 text-emerald-500" />}
+                                                     </div>
+                                                     <div className="flex justify-between items-end mt-1">
+                                                         <div className="flex gap-3">
+                                                             <div>
+                                                                 <p className="text-[9px] uppercase font-bold text-slate-400">Falta</p>
+                                                                 <p className="font-black text-sm text-indigo-600 dark:text-indigo-400">{rec.falta} <span className="text-[10px]">{rec.unidad_base}</span></p>
+                                                             </div>
+                                                             <div>
+                                                                 <p className="text-[9px] uppercase font-bold text-slate-400">En Carrito</p>
+                                                                 <p className={cn("font-black text-sm", isFulfilled ? "text-emerald-600 dark:text-emerald-400" : "text-amber-500 dark:text-amber-400")}>{addedQuantity} <span className="text-[10px]">{rec.unidad_base}</span></p>
+                                                             </div>
+                                                         </div>
+                                                         <div className="text-right">
+                                                             <p className="text-[9px] uppercase font-bold text-slate-400 mb-0.5">Stock Origen</p>
+                                                             <span className="text-xs font-bold bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded text-slate-500">{rec.stock_en_origen} uds</span>
+                                                         </div>
+                                                     </div>
+                                                 </div>
+                                             );
+                                         })
+                                     )}
+                                 </div>
+                                 <button onClick={() => setShowRecommendationsModal(false)} className="w-full text-indigo-700 font-bold bg-indigo-100 dark:bg-indigo-900/30 hover:bg-indigo-200 dark:hover:bg-indigo-900/50 py-3 rounded-xl transition-colors">CONTINUAR PREPARACIÓN</button>
+                             </div>
+                         ) : (
+                             <div className="animate-in slide-in-from-left-4 duration-300">
+                                 <label className={cn("text-[10px] font-black uppercase mb-4 block", operationType === 'traslado' ? "text-indigo-500" : "text-rose-500")}>
+                                    Modo Actual: {operationType === 'traslado' ? 'TRASLADO ENTRE ALMACENES' : 'EGRESO / RETIRO FINAL'}
+                                 </label>
 
-                         {operationType === 'traslado' && (
-                            <div className="mb-6 animate-in slide-in-from-top-2">
-                                <label className="text-[10px] font-black uppercase text-indigo-500 mb-2 flex items-center justify-between">
-                                    <span className="flex items-center gap-1"><ArrowUpRight className="w-3 h-3"/> Destino de los lotes</span>
-                                    {destinoId && recomendacionesList.length > 0 && (
-                                        (() => {
-                                            const pendingCount = recomendacionesList.filter(rec => rec.falta > 0 && !cart.some(c => c.variante_id === rec.variante_id && c.isBulk)).length;
-                                            return (
-                                                <button 
-                                                    onClick={() => setShowRecommendationsModal(true)} 
-                                                    className={cn(
-                                                        "flex items-center gap-1.5 px-3 py-1 rounded-full transition-all duration-300 border",
-                                                        pendingCount > 0 
-                                                          ? "text-amber-600 bg-amber-50 border-amber-200 dark:bg-amber-900/30 dark:border-amber-800/50 font-black shadow-[0_0_15px_-3px_rgba(245,158,11,0.4)] hover:scale-105" 
-                                                          : "text-slate-500 bg-slate-100 border-slate-200 dark:bg-slate-800 dark:border-slate-700 font-bold hover:bg-slate-200"
-                                                    )}
-                                                >
-                                                    <Sparkles className={cn("w-3.5 h-3.5", pendingCount > 0 && "animate-pulse")} /> 
-                                                    <span className="text-[10px] tracking-widest uppercase">
-                                                        {pendingCount > 0 ? `${pendingCount} Sugerencias Pendientes` : 'Recomendaciones al día'}
-                                                    </span>
-                                                </button>
-                                            );
-                                        })()
-                                    )}
-                                </label>
-                                <select value={destinoId} onChange={handleDestinoChange} className="w-full h-12 px-3 border border-indigo-200 bg-white dark:bg-slate-900 dark:border-indigo-800 rounded-xl font-bold text-indigo-900 dark:text-indigo-100 outline-none focus:ring-2 focus:ring-indigo-500">
-                                    <option value="" disabled>Seleccione Galpón Físico...</option>
-                                    {depositos.map(d=><option key={d.id} value={d.id}>{d.nombre}</option>)}
-                                </select>
-                            </div>
+                                 {operationType === 'traslado' && (
+                                    <div className="mb-6">
+                                        <label className="text-[10px] font-black uppercase text-indigo-500 mb-2 flex items-center justify-between">
+                                            <span className="flex items-center gap-1"><ArrowUpRight className="w-3 h-3"/> Destino de los lotes</span>
+                                            {destinoId && recomendacionesList.length > 0 && (
+                                                (() => {
+                                                    const pendingCount = recomendacionesList.filter(rec => {
+                                                        const added = cart.filter(c => c.variante_id === rec.variante_id).reduce((acc, curr) => acc + Number(curr.cantidad_a_extraer || 0), 0);
+                                                        return rec.falta > 0 && added < rec.falta;
+                                                    }).length;
+                                                    return (
+                                                        <button 
+                                                            onClick={() => setShowRecommendationsModal(true)} 
+                                                            className={cn(
+                                                                "flex items-center gap-1.5 px-3 py-1 rounded-full transition-all duration-300 border",
+                                                                pendingCount > 0 
+                                                                  ? "text-amber-600 bg-amber-50 border-amber-200 dark:bg-amber-900/30 dark:border-amber-800/50 font-black shadow-[0_0_15px_-3px_rgba(245,158,11,0.4)] hover:scale-105" 
+                                                                  : "text-slate-500 bg-slate-100 border-slate-200 dark:bg-slate-800 dark:border-slate-700 font-bold hover:bg-slate-200"
+                                                            )}
+                                                        >
+                                                            <Sparkles className={cn("w-3.5 h-3.5", pendingCount > 0 && "animate-pulse")} /> 
+                                                            <span className="text-[10px] tracking-widest uppercase">
+                                                                {pendingCount > 0 ? `${pendingCount} Sugerencias Pendientes` : 'Recomendaciones al día'}
+                                                            </span>
+                                                        </button>
+                                                    );
+                                                })()
+                                            )}
+                                        </label>
+                                        <select value={destinoId} onChange={handleDestinoChange} className="w-full h-12 px-3 border border-indigo-200 bg-white dark:bg-slate-900 dark:border-indigo-800 rounded-xl font-bold text-indigo-900 dark:text-indigo-100 outline-none focus:ring-2 focus:ring-indigo-500">
+                                            <option value="" disabled>Seleccione Galpón Físico...</option>
+                                            {depositos.map(d=><option key={d.id} value={d.id}>{d.nombre}</option>)}
+                                        </select>
+                                    </div>
+                                 )}
+
+                                 <button onClick={executeBatchOperation} disabled={isExecuting || cart.length === 0 || cart.some(c => Number(c.cantidad_a_extraer) > c.cantidad_actual)} className={cn("w-full text-white font-black py-4 rounded-xl shadow-lg disabled:opacity-50 transition-colors", operationType === 'traslado' ? "bg-indigo-600 hover:bg-indigo-700" : "bg-rose-600 hover:bg-rose-700")}>EJECUTAR ORDEN</button>
+                             </div>
                          )}
-
-                         <button onClick={executeBatchOperation} disabled={isExecuting || cart.length === 0 || cart.some(c => Number(c.cantidad_a_extraer) > c.cantidad_actual)} className={cn("w-full text-white font-black py-4 rounded-xl shadow-lg disabled:opacity-50 transition-colors", operationType === 'traslado' ? "bg-indigo-600 hover:bg-indigo-700" : "bg-rose-600 hover:bg-rose-700")}>EJECUTAR ORDEN</button>
                      </div>
                   </div>
               </motion.div>
@@ -854,14 +899,7 @@ export function DespachoEgresos({ initialOperationType = 'traslado', initialMode
            </div>
         </Modal>
 
-        {showRecommendationsModal && destinoId && (
-            <RecomendacionesIngresoModal
-                isOpen={showRecommendationsModal}
-                onClose={() => setShowRecommendationsModal(false)}
-                recomendaciones={recomendacionesList}
-                onConfirm={handleAcceptRecommendations}
-            />
-        )}
+        {/* Modal has been removed, using inline view instead. */}
 
         {/* GLOBAL PRINT PORTAL - MOVED OUTSIDE OF HIDDEN ROOT PARENT */}
         {remitoPDFInfo && (
