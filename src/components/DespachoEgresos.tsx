@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowUpRight, ArrowRightLeft, Scan, Box, Search, Trash2, Printer, CheckCircle, Zap, AlertCircle, Clock, Send, ArchiveX, ClipboardList } from 'lucide-react';
+import { ArrowUpRight, ArrowRightLeft, Scan, Box, Search, Trash2, Printer, CheckCircle, Zap, AlertCircle, Clock, Send, ArchiveX, ClipboardList, Sparkles } from 'lucide-react';
 import { executeAWSQuery } from '../lib/aws-client';
 import { useAuth } from '../context/AuthContext';
 import { BarcodeScanner } from './ui/BarcodeScanner';
@@ -567,7 +567,14 @@ export function DespachoEgresos({ initialOperationType = 'traslado', initialMode
 
                          {operationType === 'traslado' && (
                             <div className="mb-6 animate-in slide-in-from-top-2">
-                                <label className="text-[10px] font-black uppercase text-indigo-500 mb-2 block flex items-center gap-1"><ArrowUpRight className="w-3 h-3"/> Destino de los lotes</label>
+                                <label className="text-[10px] font-black uppercase text-indigo-500 mb-2 flex items-center justify-between">
+                                    <span className="flex items-center gap-1"><ArrowUpRight className="w-3 h-3"/> Destino de los lotes</span>
+                                    {destinoId && (
+                                        <button onClick={() => setShowRecommendationsModal(true)} className="text-indigo-600 hover:text-indigo-800 flex items-center gap-1 font-bold bg-indigo-50 dark:bg-indigo-900/30 px-2 py-0.5 rounded-full transition-colors">
+                                            <Sparkles className="w-3 h-3"/> Ver Recomendaciones
+                                        </button>
+                                    )}
+                                </label>
                                 <select value={destinoId} onChange={handleDestinoChange} className="w-full h-12 px-3 border border-indigo-200 bg-white dark:bg-slate-900 dark:border-indigo-800 rounded-xl font-bold text-indigo-900 dark:text-indigo-100 outline-none focus:ring-2 focus:ring-indigo-500">
                                     <option value="" disabled>Seleccione Galpón Físico...</option>
                                     {depositos.map(d=><option key={d.id} value={d.id}>{d.nombre}</option>)}
