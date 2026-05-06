@@ -138,31 +138,45 @@ export function Sidebar({ isMobileMenuOpen, setIsMobileMenuOpen }: SidebarProps)
         // En móviles: oculto (fuera de pantalla) a menos que se abra 
         isMobileMenuOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
       )}>
-        <div className="px-6 mb-10 flex items-center justify-between">
-          {!isCollapsed && (
-            <motion.div 
-              initial={{ opacity: 0, x: -20 }}
-              animate={{ opacity: 1, x: 0 }}
-              className="flex items-center gap-3"
-            >
-              <div 
-                className="w-10 h-10 flex items-center justify-center cursor-pointer hover:scale-110 active:scale-95 transition-transform"
-                onClick={handleEpicClick}
+        <div className="px-6 mb-8 flex flex-col gap-6">
+          <div className="flex items-center justify-between">
+            {!isCollapsed && (
+              <motion.div 
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                className="flex items-center gap-3"
               >
-                <UserLogo className="w-7 h-auto text-black dark:text-white" />
-              </div>
-              <div>
-                <h2 className="text-lg font-black text-cyan-950 dark:text-white leading-tight tracking-tighter">USER</h2>
-                <p className="text-[10px] text-cyan-600 dark:text-cyan-400 font-bold uppercase tracking-widest">Control de Stock</p>
-              </div>
-            </motion.div>
-          )}
-          <button 
-            onClick={() => setIsCollapsed(!isCollapsed)}
-            className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 transition-colors hidden md:block"
+                <div 
+                  className="w-10 h-10 flex items-center justify-center cursor-pointer hover:scale-110 active:scale-95 transition-transform"
+                  onClick={handleEpicClick}
+                >
+                  <UserLogo className="w-7 h-auto text-black dark:text-white" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-black text-cyan-950 dark:text-white leading-tight tracking-tighter">USER</h2>
+                  <p className="text-[10px] text-cyan-600 dark:text-cyan-400 font-bold uppercase tracking-widest">Control de Stock</p>
+                </div>
+              </motion.div>
+            )}
+            <button 
+              onClick={() => setIsCollapsed(!isCollapsed)}
+              className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 transition-colors hidden md:block"
+            >
+              {isCollapsed ? <ChevronRight className="w-5 h-5" /> : <ChevronLeft className="w-5 h-5" />}
+            </button>
+          </div>
+
+          <a 
+            href="/" 
+            className={cn(
+              "flex items-center gap-2 px-4 py-2.5 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-500/10 dark:hover:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 text-xs font-bold uppercase tracking-widest rounded-xl transition-all shadow-sm border border-indigo-100 dark:border-indigo-500/20",
+              isCollapsed && "justify-center px-0 py-3"
+            )}
+            title="Volver al Portal Central"
           >
-            {isCollapsed ? <ChevronRight className="w-5 h-5" /> : <ChevronLeft className="w-5 h-5" />}
-          </button>
+            <Network className="w-4 h-4 flex-shrink-0" />
+            {!isCollapsed && "Volver al Portal"}
+          </a>
         </div>
 
         <nav className="flex-1 px-4 space-y-1.5 overflow-y-auto">
