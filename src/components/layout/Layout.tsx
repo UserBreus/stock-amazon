@@ -42,7 +42,7 @@ const PATHS_MAP: Record<string, string> = {
 };
 
 export function ProtectedRoute({ children, roles, moduleId }: { children: ReactNode, roles?: UserRole[], moduleId?: string }) {
-  const { user, profile, loading } = useAuth();
+  const { user, profile, loading, hasToolAccess } = useAuth();
   const location = useLocation();
 
   if (loading) return <div className="h-screen w-screen flex items-center justify-center bg-white dark:bg-slate-950 text-slate-900 dark:text-white">Cargando aplicación...</div>;
@@ -51,34 +51,9 @@ export function ProtectedRoute({ children, roles, moduleId }: { children: ReactN
       return <div className="h-screen w-screen flex items-center justify-center bg-white dark:bg-slate-950 text-slate-900 dark:text-white">Redirigiendo al portal...</div>;
   }
   
-  if (profile) {
-      const isAdmin = profile.rol === 'admin' || profile.rol === 'administrador';
-      
-      if (!isAdmin) {
-          if (profile.permisos && Array.isArray(profile.permisos)) {
-          // If explicit permissions are configured, check against moduleId
-          if (moduleId && !profile.permisos.includes(moduleId)) {
-              const firstPerm = profile.permisos[0];
-              if (firstPerm && PATHS_MAP[firstPerm]) {
-                  if (location.pathname !== PATHS_MAP[firstPerm]) {
-                      return <Navigate to={PATHS_MAP[firstPerm]} replace />;
-                  } else {
-                      return <div className="h-screen w-screen flex items-center justify-center p-8 text-center text-slate-500">Error de enrutamiento detectado.</div>;
-                  }
-              } else {
-                  return <div className="h-screen w-screen flex items-center justify-center p-8 text-center text-slate-500 font-bold">No tienes módulos asignados. Contacta a un administrador.</div>;
-              }
-          }
-      } else {
-          // Fallback to role-based access if no permissions array is defined
-          if (roles && !roles.includes(profile.rol)) {
-              if (location.pathname !== '/inventario-operativo') {
-                  return <Navigate to="/inventario-operativo" replace />;
-              } else {
-                  return <div className="h-screen w-screen flex items-center justify-center p-8 text-center text-slate-500 font-bold">Acceso Denegado.</div>;
-              }
-          }
-      }
+  if (profile && moduleId) {
+      if (!hasToolAccess(moduleId, roles)) {
+          return <div className="h-screen w-screen flex items-center justify-center p-8 text-center text-slate-500 font-bold">Acceso Denegado. Contacta a un administrador.</div>;
       }
   }
 

@@ -35,7 +35,7 @@ const UserLogo = ({ className }: { className?: string }) => (
 );
 
 export function Sidebar({ isMobileMenuOpen, setIsMobileMenuOpen }: SidebarProps) {
-  const { profile, logout } = useAuth();
+  const { profile, logout, hasToolAccess } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
@@ -181,17 +181,7 @@ export function Sidebar({ isMobileMenuOpen, setIsMobileMenuOpen }: SidebarProps)
 
         <nav className="flex-1 px-4 space-y-1.5 overflow-y-auto">
           {menuItems.map((item) => {
-            if (!profile) return null;
-            
-            const isAdmin = profile.rol === 'admin' || profile.rol === 'administrador';
-            
-            if (!isAdmin) {
-                if (profile.permisos && Array.isArray(profile.permisos)) {
-                    if (!profile.permisos.includes(item.id)) return null;
-                } else {
-                    if (!profile.rol || !item.roles.includes(profile.rol)) return null;
-                }
-            }
+            if (!hasToolAccess(item.id, item.roles)) return null;
             
             const isActive = location.pathname === item.path;
             return (
