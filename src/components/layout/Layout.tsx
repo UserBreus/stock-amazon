@@ -46,7 +46,10 @@ export function ProtectedRoute({ children, roles, moduleId }: { children: ReactN
   const location = useLocation();
 
   if (loading) return <div className="h-screen w-screen flex items-center justify-center bg-white dark:bg-slate-950 text-slate-900 dark:text-white">Cargando aplicación...</div>;
-  if (!user) return <Navigate to="/login" state={{ from: location }} replace />;
+  if (!user) {
+      window.location.href = '/';
+      return <div className="h-screen w-screen flex items-center justify-center bg-white dark:bg-slate-950 text-slate-900 dark:text-white">Redirigiendo al portal...</div>;
+  }
   
   if (profile) {
       if (profile.permisos && Array.isArray(profile.permisos)) {
