@@ -7,9 +7,9 @@ import { UserProfileModal } from '../ui/UserProfileModal';
 import { useState } from 'react';
 
 export function TopBar({ onMenuToggle }: { onMenuToggle?: () => void }) {
-  const { user, profile, isGerente, isAdminStock, darkMode, toggleDarkMode } = useAuth();
+  const { user, profile, isGerente, isAdminStock, darkMode, toggleDarkMode, hasAccess } = useAuth();
   const { isEditMode, setIsEditMode, saveAllToDB } = useUIConfig();
-  const canEditUI = profile?.rol === 'admin' || isGerente || isAdminStock;
+  const canEditUI = profile?.rol === 'admin' || profile?.rol === 'administrador' || hasAccess('sidebar_sistema') === 'write';
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
 
   return (

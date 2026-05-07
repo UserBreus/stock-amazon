@@ -20,7 +20,14 @@ import { AlertSummaryPanel } from '../components/ui/AlertSummaryPanel';
 import toast from 'react-hot-toast';
 
 export function InventarioGerencial() {
-  const { user } = useAuth();
+  const { user, hasAccess, hasSubAccess } = useAuth();
+  const mainAccess = hasAccess('sidebar_inventario');
+  const ingresarAcc = hasSubAccess('sidebar_inventario', 'hub_ingresar');
+  const trasladarAcc = hasSubAccess('sidebar_inventario', 'hub_trasladar');
+  const solAcc = hasSubAccess('sidebar_inventario', 'hub_solicitudes');
+  const retiroAcc = hasSubAccess('sidebar_inventario', 'hub_retiro');
+  const etiqAcc = hasSubAccess('sidebar_inventario', 'hub_etiquetas');
+  const pesoAcc = hasSubAccess('sidebar_inventario', 'hub_pesos');
   const [loading, setLoading] = useState(true);
 
   // Tabs Visuales Originales
@@ -501,6 +508,16 @@ export function InventarioGerencial() {
   const totalUSD = capitalActivo.find(c => c.moneda === 'USD')?.capital_total || 0;
   const totalUYU = capitalActivo.find(c => c.moneda === 'UYU')?.capital_total || 0;
 
+  if (mainAccess === 'none') {
+    return (
+      <div className="flex flex-col h-screen items-center justify-center bg-slate-50 dark:bg-slate-900 p-6 text-center">
+        <AlertCircle className="w-16 h-16 text-rose-500 mb-4" />
+        <h2 className="text-2xl font-black text-slate-800 dark:text-white mb-2">Acceso Denegado</h2>
+        <p className="text-slate-500 font-medium">No tienes permiso para ver el módulo de Inventario.</p>
+      </div>
+    );
+  }
+
   if (loading) {
     return (
       <div className="flex h-screen items-center justify-center bg-slate-50 dark:bg-slate-900">
@@ -549,6 +566,7 @@ export function InventarioGerencial() {
             <AlertSummaryPanel />
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 py-4">
             
+            {ingresarAcc !== 'none' && (
             <button onClick={() => setPanelView('ingreso')} className="bg-white dark:bg-slate-900 border-2 border-slate-100 hover:border-blue-200 dark:border-slate-800 dark:hover:border-blue-900 p-8 rounded-3xl text-left transition-all group flex flex-col items-start gap-6 hover:shadow-xl hover:shadow-blue-500/5">
                 <div className="p-4 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-2xl group-hover:scale-110 transition-transform">
                    <ArrowDownToLine className="w-8 h-8" />
@@ -558,7 +576,9 @@ export function InventarioGerencial() {
                    <p className="text-slate-500 font-medium text-sm">Registrar nueva mercadería al sistema WMS mediante escaneo o compra.</p>
                 </div>
             </button>
+            )}
             
+            {trasladarAcc !== 'none' && (
             <button onClick={() => setPanelView('traslado')} className="bg-white dark:bg-slate-900 border-2 border-slate-100 hover:border-purple-200 dark:border-slate-800 dark:hover:border-purple-900 p-8 rounded-3xl text-left transition-all group flex flex-col items-start gap-6 hover:shadow-xl hover:shadow-purple-500/5">
                 <div className="p-4 bg-purple-50 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400 rounded-2xl group-hover:scale-110 transition-transform">
                    <ArrowRightLeft className="w-8 h-8" />
@@ -568,9 +588,11 @@ export function InventarioGerencial() {
                    <p className="text-slate-500 font-medium text-sm">Mover artículos entre diferentes sectores y almacenes físicos.</p>
                 </div>
             </button>
+            )}
 
             
             {/* NUEVO BOTON SOLICITUDES EN PANEL */}
+            {solAcc !== 'none' && (
             <button onClick={() => setPanelView('solicitudes')} className={"relative bg-white dark:bg-slate-900 border-2 p-8 rounded-3xl text-left transition-all group flex flex-col items-start gap-6 hover:shadow-xl " + (solicitudes.length > 0 ? "border-rose-400 dark:border-rose-500/50 shadow-rose-500/10 hover:shadow-rose-500/20" : "border-slate-100 hover:border-emerald-200 dark:border-slate-800 dark:hover:border-emerald-900 hover:shadow-emerald-500/5")}>
                 {solicitudes.length > 0 && (
                    <span className="absolute top-4 right-4 bg-rose-500 text-white font-black text-xs px-3 py-1 rounded-full shadow-lg shadow-rose-500/40 animate-pulse border-2 border-white dark:border-slate-900 z-10 flex items-center gap-2">
@@ -585,7 +607,9 @@ export function InventarioGerencial() {
                    <p className="text-slate-500 font-medium text-sm">Aprobar, gestionar origen logístico y descontar envíos pedidos por otros sectores.</p>
                 </div>
             </button>
+            )}
             
+            {retiroAcc !== 'none' && (
             <button onClick={() => setPanelView('retiro')} className="bg-white dark:bg-slate-900 border-2 border-slate-100 hover:border-orange-200 dark:border-slate-800 dark:hover:border-orange-900 p-8 rounded-3xl text-left transition-all group flex flex-col items-start gap-6 hover:shadow-xl hover:shadow-orange-500/5">
                 <div className="p-4 bg-orange-50 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400 rounded-2xl group-hover:scale-110 transition-transform">
                    <ArrowUpFromLine className="w-8 h-8" />
@@ -595,7 +619,9 @@ export function InventarioGerencial() {
                    <p className="text-slate-500 font-medium text-sm">Registrar ventas, consumos libres, mermas o salidas definitivas del patrimonio.</p>
                 </div>
             </button>
+            )}
 
+            {etiqAcc !== 'none' && (
             <button onClick={() => setIsLabelModalOpen(true)} className="bg-white dark:bg-slate-900 border-2 border-slate-100 hover:border-indigo-200 dark:border-slate-800 dark:hover:border-indigo-900 p-8 rounded-3xl text-left transition-all group flex flex-col items-start gap-6 hover:shadow-xl hover:shadow-indigo-500/5">
                 <div className="p-4 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-2xl group-hover:scale-110 transition-transform">
                    <ScanBarcode className="w-8 h-8" />
@@ -605,7 +631,9 @@ export function InventarioGerencial() {
                    <p className="text-slate-500 font-medium text-sm">Generador súper rápido de códigos de barras con lotes físicos (cajas, bidones, paletas).</p>
                 </div>
             </button>
+            )}
 
+            {pesoAcc !== 'none' && (
             <button onClick={() => setPanelView('pesos')} className="bg-white dark:bg-slate-900 border-2 border-slate-100 hover:border-teal-200 dark:border-slate-800 dark:hover:border-teal-900 p-8 rounded-3xl text-left transition-all group flex flex-col items-start gap-6 hover:shadow-xl hover:shadow-teal-500/5">
                 <div className="p-4 bg-teal-50 dark:bg-teal-900/30 text-teal-600 dark:text-teal-400 rounded-2xl group-hover:scale-110 transition-transform">
                    <Scale className="w-8 h-8" />
@@ -615,6 +643,7 @@ export function InventarioGerencial() {
                    <p className="text-slate-500 font-medium text-sm">Cargar y vincular peso físico exacto a lotes y unidades mediante báscula o manualmente.</p>
                 </div>
             </button>
+            )}
 
          </div>
          </motion.div>
@@ -758,7 +787,7 @@ export function InventarioGerencial() {
                          {v.cantidad_total > 0 && (
                           <button onClick={() => openLabelDrillDown(v)} className="btn-secondary text-[10px] py-1.5 px-3 border-emerald-200 text-emerald-700 hover:bg-emerald-50">Explorar Cajas</button>
                          )}
-                         <button onClick={() => openEgresoAuto(v)} className="btn-secondary text-[10px] py-1.5 px-3">Extraer AutoFIFO</button>
+                         <button onClick={() => openEgresoAuto(v)} disabled={mainAccess === 'read'} title={mainAccess === 'read' ? 'No tienes permiso de escritura' : ''} className="btn-secondary text-[10px] py-1.5 px-3 disabled:opacity-50">Extraer AutoFIFO</button>
                        </div>
                     </td>
                      <td className="px-8 py-4 text-right">
@@ -898,7 +927,7 @@ export function InventarioGerencial() {
                  )}
                </div>
 
-               <button disabled={enviandoSolicitud === selectedModalSol.id || !solicitudOrigenSel[selectedModalSol.id]?.length} onClick={() => handleEnviarSolicitud(selectedModalSol)} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-black py-4 rounded-xl shadow-lg transition-all disabled:opacity-50 mt-4">
+               <button disabled={enviandoSolicitud === selectedModalSol.id || !solicitudOrigenSel[selectedModalSol.id]?.length || solAcc === 'read'} title={solAcc === 'read' ? 'No tienes permiso de escritura' : ''} onClick={() => handleEnviarSolicitud(selectedModalSol)} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-black py-4 rounded-xl shadow-lg transition-all disabled:opacity-50 mt-4">
                   {enviandoSolicitud === selectedModalSol.id ? 'CREANDO REMITO...' : 'ENTREGAR Y GENERAR REMITO'}
                </button>
             </div>
@@ -1154,7 +1183,7 @@ export function InventarioGerencial() {
                     {depositos.map(d => <option key={d.id} value={d.id}>{d.nombre}</option>)}
                  </select>
             </div>
-            <button type="submit" className="w-full btn-primary py-4 uppercase tracking-widest font-black shadow-lg shadow-indigo-500/20">Imprimir Lotes y Agregar a Base de Datos</button>
+            <button type="submit" disabled={etiqAcc === 'read'} title={etiqAcc === 'read' ? 'No tienes permiso de escritura' : ''} className="w-full btn-primary py-4 uppercase tracking-widest font-black shadow-lg shadow-indigo-500/20 disabled:opacity-50">Imprimir Lotes y Agregar a Base de Datos</button>
          </form>
       </Modal>
 
@@ -1213,7 +1242,7 @@ export function InventarioGerencial() {
                  })}
              </div>
 
-             <button onClick={confirmarEgreso} className="w-full bg-rose-600 hover:bg-rose-700 text-white font-black py-4 uppercase tracking-widest rounded-xl shadow-lg transition-all" disabled={Object.keys(egresoAmounts).filter(k => egresoAmounts[k] > 0).length === 0}>
+             <button onClick={confirmarEgreso} className="w-full bg-rose-600 hover:bg-rose-700 text-white font-black py-4 uppercase tracking-widest rounded-xl shadow-lg transition-all disabled:opacity-50" title={mainAccess === 'read' ? 'No tienes permiso de escritura' : ''} disabled={Object.keys(egresoAmounts).filter(k => egresoAmounts[k] > 0).length === 0 || mainAccess === 'read'}>
                 Descontar Mercadería Definitivamente
              </button>
          </div>

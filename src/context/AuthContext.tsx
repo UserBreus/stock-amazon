@@ -2,6 +2,8 @@ import { createContext, useState, useEffect, useContext, ReactNode } from 'react
 import type { UserRole } from '../types';
 
 
+export type AccessLevel = "none" | "read" | "write";
+
 export interface UserProfile {
   id: string;
   usuario: string;
@@ -9,7 +11,9 @@ export interface UserProfile {
   rol: UserRole;
   sucursal_activa_id?: number;
   sucursal_activa_nombre?: string;
-  permisos?: string[];
+  permisos?: any;
+  permisos_obj?: any;
+  is_super_admin?: boolean;
   avatar?: string;
 }
 
@@ -26,6 +30,8 @@ interface AuthContextType {
   login: (usuarioStr: string, profileData: UserProfile, sucursalId?: number, sucursalNombre?: string) => void;
   logout: () => void;
   hasToolAccess: (moduleId: string, allowedRoles?: string[]) => boolean;
+  hasAccess: (toolId: string) => AccessLevel;
+  hasSubAccess: (toolId: string, subToolId: string) => AccessLevel;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -61,25 +67,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         try {
           const parsed: UserProfile = JSON.parse(stored);
           
-          if (parsed.permisos && typeof parsed.permisos === 'string') {
-              try {
-                  const p = JSON.parse(parsed.permisos);
-                  if (p.version === 2) {
-                      parsed.permisos = p;
-                  }
-              } catch (e) {
-                  // Legacy string array ignores
-              }
-          }
-          
-          if (parsed.permisos && typeof parsed.permisos === 'object' && !Array.isArray(parsed.permisos)) {
-              const v2 = parsed.permisos as any;
-              if (v2.version === 2) {
-                  if (!v2.apps || !v2.apps.includes('stock')) {
-                      localStorage.removeItem('nexus_custom_user');
-                      window.location.href = '/?error=Acceso Denegado a Stock';
-                      return;
-                  }
+          if (!parsed.is_super_admin) {
+              const p = parsed.permisos_obj;
+              if (p && (!p.apps || !p.apps.includes('stock'))) {
+                  localStorage.removeItem('nexus_custom_user');
+                  window.location.href = '/?error=Acceso Denegado a Stock';
+                  return;
               }
           }
           
@@ -105,28 +98,48 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.setItem('nexus_custom_user', JSON.stringify(enrichedData));
   };
 
+  const getToolAccess = (toolId: string): AccessLevel => {
+      if (!user) return "none";
+      if (user.is_super_admin) return "write";
+      
+      const p = user.permisos_obj;
+      if (!p) return "none";
+      if (!p.apps?.includes('stock')) return "none";
+
+      const tool = p.stock_tools?.[toolId] || p.stock_tools?.[toolId.replace('sidebar_', '')];
+      if (!tool || tool.access === 'none') return "none";
+
+      return tool.access;
+  };
+
+  const hasAccess = (toolId: string): AccessLevel => getToolAccess(toolId);
+
+  const hasSubAccess = (toolId: string, subToolId: string): AccessLevel => {
+      if (!user) return "none";
+      if (user.is_super_admin) return "write";
+
+      const p = user.permisos_obj;
+      if (!p) return "none";
+      if (!p.apps?.includes('stock')) return "none";
+
+      const tool = p.stock_tools?.[toolId] || p.stock_tools?.[toolId.replace('sidebar_', '')];
+      if (!tool || tool.access === 'none') return "none";
+
+      if (subToolId) {
+          const subAccess = tool.sub?.[subToolId];
+          if (subAccess === 'none') return "none";
+          if (subAccess) return subAccess;
+      }
+
+      return tool.access;
+  };
+
   const hasToolAccess = (moduleId: string, allowedRoles?: string[]) => {
       if (!user) return false;
-      const isAdmin = user.rol === 'admin' || user.rol === 'administrador';
-      if (isAdmin) return true;
-
-      const p = user.permisos as any;
-      if (p && p.version === 2) {
-          const stockTools = p.stock_tools || [];
-          if (moduleId === 'sidebar_dashboard') return stockTools.includes('dashboard');
-          if (moduleId === 'sidebar_inventario') return stockTools.includes('inventario');
-          if (moduleId === 'sidebar_sectores') return stockTools.includes('sectores') || stockTools.includes('remitos');
-          if (moduleId === 'sidebar_compras') return stockTools.includes('compras');
-          if (moduleId === 'sidebar_sistema') return stockTools.includes('sistema');
-          return stockTools.includes(moduleId);
-      } else if (p && Array.isArray(p)) {
-          return p.includes(moduleId);
-      }
+      if (user.is_super_admin) return true;
       
-      if (allowedRoles && user.rol) {
-          return allowedRoles.includes(user.rol);
-      }
-      return false;
+      const acc = getToolAccess(moduleId);
+      return acc === "write" || acc === "read";
   };
 
   const logout = () => {
@@ -148,7 +161,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     login,
     logout,
     hasToolAccess,
-  };
+    hasAccess,
+    hasSubAccess,
+  } as AuthContextType;
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
