@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Settings, Box, Network, Truck, Search, Folder, ArrowLeft, Palette, LayoutDashboard, Tag, Layers, ArchiveRestore, History, Edit3, Trash2, Banknote, FileText, ChevronRight , AlertOctagon, DollarSign} from 'lucide-react';
+import { Settings, Box, Network, Truck, Search, Folder, ArrowLeft, Palette, LayoutDashboard, Tag, Layers, ArchiveRestore, History, Edit3, Trash2, Banknote, FileText, ChevronRight , AlertOctagon, DollarSign, AlertCircle} from 'lucide-react';
 import { IconManager } from '../components/IconManager';
 import { useUIConfig, DynamicUIIcon } from '../context/UIContext';
 
@@ -26,6 +26,10 @@ export function ConfiguracionMaestros() {
   const [editCatId, setEditCatId] = useState<number|null>(null);
   const [deleteCatToMove, setDeleteCatToMove] = useState<number|null>(null);
   const [transferTargetId, setTransferTargetId] = useState('');
+  
+  const [deleteVarToMove, setDeleteVarToMove] = useState<any>(null);
+  const [transferVarTargetId, setTransferVarTargetId] = useState<string>('');
+  const [varDependencies, setVarDependencies] = useState<any>(null);
 
   // Monedas
   const [monedas, setMonedas] = useState<any[]>([]);
@@ -369,15 +373,79 @@ export function ConfiguracionMaestros() {
       }
   };
 
-  const deleteVariante = async (id: any) => {
-      // Remover window.confirm porque el navegador puede estar bloqueándolo
+  const deleteVariante = async (v: any) => {
       try {
-          toast.loading('Eliminando variante...', { id: 'del-var' });
-          await executeAWSQuery(`DELETE FROM Stock_Variantes WHERE id = '${id}'`);
-          toast.success('Variante eliminada exitosamente.', { id: 'del-var' });
-          fetchData();
+          toast.loading('Analizando dependencias de variante...', { id: 'del-var' });
+          const res = await executeAWSQuery(`
+              SELECT 
+                (SELECT COUNT(*) FROM Stock_Etiquetas WHERE variante_id = ${v.id}) as stock_count,
+                (SELECT COUNT(*) FROM wms_remitos_internos_items WHERE variante_id = ${v.id}) as remitos_count,
+                (SELECT COUNT(*) FROM Stock_Compras_Detalle WHERE variante_id = ${v.id}) as compras_count,
+                (SELECT COUNT(*) FROM Stock_Consumo_Historico WHERE variante_id = ${v.id}) as consumo_count,
+                (SELECT COUNT(*) FROM wms_solicitudes_items WHERE variante_id = ${v.id}) as sol_count
+          `);
+          
+          const deps = res[0];
+          const totalDeps = deps.stock_count + deps.remitos_count + deps.compras_count + deps.consumo_count + deps.sol_count;
+          
+          toast.dismiss('del-var');
+          if (totalDeps > 0) {
+              setVarDependencies(deps);
+              setDeleteVarToMove(v);
+          } else {
+              // Si no tiene NADA, lo elimina silenciosamente como quería el usuario
+              toast.loading('Eliminando variante vacía...', { id: 'del-var-clean' });
+              await executeAWSQuery(`DELETE FROM Stock_Variantes WHERE id = ${v.id}`);
+              toast.success('Variante eliminada exitosamente.', { id: 'del-var-clean' });
+              fetchData();
+          }
       } catch (e: any) {
-          toast.error('No se pudo eliminar. Puede tener stock o movimientos.', { id: 'del-var' });
+          toast.error('Error al analizar si la variante tiene stock o movimientos.', { id: 'del-var' });
+          console.error(e);
+      }
+  };
+
+  const executeVarTransferOrDelete = async (action: 'migrate' | 'delete') => {
+      if (!deleteVarToMove) return;
+      if (action === 'migrate' && !transferVarTargetId) {
+          toast.error("Selecciona una variante de destino.");
+          return;
+      }
+      
+      const vId = deleteVarToMove.id;
+      const tId = transferVarTargetId;
+      
+      try {
+          toast.loading(action === 'migrate' ? 'Migrando stock e historial...' : 'Eliminando registro en cascada...', { id: 'del-var-action' });
+          
+          if (action === 'migrate') {
+              await executeAWSQuery(`
+                  UPDATE Stock_Etiquetas SET variante_id = ${tId} WHERE variante_id = ${vId};
+                  UPDATE Stock_Compras_Detalle SET variante_id = ${tId} WHERE variante_id = ${vId};
+                  UPDATE wms_remitos_internos_items SET variante_id = ${tId} WHERE variante_id = ${vId};
+                  UPDATE wms_solicitudes_items SET variante_id = ${tId} WHERE variante_id = ${vId};
+                  UPDATE Stock_Consumo_Historico SET variante_id = ${tId} WHERE variante_id = ${vId};
+                  DELETE FROM Stock_Variantes WHERE id = ${vId};
+              `);
+          } else {
+              await executeAWSQuery(`
+                  DELETE FROM Stock_Movimientos WHERE etiqueta_id IN (SELECT id FROM Stock_Etiquetas WHERE variante_id = ${vId});
+                  DELETE FROM wms_remitos_internos_items WHERE variante_id = ${vId};
+                  DELETE FROM wms_solicitudes_items WHERE variante_id = ${vId};
+                  DELETE FROM Stock_Consumo_Historico WHERE variante_id = ${vId};
+                  DELETE FROM Stock_Compras_Detalle WHERE variante_id = ${vId};
+                  DELETE FROM Stock_Etiquetas WHERE variante_id = ${vId};
+                  DELETE FROM Stock_Variantes WHERE id = ${vId};
+              `);
+          }
+          
+          toast.success('Variante y dependencias procesadas exitosamente.', { id: 'del-var-action' });
+          setDeleteVarToMove(null);
+          setTransferVarTargetId('');
+          setVarDependencies(null);
+          fetchData();
+      } catch(e: any) {
+          toast.error("Error crítico de base de datos. Transacción abortada.", { id: 'del-var-action' });
           console.error(e);
       }
   };
@@ -1737,7 +1805,7 @@ export function ConfiguracionMaestros() {
                                                 />
                                                 <div className="flex items-center justify-center w-10">
                                                     <button 
-                                                        onClick={() => deleteVariante(v.id)}
+                                                        onClick={() => deleteVariante(v)}
                                                         className="text-slate-300 hover:text-red-500 p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
                                                         title="Eliminar Variante"
                                                     >
@@ -1809,6 +1877,45 @@ export function ConfiguracionMaestros() {
           <motion.div initial={{opacity:0}} animate={{opacity:1}} className="w-full">
               <GestionCostosCero />
           </motion.div>
+        )}
+
+        {deleteVarToMove && (
+            <div className="fixed inset-0 z-[60] bg-slate-900/60 backdrop-blur-[2px] flex items-center justify-center p-4">
+               <div className="bg-white dark:bg-slate-900 rounded-3xl p-8 max-w-xl w-full shadow-2xl border border-slate-100 dark:border-slate-800 relative ring-1 ring-black/5">
+                   <div className="flex items-center gap-4 mb-6">
+                      <div className="w-12 h-12 rounded-2xl bg-rose-100 text-rose-600 dark:bg-rose-900/30 dark:text-rose-400 flex items-center justify-center"><AlertCircle className="w-6 h-6"/></div>
+                      <div>
+                          <h3 className="text-xl font-black text-slate-900 dark:text-white">Eliminación Bloqueada</h3>
+                          <p className="text-sm font-bold text-slate-500">La variante "{deleteVarToMove.nombre_variante}" posee vínculos en la base de datos.</p>
+                      </div>
+                   </div>
+                   
+                   <div className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-xl border border-slate-200 dark:border-slate-700/50 mb-6 font-medium text-slate-700 dark:text-slate-300 text-sm space-y-2">
+                       <p className="font-bold border-b border-slate-200 dark:border-slate-700 pb-2 mb-2">Se encontraron los siguientes registros:</p>
+                       <ul className="list-disc pl-5 space-y-1 text-xs">
+                           {varDependencies?.stock_count > 0 && <li><b>{varDependencies.stock_count}</b> Etiquetas de Stock Físico (Bultos / Lotes / Granel)</li>}
+                           {varDependencies?.compras_count > 0 && <li><b>{varDependencies.compras_count}</b> Registros en Órdenes de Compra</li>}
+                           {varDependencies?.remitos_count > 0 && <li><b>{varDependencies.remitos_count}</b> Registros en Traslados/Remitos Internos</li>}
+                           {varDependencies?.sol_count > 0 && <li><b>{varDependencies.sol_count}</b> Registros en Solicitudes de Insumos</li>}
+                           {varDependencies?.consumo_count > 0 && <li><b>{varDependencies.consumo_count}</b> Registros de Consumo Histórico</li>}
+                       </ul>
+                   </div>
+
+                   <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-2 block">OPCIÓN 1: Migrar registros (Recomendado)</label>
+                   <select className="input-nexus w-full mb-6 font-bold" value={transferVarTargetId} onChange={(e) => setTransferVarTargetId(e.target.value)}>
+                       <option value="">Selecciona el nuevo Artículo/Variante que heredará estos datos...</option>
+                       {variantes.filter(v => v.id !== deleteVarToMove.id).map(v => (
+                           <option key={v.id} value={v.id}>{v.prod_nombre} - {v.nombre_variante}</option>
+                       ))}
+                   </select>
+
+                   <div className="flex flex-col sm:flex-row justify-end gap-3 pt-4 border-t border-slate-100 dark:border-slate-800 mt-2">
+                       <button onClick={() => { setDeleteVarToMove(null); setTransferVarTargetId(''); setVarDependencies(null); }} className="px-6 py-3 rounded-xl font-bold text-slate-600 hover:bg-slate-100 transition-colors">Cancelar</button>
+                       <button onClick={() => executeVarTransferOrDelete('delete')} className="px-4 py-3 rounded-xl font-black bg-rose-100 text-rose-700 hover:bg-rose-200 shadow-sm transition-colors text-xs" title="Esto eliminará todo el stock, compras y remitos asociados a esta variante">Eliminar TODO (Cascada)</button>
+                       <button onClick={() => executeVarTransferOrDelete('migrate')} className="px-6 py-3 rounded-xl font-black bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-500/30 transition-transform hover:scale-105">Migrar Registros</button>
+                   </div>
+               </div>
+            </div>
         )}
 
 </div>
