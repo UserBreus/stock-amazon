@@ -53,7 +53,20 @@ export function ProtectedRoute({ children, roles, moduleId }: { children: ReactN
   
   if (profile && moduleId) {
       if (!hasToolAccess(moduleId, roles)) {
-          return <div className="h-screen w-screen flex items-center justify-center p-8 text-center text-slate-500 font-bold">Acceso Denegado. Contacta a un administrador.</div>;
+          if (location.pathname === '/' || location.pathname === '') {
+              for (const [mod, path] of Object.entries(PATHS_MAP)) {
+                  if (mod === 'sidebar_dashboard') continue; // Ya sabemos que no tiene acceso
+                  if (hasToolAccess(mod, roles)) {
+                      return <Navigate to={path} replace />;
+                  }
+              }
+          }
+          return (
+              <div className="h-screen w-screen flex flex-col items-center justify-center bg-slate-900 text-white p-6 text-center">
+                  <h2 className="text-2xl font-black mb-2 text-rose-500">Acceso Denegado</h2>
+                  <p className="font-bold text-slate-400">Tu cuenta no tiene los permisos necesarios para acceder a esta vista.</p>
+              </div>
+          );
       }
   }
 
