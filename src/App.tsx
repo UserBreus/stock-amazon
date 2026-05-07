@@ -7,7 +7,6 @@ import { ErrorBoundary } from './components/ui/ErrorBoundary';
 import { Layout, ProtectedRoute } from './components/layout/Layout';
 
 // Pages
-import { Login } from './pages/Login';
 import { Dashboard } from './pages/Dashboard';
 import { InventarioGerencial } from './pages/InventarioGerencial';
 import { InventarioOperativo } from './pages/InventarioOperativo';
@@ -63,8 +62,6 @@ export default function App() {
           
           <Router basename={import.meta.env.PROD ? '/stock' : '/'}>
           <Routes>
-            <Route path="/login" element={<Login />} />
-            
             <Route path="/" element={
               <ProtectedRoute moduleId="sidebar_dashboard">
                 <Layout><Dashboard /></Layout>
