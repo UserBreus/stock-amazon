@@ -52,7 +52,10 @@ export function ProtectedRoute({ children, roles, moduleId }: { children: ReactN
   }
   
   if (profile) {
-      if (profile.permisos && Array.isArray(profile.permisos)) {
+      const isAdmin = profile.rol === 'admin' || profile.rol === 'administrador';
+      
+      if (!isAdmin) {
+          if (profile.permisos && Array.isArray(profile.permisos)) {
           // If explicit permissions are configured, check against moduleId
           if (moduleId && !profile.permisos.includes(moduleId)) {
               const firstPerm = profile.permisos[0];
@@ -75,6 +78,7 @@ export function ProtectedRoute({ children, roles, moduleId }: { children: ReactN
                   return <div className="h-screen w-screen flex items-center justify-center p-8 text-center text-slate-500 font-bold">Acceso Denegado.</div>;
               }
           }
+      }
       }
   }
 

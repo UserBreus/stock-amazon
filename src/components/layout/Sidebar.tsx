@@ -183,10 +183,14 @@ export function Sidebar({ isMobileMenuOpen, setIsMobileMenuOpen }: SidebarProps)
           {menuItems.map((item) => {
             if (!profile) return null;
             
-            if (profile.permisos && Array.isArray(profile.permisos)) {
-                if (!profile.permisos.includes(item.id)) return null;
-            } else {
-                if (!profile.rol || !item.roles.includes(profile.rol)) return null;
+            const isAdmin = profile.rol === 'admin' || profile.rol === 'administrador';
+            
+            if (!isAdmin) {
+                if (profile.permisos && Array.isArray(profile.permisos)) {
+                    if (!profile.permisos.includes(item.id)) return null;
+                } else {
+                    if (!profile.rol || !item.roles.includes(profile.rol)) return null;
+                }
             }
             
             const isActive = location.pathname === item.path;
