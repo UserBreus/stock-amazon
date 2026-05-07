@@ -83,6 +83,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = () => {
     setUser(null);
     localStorage.removeItem('nexus_custom_user');
+    window.location.href = '/';
   };
 
   const value = {
