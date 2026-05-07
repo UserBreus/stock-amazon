@@ -129,6 +129,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           const subAccess = tool.sub?.[subToolId];
           if (subAccess === 'none') return "none";
           if (subAccess) return subAccess;
+          return "none"; // Si no está explícito en el JSON, asume 'none' igual que la UI del Portal
       }
 
       return tool.access;

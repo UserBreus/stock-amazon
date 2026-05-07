@@ -25,9 +25,11 @@ export function InventarioGerencial() {
   const ingresarAcc = hasSubAccess('sidebar_inventario', 'hub_ingresar');
   const trasladarAcc = hasSubAccess('sidebar_inventario', 'hub_trasladar');
   const solAcc = hasSubAccess('sidebar_inventario', 'hub_solicitudes');
-  const retiroAcc = hasSubAccess('sidebar_inventario', 'hub_retiro');
+  const retiroAcc = hasSubAccess('sidebar_inventario', 'hub_retirar');
   const etiqAcc = hasSubAccess('sidebar_inventario', 'hub_etiquetas');
   const pesoAcc = hasSubAccess('sidebar_inventario', 'hub_pesos');
+  const tabInvAcc = hasSubAccess('sidebar_inventario', 'tab_inventario');
+  const tabHistAcc = hasSubAccess('sidebar_inventario', 'tab_historial');
   const [loading, setLoading] = useState(true);
 
   // Tabs Visuales Originales
@@ -538,11 +540,11 @@ export function InventarioGerencial() {
           </div>
           <div className="flex flex-wrap bg-slate-50 dark:bg-slate-950 p-1.5 rounded-xl border border-slate-100 dark:border-slate-800">
             {[
-              { id: 'panel', label: 'Panel', icon: LayoutDashboard },
-              { id: 'inventario', label: 'Inventario', icon: Box },
-              { id: 'historial', label: 'Historial', icon: History },
+              { id: 'panel', label: 'Panel', icon: LayoutDashboard, render: true },
+              { id: 'inventario', label: 'Inventario', icon: Box, render: tabInvAcc !== 'none' },
+              { id: 'historial', label: 'Historial', icon: History, render: tabHistAcc !== 'none' },
               
-            ].map((tab) => (
+            ].filter(t => t.render).map((tab) => (
               <button
                 key={tab.id}
                 onClick={() => { setActiveTab(tab.id as any); setPanelView('hub'); }}
