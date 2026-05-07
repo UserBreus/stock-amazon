@@ -22,24 +22,20 @@ const MODULES = [
   { id: 'sidebar_sistema', name: 'Gestión de Sistema', desc: 'Configuración y usuarios' }
 ];
 
-const ROLES = [
-  { id: 'gerente_stock', name: 'Gerente' },
-  { id: 'admin', name: 'Administrador' },
-  { id: 'administrativo_stock', name: 'Administrativo' },
-  { id: 'operario_stock', name: 'Operario Stock' },
-  { id: 'operario', name: 'Operario Básico' },
-  { id: 'vendedor', name: 'Vendedor' },
-  { id: 'atencion', name: 'Atención al Cliente' }
-];
-
 export function GestionUsuarios() {
   const [users, setUsers] = useState<Usuario[]>([]);
+  const [dbRoles, setDbRoles] = useState<{id: string, nombre: string}[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  
+  // Role Manager State
+  const [showRoleManager, setShowRoleManager] = useState(false);
+  const [newRoleName, setNewRoleName] = useState('');
+  const [savingRole, setSavingRole] = useState(false);
   
   // Form State
   const [formData, setFormData] = useState({
@@ -63,10 +59,46 @@ export function GestionUsuarios() {
         res.sort((a: any, b: any) => (a.nombre_completo || '').localeCompare(b.nombre_completo || ''));
         setUsers(res);
       }
+      
+      const rolesRes = await executeAWSQuery("SELECT id, nombre FROM roles");
+      if (rolesRes) {
+        setDbRoles(rolesRes);
+      }
     } catch (e: any) {
       toast.error('Error cargando usuarios: ' + e.message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleCreateRole = async () => {
+    if (!newRoleName.trim()) return;
+    const roleId = newRoleName.trim().toLowerCase().replace(/\s+/g, '_');
+    setSavingRole(true);
+    try {
+      await executeAWSQuery(`INSERT INTO roles (id, nombre) VALUES ('${roleId}', '${newRoleName.trim()}')`);
+      await fetchUsers(); // re-fetch roles
+      setNewRoleName('');
+      toast.success("Rol creado");
+    } catch (e: any) {
+      toast.error("Error al crear rol: " + e.message);
+    } finally {
+      setSavingRole(false);
+    }
+  };
+
+  const handleDeleteRole = async (roleId: string) => {
+    const confirm = window.confirm(`¿Seguro que deseas eliminar el rol ${roleId}?`);
+    if (!confirm) return;
+    setSavingRole(true);
+    try {
+      await executeAWSQuery(`DELETE FROM roles WHERE id = '${roleId}'`);
+      await fetchUsers(); // re-fetch roles
+      toast.success("Rol eliminado");
+    } catch (e: any) {
+      toast.error("Error al eliminar rol: " + e.message);
+    } finally {
+      setSavingRole(false);
     }
   };
 
@@ -212,7 +244,7 @@ export function GestionUsuarios() {
                       </td>
                       <td className="px-6 py-4">
                         <span className="inline-flex px-2 py-1 bg-slate-100 dark:bg-slate-800 text-[10px] uppercase font-black tracking-widest text-slate-600 dark:text-slate-400 rounded">
-                          {ROLES.find(r => r.id === user.rol)?.name || user.rol}
+                          {dbRoles.find(r => r.id === user.rol)?.nombre || user.rol}
                         </span>
                       </td>
                       <td className="px-6 py-4">
@@ -298,14 +330,62 @@ export function GestionUsuarios() {
                   className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-2 font-bold focus:border-indigo-500 outline-none"
                 />
               </div>
-              <div>
-                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1 block">Rol Base</label>
+              <div className="col-span-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-xl">
+                <div className="flex justify-between items-center mb-2">
+                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1 block">Rol Base</label>
+                  <button 
+                    type="button"
+                    onClick={() => setShowRoleManager(!showRoleManager)}
+                    className="text-[10px] text-indigo-500 hover:text-indigo-600 font-bold"
+                  >
+                    {showRoleManager ? 'Ocultar Gestor' : '⚙️ Gestionar Roles'}
+                  </button>
+                </div>
+
+                {showRoleManager && (
+                  <div className="bg-white dark:bg-slate-950 p-3 rounded-lg border border-slate-200 dark:border-slate-800 mb-3 space-y-3">
+                    <p className="text-[10px] text-slate-500">Crea o elimina roles maestros de la base de datos.</p>
+                    <div className="flex space-x-2">
+                      <input 
+                        type="text" 
+                        value={newRoleName} 
+                        onChange={e => setNewRoleName(e.target.value)}
+                        placeholder="Nombre del rol..."
+                        className="flex-1 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded px-2 py-1.5 text-[10px] font-bold focus:border-indigo-500 outline-none"
+                      />
+                      <button 
+                        type="button"
+                        onClick={handleCreateRole}
+                        disabled={savingRole || !newRoleName.trim()}
+                        className="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded text-[10px] font-bold disabled:opacity-50"
+                      >
+                        Crear
+                      </button>
+                    </div>
+                    <div className="space-y-1 mt-2 max-h-32 overflow-y-auto custom-scrollbar">
+                      {dbRoles.map(r => (
+                        <div key={r.id} className="flex justify-between items-center bg-slate-50 dark:bg-slate-900 px-2 py-1.5 rounded text-[10px] font-bold border border-slate-100 dark:border-slate-800/50">
+                          <span className="text-slate-700 dark:text-slate-300">{r.nombre}</span>
+                          <button 
+                            type="button"
+                            onClick={() => handleDeleteRole(r.id)}
+                            className="text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 px-2 py-0.5 rounded"
+                          >
+                            Eliminar
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 <select 
                   value={formData.rol} 
                   onChange={e => setFormData({...formData, rol: e.target.value})} 
-                  className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2 font-bold focus:border-indigo-500 outline-none"
+                  className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg px-3 py-2 font-bold focus:border-indigo-500 outline-none"
                 >
-                  {ROLES.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                  <option value="">-- Seleccionar Rol --</option>
+                  {dbRoles.map(r => <option key={r.id} value={r.id}>{r.nombre}</option>)}
                 </select>
               </div>
             </div>

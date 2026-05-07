@@ -20,8 +20,10 @@ const UserLogo = ({ className, color }: { className?: string, color?: string }) 
 );
 
 export function UserProfileModal({ isOpen, onClose }: UserProfileModalProps) {
-  const { profile, login, user } = useAuth();
-  const isAdmin = profile?.rol === 'admin' || profile?.rol === 'gerente_stock';
+  const { profile, login, user, hasToolAccess, hasSubAccess } = useAuth();
+  
+  // Si es superadmin o tiene permiso granular de gestión de usuarios
+  const isAdmin = profile?.is_super_admin || (hasSubAccess && hasSubAccess('sidebar_sistema', 'gestion_usuarios'));
   const [activeTab, setActiveTab] = useState<'perfil' | 'equipo'>('perfil');
   const [loading, setLoading] = useState(false);
   const [users, setUsers] = useState<any[]>([]);

@@ -13,6 +13,7 @@ import { InventarioOperativo } from './pages/InventarioOperativo';
 
 import { ConfiguracionMaestros } from './pages/ConfiguracionMaestros';
 import { Ingresos } from './pages/Ingresos';
+import { EmbedProfile } from './pages/EmbedProfile';
 
 import { UIProvider } from './context/UIContext';
 import { UiEditorPanel } from './components/ui/UiEditorPanel';
@@ -94,7 +95,7 @@ export default function App() {
                 <Layout><Ingresos /></Layout>
               </ProtectedRoute>
             } />
-            
+            <Route path="/perfil-embed" element={<EmbedProfile />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Router>

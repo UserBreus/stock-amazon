@@ -1,5 +1,6 @@
 import { createContext, useState, useEffect, useContext, ReactNode } from 'react';
 import type { UserRole } from '../types';
+import { executeAWSQuery } from '../lib/aws-client';
 
 
 export type AccessLevel = "none" | "read" | "write";
@@ -62,6 +63,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     // Revisar si existe sesión custom guardada
     const checkSession = async () => {
+      const urlParams = new URLSearchParams(window.location.search);
+      const embedId = urlParams.get('embedUserId');
+      
+      if (embedId) {
+        try {
+            const res = await executeAWSQuery(`SELECT * FROM usuarios WHERE id = ${embedId}`);
+            if (res && res.length > 0) {
+               setUser({ ...res[0], is_super_admin: false, permisos_obj: {} } as any);
+            }
+        } catch(e){}
+        setLoading(false);
+        return;
+      }
+
       const stored = localStorage.getItem('nexus_custom_user');
       if (stored) {
         try {
