@@ -288,7 +288,8 @@ export function ConfiguracionMaestros() {
      if(!atributos.some(a => a.valores.length > 0)) {
          setVariantesGeneradas([]);
          return;
-     }     const combinaciones = atributos.reduce((acc, curr) => {
+     }
+     const combinaciones = atributos.reduce((acc, curr) => {
          if (curr.valores.length === 0) return acc;
          if (acc.length === 0) return curr.valores.map(v => [v]);
          const newAcc: string[][] = [];
@@ -1660,7 +1661,7 @@ export function ConfiguracionMaestros() {
                 <div className="xl:col-span-7 card-nexus p-6 bg-slate-50 border border-slate-200 dark:bg-slate-900/50 dark:border-slate-800 shadow-inner flex flex-col">
                     <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-4 gap-4">
                         <h4 className="text-sm font-black text-slate-800 dark:text-slate-100 uppercase tracking-widest flex items-center gap-2 border-b border-transparent">
-                            Tablero de Resultados ({variantesGeneradas.filter(v=>v.activa).length})
+                            Nuevas Combinaciones a Generar ({variantesGeneradas.filter(v=>v.activa).length})
                         </h4>
                         {variantesGeneradas.length > 0 && (
                             <button disabled={isSaving || variantesGeneradas.filter(v=>v.activa).length === 0} type="button" onClick={createVariantesMasivas} className="btn-primary px-6 py-2.5 shadow-sm font-black text-xs disabled:opacity-50 whitespace-nowrap">
