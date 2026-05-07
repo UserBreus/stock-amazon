@@ -1,8 +1,9 @@
-export type UserRole = 'admin' | 'gerente_stock' | 'administrativo_stock' | 'operario' | 'operario_stock' | 'atencion';
+export type UserRole = 'admin' | 'administrador' | 'gerente_stock' | 'administrativo_stock' | 'operario' | 'operario_stock' | 'atencion';
 
 export interface UserProfile {
   id: string;
   email: string;
+  nombre_completo?: string;
   rol: UserRole;
   fecha_creacion?: string;
 }

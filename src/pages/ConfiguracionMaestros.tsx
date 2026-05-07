@@ -16,7 +16,7 @@ import { GestionAlertasStock } from '../components/gestion/GestionAlertasStock';
 import { GestionCostosCero } from '../components/gestion/GestionCostosCero';
 
 export function ConfiguracionMaestros() {
-  const [activeTab, setActiveTab] = useState<'hub'|'categorias'|'titulos_base'|'diccionario'|'modelos'|'proveedores'|'rendimientos'|'iconos'|'almacenes'|'monedas'|'usuarios'|'historicos'>('hub');
+  const [activeTab, setActiveTab] = useState<'hub'|'categorias'|'titulos_base'|'diccionario'|'modelos'|'proveedores'|'rendimientos'|'iconos'|'almacenes'|'monedas'|'usuarios'|'historicos'|'tipos_facturas'|'alertas_stock'|'costos_cero'>('hub');
   const { isEditMode, setEditingComponentId, uiConfigs, updateConfigLocal } = useUIConfig();
   
   // Categorias
@@ -69,7 +69,7 @@ export function ConfiguracionMaestros() {
   // Odoo-style Matrix Generator
   const [atributos, setAtributos] = useState<{nombre: string, valores: string[]}[]>([]);
   const [nuevoAtributo, setNuevoAtributo] = useState('');
-  const [variantesGeneradas, setVariantesGeneradas] = useState<{nombre: string, sku: string, activa: boolean}[]>([]);
+  const [variantesGeneradas, setVariantesGeneradas] = useState<any[]>([]);
   const [isSaving, setIsSaving] = useState(false);
 
   // Memorización de Etiquetas

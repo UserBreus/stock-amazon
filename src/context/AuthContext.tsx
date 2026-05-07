@@ -5,6 +5,7 @@ import type { UserRole } from '../types';
 export interface UserProfile {
   id: string;
   usuario: string;
+  nombre_completo?: string;
   rol: UserRole;
   sucursal_activa_id?: number;
   sucursal_activa_nombre?: string;
