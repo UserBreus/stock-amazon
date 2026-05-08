@@ -80,18 +80,27 @@ export function CategoryDrillDownModal({
 
   const displayItems = useMemo(() => {
     if (isGlobalSearch) {
-      // Global Search: Solo productos. Filtrar por nombre y cat_nombre.
-      return productos.filter(p => 
-        p.nombre.toLowerCase().includes(query.toLowerCase()) || 
-        (p.cat_nombre && p.cat_nombre.toLowerCase().includes(query.toLowerCase()))
-      ).map(p => ({
-        type: 'product' as const,
-        id: p.id.toString(),
-        label: p.nombre,
-        sublabel: `${p.sku ? `${p.sku} | ` : ''}${p.cat_nombre || p.producto_nombre || ''}`,
-        icon: Network,
-        stock: p.stock_total
-      }));
+      // Global Search: Solo productos. Filtrar por nombre, cat_nombre y nombre_variante.
+      return productos.filter(p => {
+        const queryLower = query.toLowerCase();
+        return (
+          (p.nombre && p.nombre.toLowerCase().includes(queryLower)) || 
+          (p.cat_nombre && p.cat_nombre.toLowerCase().includes(queryLower)) ||
+          (p.nombre_variante && p.nombre_variante.toLowerCase().includes(queryLower)) ||
+          (p.sku && p.sku.toLowerCase().includes(queryLower)) ||
+          (p.var_sku && p.var_sku.toLowerCase().includes(queryLower))
+        );
+      }).map(p => {
+        const fullName = p.nombre_variante ? `${p.nombre || p.producto_nombre} - ${p.nombre_variante}` : (p.nombre || p.producto_nombre);
+        return {
+          type: 'product' as const,
+          id: p.id.toString(),
+          label: fullName,
+          sublabel: `${p.sku || p.var_sku ? `${p.sku || p.var_sku} | ` : ''}${p.cat_nombre || p.producto_nombre || ''}`,
+          icon: Network,
+          stock: p.stock_total
+        };
+      });
     }
 
     if (!selectedCategoryId) {
