@@ -91,7 +91,18 @@ export function CategoryDrillDownModal({
           (p.var_sku && p.var_sku.toLowerCase().includes(queryLower))
         );
       }).map(p => {
-        const fullName = p.nombre_variante ? `${p.nombre || p.producto_nombre} - ${p.nombre_variante}` : (p.nombre || p.producto_nombre);
+        const maestroName = p.nombre || p.producto_nombre || '';
+        const variantName = p.nombre_variante || '';
+        
+        let fullName = maestroName;
+        if (variantName) {
+            // Si el nombre de la variante ya contiene el nombre del maestro, no duplicamos
+            if (variantName.toLowerCase().includes(maestroName.toLowerCase())) {
+                fullName = variantName;
+            } else {
+                fullName = `${maestroName} - ${variantName}`;
+            }
+        }
         return {
           type: 'product' as const,
           id: p.id.toString(),
