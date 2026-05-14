@@ -126,20 +126,26 @@ export function Dashboard() {
                 `).catch(e => { console.error('Error anomaliasRes:', e); return []; })
             ]);
 
+            const formatName = (prod: string, variant: string) => {
+                if (!variant) return prod;
+                if (variant.toLowerCase().includes(prod.toLowerCase())) return variant;
+                return `${prod} (${variant})`;
+            };
+
             if (kpisRes && kpisRes[0]) setKpis({ variantes: kpisRes[0].total_variantes, unidades: kpisRes[0].total_unidades });
             
             if (capRes) {
                 let usd = 0, uyu = 0;
                 capRes.forEach((c: any) => {
-                    if (c.moneda === 'USD') usd = c.capital;
-                    if (c.moneda === 'UYU') uyu = c.capital;
+                    if (c.moneda === 'USD') usd += c.capital;
+                    if (c.moneda === 'UYU' || c.moneda === '$U') uyu += c.capital;
                 });
                 setCapital({ usd, uyu });
             }
 
             if (topRes) setTopConsumo(topRes.filter((t: any) => t.total_movimiento > 0).map((t: any) => ({
                 ...t,
-                nombre_variante: t.nombre_variante ? `${t.producto} (${t.nombre_variante})` : t.producto
+                nombre_variante: formatName(t.producto, t.nombre_variante)
             })).reverse());
             
             if (distAlmRes) {
@@ -158,13 +164,13 @@ export function Dashboard() {
             if (stockGlobalRes) {
                 setNivelesStockGlobal(stockGlobalRes.map((s: any) => ({
                     ...s,
-                    nombre_variante: s.nombre_variante ? `${s.producto} (${s.nombre_variante})` : s.producto
+                    nombre_variante: formatName(s.producto, s.nombre_variante)
                 })));
             }
             if (alertasDepRes) {
                 setAlertasPorAlmacen(alertasDepRes.map((q: any) => ({
                     ...q,
-                    nombre_variante: q.nombre_variante ? `${q.producto} (${q.nombre_variante})` : q.producto
+                    nombre_variante: formatName(q.producto, q.nombre_variante)
                 })));
             }
             
@@ -177,7 +183,7 @@ export function Dashboard() {
                         ...a, 
                         avgDiario7d, 
                         esPico,
-                        nombre_variante: a.nombre_variante ? `${a.producto} (${a.nombre_variante})` : a.producto
+                        nombre_variante: formatName(a.producto, a.nombre_variante)
                     };
                 }).filter((a: any) => a.esPico);
                 setAnomaliasConsumo(detected.sort((a: any, b: any) => b.consumo_24h - a.consumo_24h));
@@ -288,18 +294,14 @@ export function Dashboard() {
     return (
         <div className="space-y-6 pb-12 w-full max-w-[1800px] mx-auto animate-in fade-in zoom-in-[0.98] duration-500">
             
-            {/* Ticker de Alertas Prioritarias (Si hay críticos o anomalías) */}
-            {(recomendacionesGlobales.some(r => r.status === 'critico') || anomaliasConsumo.length > 0) && (
-                <div className="bg-red-500 dark:bg-red-900/40 text-white dark:text-red-200 px-4 py-2 rounded-xl flex items-center gap-3 overflow-hidden shadow-lg shadow-red-500/20 border border-red-600/50">
+            {anomaliasConsumo.length > 0 && (
+                <div className="bg-amber-500 dark:bg-amber-900/40 text-white dark:text-amber-200 px-4 py-2 rounded-xl flex items-center gap-3 overflow-hidden shadow-lg shadow-amber-500/20 border border-amber-600/50">
                     <ShieldAlert className="w-5 h-5 flex-shrink-0 animate-pulse" />
-                    <span className="font-black text-xs uppercase tracking-widest whitespace-nowrap">Atención Crítica:</span>
+                    <span className="font-black text-xs uppercase tracking-widest whitespace-nowrap">Anomalías Detectadas:</span>
                     <div className="flex-1 overflow-hidden">
                         <div className="animate-marquee whitespace-nowrap flex gap-8 font-bold text-sm">
                             {anomaliasConsumo.map((a, i) => (
                                 <span key={`anom-${i}`}>⚠️ Pico de consumo en <b>{a.nombre_variante}</b> ({a.consumo_24h} uds en 24h)</span>
-                            ))}
-                            {recomendacionesGlobales.filter(r => r.status === 'critico').slice(0, 5).map((r, i) => (
-                                <span key={`crit-${i}`}>🛑 Quiebre global: <b>{r.nombre_variante}</b> ({r.stock_actual} uds restantes)</span>
                             ))}
                         </div>
                     </div>
