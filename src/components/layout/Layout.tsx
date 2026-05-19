@@ -47,8 +47,16 @@ export function ProtectedRoute({ children, roles, moduleId }: { children: ReactN
 
   if (loading) return <div className="h-screen w-screen flex items-center justify-center bg-white dark:bg-slate-950 text-slate-900 dark:text-white">Cargando aplicación...</div>;
   if (!user) {
-      window.location.href = '/';
-      return <div className="h-screen w-screen flex items-center justify-center bg-white dark:bg-slate-950 text-slate-900 dark:text-white">Redirigiendo al portal...</div>;
+      if (location.pathname !== '/') {
+          window.location.href = '/';
+      }
+      return (
+          <div className="h-screen w-screen flex flex-col items-center justify-center bg-slate-900 text-white">
+              <h1 className="text-2xl font-black mb-2 text-rose-500">Sesión Expirada o No Iniciada</h1>
+              <p className="font-bold text-slate-400 mb-4">Por favor, ingresa desde el Portal Principal del CRM.</p>
+              <a href="http://localhost:3000" className="px-4 py-2 bg-indigo-600 rounded-lg font-bold text-white hover:bg-indigo-700">Ir al Login Local</a>
+          </div>
+      );
   }
   
   if (profile && moduleId) {

@@ -16,6 +16,8 @@ export function CompraDetalleModal({ isOpen, compra, onClose, onUpdate, onEditDr
    const [showExtraCostoForm, setShowExtraCostoForm] = useState(false);
    const [isUpdating, setIsUpdating] = useState(false);
    const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
+   const [isEditing, setIsEditing] = useState(false);
+   const [editedDetalles, setEditedDetalles] = useState<any[]>([]);
    
    const timelineSteps = [
      { key: 'realizada', label: 'Realizada', icon: Package },
@@ -37,7 +39,7 @@ export function CompraDetalleModal({ isOpen, compra, onClose, onUpdate, onEditDr
       setIsLoading(true);
       try {
            const [res, costosRes, etqRes] = await Promise.all([
-               executeAWSQuery(`SELECT d.*, v.nombre_variante, p.nombre as producto_nombre FROM Stock_Compras_Detalle d INNER JOIN Stock_Variantes v ON d.variante_id = v.id INNER JOIN Stock_Productos_Maestros p ON v.producto_maestro_id = p.id WHERE d.compra_id = '${compra.id}'`),
+               executeAWSQuery(`SELECT d.*, v.nombre_variante, p.nombre as producto_nombre, p.tipo_gestion FROM Stock_Compras_Detalle d INNER JOIN Stock_Variantes v ON d.variante_id = v.id INNER JOIN Stock_Productos_Maestros p ON v.producto_maestro_id = p.id WHERE d.compra_id = '${compra.id}'`),
                executeAWSQuery(`IF OBJECT_ID('Stock_Compras_Costos_Extra', 'U') IS NOT NULL EXEC('SELECT * FROM Stock_Compras_Costos_Extra WHERE compra_id = ''${compra.id}'' ORDER BY fecha ASC')`).catch(() => []),
                executeAWSQuery(`
                    SELECT e.id as etiqueta_id, e.codigo_barras, e.variante_id, v.nombre_variante, p.nombre as producto_nombre, p.tipo_gestion, e.cantidad_inicial as cantidad, e.compra_id
@@ -48,7 +50,10 @@ export function CompraDetalleModal({ isOpen, compra, onClose, onUpdate, onEditDr
                    ORDER BY e.id ASC
                `).catch(() => [])
            ]);
-           if(res) setDetalles(res);
+           if(res) {
+               setDetalles(res);
+               setEditedDetalles([...res]);
+           }
            if(costosRes) setCostosExtra(costosRes);
            if(etqRes) {
                // Agrupar por variante_id: cada variante = 1 entrada con todos sus IDs reales
@@ -124,6 +129,89 @@ export function CompraDetalleModal({ isOpen, compra, onClose, onUpdate, onEditDr
        setIsUpdating(false);
    };
 
+   const guardarEdicionCompra = async () => {
+       if (editedDetalles.length === 0) {
+           return toast.error("La compra debe tener al menos un artículo. Para borrarla, usa otra opción.");
+       }
+       setIsUpdating(true);
+       try {
+           const nuevoTotal = editedDetalles.reduce((acc, current) => acc + (current.cantidad * current.precio_unitario), 0);
+           
+           let q = `
+               BEGIN TRY
+                   BEGIN TRANSACTION;
+                   
+                   UPDATE Stock_Compras SET total_compra = ${nuevoTotal} WHERE id = '${compra.id}';
+                   
+                   DELETE FROM Stock_Compras_Detalle WHERE compra_id = '${compra.id}';
+                   DELETE FROM Stock_Etiquetas WHERE compra_id = '${compra.id}' AND estado = 'pendiente_recepcion';
+                   
+                   DECLARE @CompraSeq INT = (SELECT COALESCE(MAX(CAST(REPLACE(codigo_barras, '${compra.proveedor_id}' + REPLACE(REPLACE('${compra.referencia_factura || ''}', ' ', ''), '-', ''), '') AS INT)), 0) + 1 FROM Stock_Etiquetas WHERE codigo_barras LIKE '${compra.proveedor_id}' + REPLACE(REPLACE('${compra.referencia_factura || ''}', ' ', ''), '-', '') + '%');
+                   IF @CompraSeq IS NULL SET @CompraSeq = 1;
+                   
+                   DECLARE @AlmacenId INT = (SELECT TOP 1 id FROM Stock_Depositos WHERE tipo='central' ORDER BY id ASC);
+                   IF @AlmacenId IS NULL SET @AlmacenId = 1;
+           `;
+           
+           const refLimpia = (compra.referencia_factura || '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+           const provId = compra.proveedor_id;
+           
+           for (const item of editedDetalles) {
+               q += `
+                   INSERT INTO Stock_Compras_Detalle (compra_id, variante_id, cantidad, precio_unitario)
+                   VALUES ('${compra.id}', '${item.variante_id}', ${item.cantidad}, ${item.precio_unitario});
+               `;
+               
+               const rand = Math.random().toString(36).substring(2, 9);
+               if (item.tipo_gestion === 'lote_individual') {
+                   q += `
+                      DECLARE @Iter_${rand} INT = 0;
+                      WHILE @Iter_${rand} < ${Math.floor(item.cantidad)}
+                      BEGIN
+                        INSERT INTO Stock_Etiquetas (codigo_barras, variante_id, deposito_id, cantidad_inicial, cantidad_actual, compra_id, costo_unitario_real, estado)
+                        VALUES ('${provId}${refLimpia}' + CAST(@CompraSeq AS VARCHAR), '${item.variante_id}', @AlmacenId, 1, 0, '${compra.id}', ${item.precio_unitario || 0}, 'pendiente_recepcion');
+                        SET @Iter_${rand} = @Iter_${rand} + 1;
+                        SET @CompraSeq = @CompraSeq + 1;
+                      END
+                   `;
+               } else {
+                   q += `
+                      INSERT INTO Stock_Etiquetas (codigo_barras, variante_id, deposito_id, cantidad_inicial, cantidad_actual, compra_id, costo_unitario_real, estado)
+                      VALUES ('${provId}${refLimpia}' + CAST(@CompraSeq AS VARCHAR), '${item.variante_id}', @AlmacenId, ${item.cantidad}, 0, '${compra.id}', ${item.precio_unitario || 0}, 'pendiente_recepcion');
+                      SET @CompraSeq = @CompraSeq + 1;
+                   `;
+               }
+           }
+           
+           q += `
+               DECLARE @TotalCompra DECIMAL(18,2) = (SELECT NULLIF(total_compra,0) FROM Stock_Compras WHERE id = '${compra.id}');
+               DECLARE @TotalExtra DECIMAL(18,2) = (SELECT COALESCE(gastos_extras, 0) FROM Stock_Compras WHERE id = '${compra.id}');
+               
+               UPDATE Stock_Compras_Detalle 
+               SET costo_puesto_local = precio_unitario + COALESCE(((precio_unitario / @TotalCompra) * @TotalExtra), 0)
+               WHERE compra_id = '${compra.id}';
+           `;
+           
+           q += `
+                   COMMIT TRANSACTION;
+               END TRY
+               BEGIN CATCH
+                   ROLLBACK TRANSACTION;
+                   THROW;
+               END CATCH
+           `;
+           
+           await executeAWSQuery(q);
+           toast.success("Compra editada correctamente.");
+           setIsEditing(false);
+           fetchDetalles();
+           onUpdate();
+       } catch(e: any) {
+           toast.error("Error al editar compra: " + e.message);
+       }
+       setIsUpdating(false);
+   };
+
    const updateProgreso = async (newProgreso: string) => {
        setIsUpdating(true);
        try {
@@ -172,7 +260,33 @@ export function CompraDetalleModal({ isOpen, compra, onClose, onUpdate, onEditDr
                    </div>
                     <div className="flex gap-4 items-center">
                        {compra.estado !== 'recibido' && (
-                           <div className="relative">
+                            <div className="relative flex items-center">
+                                {compra.estado !== 'recibido' && !isEditing && (
+                                    <button 
+                                        onClick={() => setIsEditing(true)}
+                                        className="px-3 py-1 bg-amber-50 text-amber-700 text-xs font-bold rounded-lg border border-amber-200 hover:bg-amber-100 transition-colors shadow-sm ml-2 mr-2"
+                                    >
+                                        Editar Compra
+                                    </button>
+                                )}
+                                {isEditing && (
+                                    <div className="flex gap-2 mr-2">
+                                        <button 
+                                            onClick={guardarEdicionCompra}
+                                            disabled={isUpdating}
+                                            className="px-3 py-1 bg-emerald-600 text-white text-xs font-bold rounded-lg border border-emerald-700 hover:bg-emerald-700 transition-colors shadow-sm"
+                                        >
+                                            Guardar Cambios
+                                        </button>
+                                        <button 
+                                            onClick={() => { setIsEditing(false); setEditedDetalles([...detalles]); }}
+                                            disabled={isUpdating}
+                                            className="px-3 py-1 bg-slate-100 text-slate-600 text-xs font-bold rounded-lg border border-slate-300 hover:bg-slate-200 transition-colors shadow-sm"
+                                        >
+                                            Cancelar
+                                        </button>
+                                    </div>
+                                )}
                                <button 
                                    onClick={() => setShowExtraCostoForm(!showExtraCostoForm)}
                                    className="px-3 py-1 bg-white text-indigo-700 text-xs font-bold rounded-lg border border-indigo-200 hover:bg-indigo-50 transition-colors shadow-sm"
@@ -234,32 +348,85 @@ export function CompraDetalleModal({ isOpen, compra, onClose, onUpdate, onEditDr
                                       </tr>
                                    </thead>
                                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                                       {detalles.map(d => (
-                                           <tr key={d.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                                       {(isEditing ? editedDetalles : detalles).map((d, idx) => (
+                                           <tr key={d.id || idx} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
                                                <td className="p-4 text-center">
-                                                   <button 
-                                                      onClick={() => printLabel({
-                                                        id: d.variante_id,
-                                                        producto_padre: d.producto_nombre,
-                                                        nombre_variante: d.nombre_variante,
-                                                        sku: d.sku
-                                                      })}
-                                                      className="text-xs font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 hover:bg-indigo-600 hover:text-white transition-all px-2 py-1.5 rounded-lg flex flex-col items-center gap-1 shadow-sm uppercase mx-auto"
-                                                      title="Imprimir Etiqueta"
-                                                   >
-                                                      <QrCode className="w-5 h-5 mx-auto" />
-                                                      <span className="text-[9px] font-black">Imprimir</span>
-                                                   </button>
+                                                   {isEditing ? (
+                                                       <button 
+                                                           onClick={() => {
+                                                               const newDetalles = [...editedDetalles];
+                                                               newDetalles.splice(idx, 1);
+                                                               setEditedDetalles(newDetalles);
+                                                           }}
+                                                           className="text-slate-300 hover:text-rose-500 font-black flex items-center justify-center w-8 h-8 rounded-full hover:bg-rose-50 mx-auto transition-colors"
+                                                           title="Eliminar Ítem"
+                                                       >
+                                                           X
+                                                       </button>
+                                                   ) : (
+                                                       <button 
+                                                          onClick={() => printLabel({
+                                                            id: d.variante_id,
+                                                            producto_padre: d.producto_nombre,
+                                                            nombre_variante: d.nombre_variante,
+                                                            sku: d.sku
+                                                          })}
+                                                          className="text-xs font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 hover:bg-indigo-600 hover:text-white transition-all px-2 py-1.5 rounded-lg flex flex-col items-center gap-1 shadow-sm uppercase mx-auto"
+                                                          title="Imprimir Etiqueta"
+                                                       >
+                                                          <QrCode className="w-5 h-5 mx-auto" />
+                                                          <span className="text-[9px] font-black">Imprimir</span>
+                                                       </button>
+                                                   )}
                                                </td>
                                                <td className="p-4 text-sm font-bold text-slate-800 dark:text-slate-200">
                                                   {d.producto_nombre} <span className="text-slate-500 font-medium">({d.nombre_variante})</span>
                                                </td>
-                                               <td className="p-4 text-center font-black">{d.cantidad}</td>
-                                               <td className="p-4 text-right font-medium text-slate-400 hidden sm:table-cell">{compra.moneda_simbolo || '$'}{Number(d.precio_unitario).toFixed(2)}</td>
-                                               <td className="p-4 text-right font-bold text-indigo-600 hidden sm:table-cell">{compra.moneda_simbolo || '$'}{d.costo_puesto_local ? Number(d.costo_puesto_local).toFixed(2) : Number(d.precio_unitario).toFixed(2)}</td>
-                                               <td className="p-4 text-right font-black text-emerald-600">{compra.moneda_simbolo || '$'}{(d.precio_unitario * d.cantidad).toFixed(2)}</td>
+                                               <td className="p-4 text-center font-black">
+                                                   {isEditing ? (
+                                                       <input 
+                                                           type="number"
+                                                           min="1"
+                                                           step="0.01"
+                                                           value={d.cantidad}
+                                                           onChange={(e) => {
+                                                               const newDetalles = [...editedDetalles];
+                                                               newDetalles[idx].cantidad = Number(e.target.value);
+                                                               setEditedDetalles(newDetalles);
+                                                           }}
+                                                           className="w-20 px-2 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 dark:text-white rounded outline-none text-center focus:border-indigo-400 dark:focus:border-indigo-500"
+                                                       />
+                                                   ) : d.cantidad}
+                                               </td>
+                                               <td className="p-4 text-right font-medium text-slate-400 hidden sm:table-cell">
+                                                   {isEditing ? (
+                                                       <input 
+                                                           type="number"
+                                                           min="0"
+                                                           step="0.01"
+                                                           value={d.precio_unitario}
+                                                           onChange={(e) => {
+                                                               const newDetalles = [...editedDetalles];
+                                                               newDetalles[idx].precio_unitario = Number(e.target.value);
+                                                               setEditedDetalles(newDetalles);
+                                                           }}
+                                                           className="w-24 px-2 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 dark:text-white rounded outline-none text-right focus:border-indigo-400 dark:focus:border-indigo-500"
+                                                       />
+                                                   ) : `${compra.moneda_simbolo || '$'}${Number(d.precio_unitario).toFixed(2)}`}
+                                               </td>
+                                               <td className="p-4 text-right font-bold text-indigo-600 hidden sm:table-cell">
+                                                   {isEditing ? '-' : `${compra.moneda_simbolo || '$'}${d.costo_puesto_local ? Number(d.costo_puesto_local).toFixed(2) : Number(d.precio_unitario).toFixed(2)}`}
+                                               </td>
+                                               <td className="p-4 text-right font-black text-emerald-600">
+                                                   {compra.moneda_simbolo || '$'}{(d.precio_unitario * d.cantidad).toFixed(2)}
+                                               </td>
                                            </tr>
                                        ))}
+                                       {isEditing && editedDetalles.length === 0 && (
+                                           <tr>
+                                               <td colSpan={6} className="p-4 text-center text-slate-400 font-bold py-8">La compra quedará vacía. Agrega artículos u elimina la compra desde otra vista.</td>
+                                           </tr>
+                                       )}
                                    </tbody>
                                </table>
                                </div>

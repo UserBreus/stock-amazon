@@ -68,11 +68,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       
       if (embedId) {
         try {
-            const res = await executeAWSQuery(`SELECT * FROM usuarios WHERE id = ${embedId}`);
+            const cleanId = embedId.replace(/'/g, '');
+            const res = await executeAWSQuery(`SELECT * FROM usuarios WHERE id = '${cleanId}'`);
             if (res && res.length > 0) {
-               setUser({ ...res[0], is_super_admin: false, permisos_obj: {} } as any);
+               let parsedPermisos = {};
+               try { parsedPermisos = typeof res[0].permisos === 'string' ? JSON.parse(res[0].permisos) : res[0].permisos; } catch(e){}
+               const enrichedUser = { 
+                   ...res[0], 
+                   is_super_admin: res[0].rol === 'administrador' || res[0].is_super_admin || false, 
+                   permisos_obj: parsedPermisos || { apps: ['stock'] }
+               };
+               setUser(enrichedUser as any);
+               localStorage.setItem('nexus_custom_user', JSON.stringify(enrichedUser));
             }
-        } catch(e){}
+        } catch(e){
+            console.error(e);
+        }
         setLoading(false);
         return;
       }
