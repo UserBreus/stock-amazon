@@ -20,7 +20,7 @@ import { AlertSummaryPanel } from '../components/ui/AlertSummaryPanel';
 import toast from 'react-hot-toast';
 
 export function InventarioGerencial() {
-  const { user, hasAccess, hasSubAccess } = useAuth();
+  const { user, hasAccess, hasSubAccess, isAdminStock } = useAuth();
   const mainAccess = hasAccess('sidebar_inventario');
   const ingresarAcc = hasSubAccess('sidebar_inventario', 'hub_ingresar');
   const trasladarAcc = hasSubAccess('sidebar_inventario', 'hub_trasladar');
@@ -89,6 +89,64 @@ export function InventarioGerencial() {
   const [egresoAutoMonto, setEgresoAutoMonto] = useState(0);
   const [egresoEtiquetas, setEgresoEtiquetas] = useState<any[]>([]);
   const [egresoAmounts, setEgresoAmounts] = useState<{ [key: string]: number }>({});
+
+  // Cost editing states
+  const [editingVariant, setEditingVariant] = useState<any | null>(null);
+  const [editingGroup, setEditingGroup] = useState<any | null>(null);
+  const [newCosto, setNewCosto] = useState<string>('');
+  const [updateExistingStock, setUpdateExistingStock] = useState<boolean>(true);
+  const [savingCosto, setSavingCosto] = useState(false);
+
+  const openEditCostoGroupModal = (variant: any, group: any) => {
+    setEditingVariant(variant);
+    setEditingGroup(group);
+    setNewCosto(group.costo_unitario.toString());
+    setUpdateExistingStock(true);
+  };
+
+  const handleSaveCosto = async () => {
+    if (!editingVariant || !editingGroup) return;
+    const costNum = parseFloat(newCosto);
+    if (isNaN(costNum) || costNum < 0) {
+      return toast.error("Por favor ingrese un costo válido (mayor o igual a 0).");
+    }
+
+    setSavingCosto(true);
+    try {
+      let query = `
+        UPDATE e
+        SET e.costo_unitario_real = ${costNum}
+        FROM Stock_Etiquetas e
+        INNER JOIN Stock_Variantes v ON e.variante_id = v.id
+        WHERE e.variante_id = ${editingVariant.variante_id}
+          AND e.estado = 'activo'
+          AND e.cantidad_actual > 0
+          AND COALESCE(NULLIF(e.costo_unitario_real, 0), v.costo, 0) = ${editingGroup.costo_unitario}
+          AND COALESCE(CONVERT(VARCHAR(10), e.ultima_actualizacion, 103), 'Sin fecha') = '${editingGroup.fecha_ingreso}';
+      `;
+
+      if (updateExistingStock) {
+        query += `
+          UPDATE Stock_Variantes 
+          SET costo = ${costNum} 
+          WHERE id = ${editingVariant.variante_id};
+        `;
+      }
+
+      await executeAWSQuery(query);
+      toast.success("Costo de lote actualizado con éxito");
+      setEditingVariant(null);
+      setEditingGroup(null);
+      fetchData();
+      if (variationChartProduct) {
+        await reloadLabelCatalog(variationChartProduct.variante_id);
+      }
+    } catch (err: any) {
+      toast.error("Error al actualizar el costo: " + err.message);
+    } finally {
+      setSavingCosto(false);
+    }
+  };
 
   const toggleRow = (id: string) => {
     setExpandedRows(prev => ({ ...prev, [id]: !prev[id] }));
@@ -323,6 +381,7 @@ export function InventarioGerencial() {
                v.moneda,
                COUNT(e.id) as variaciones_etiquetas,
                SUM(e.cantidad_actual) as cantidad_total,
+               ISNULL(SUM(COALESCE(NULLIF(e.costo_unitario_real, 0), v.costo, 0) * e.cantidad_actual), 0) as capital_total,
                MAX(ProvData.proveedor_nombre) as proveedor_nombre
            FROM Stock_Productos_Maestros pm
            LEFT JOIN Stock_Categorias cat ON pm.categoria_id = cat.id
@@ -367,16 +426,34 @@ export function InventarioGerencial() {
     return () => clearInterval(interval);
   }, []);
 
-  const openLabelDrillDown = async (prod: any) => {
-    setVariationChartProduct(prod);
+  const reloadLabelCatalog = async (varianteId: string) => {
     try {
-      const q = `SELECT id, codigo_barras, cantidad_actual, peso, deposito_id, ultima_actualizacion FROM Stock_Etiquetas WHERE variante_id = '${prod.variante_id}' AND estado = 'activo' AND cantidad_actual > 0 ${filterRef.current ? `AND deposito_id = ${filterRef.current}` : ''} ORDER BY ultima_actualizacion ASC`;
+      const q = `
+        SELECT 
+            COALESCE(NULLIF(e.costo_unitario_real, 0), v.costo, 0) as costo_unitario,
+            COALESCE(CONVERT(VARCHAR(10), e.ultima_actualizacion, 103), 'Sin fecha') as fecha_ingreso,
+            COUNT(e.id) as cantidad_lotes,
+            SUM(e.cantidad_actual) as cantidad_total
+        FROM Stock_Etiquetas e
+        INNER JOIN Stock_Variantes v ON e.variante_id = v.id
+        WHERE e.variante_id = '${varianteId}' AND e.estado = 'activo' AND e.cantidad_actual > 0
+          ${filterRef.current ? `AND e.deposito_id = ${filterRef.current}` : ''}
+        GROUP BY 
+            COALESCE(NULLIF(e.costo_unitario_real, 0), v.costo, 0),
+            COALESCE(CONVERT(VARCHAR(10), e.ultima_actualizacion, 103), 'Sin fecha')
+        ORDER BY fecha_ingreso DESC, costo_unitario DESC
+      `;
       const res = await executeAWSQuery(q);
       setLabelCatalog(res || []);
-      setIsLabelDrillDownOpen(true);
     } catch(e) {
       console.error(e);
     }
+  };
+
+  const openLabelDrillDown = async (prod: any) => {
+    setVariationChartProduct(prod);
+    await reloadLabelCatalog(prod.variante_id);
+    setIsLabelDrillDownOpen(true);
   };
 
     const handleGenerateLabels = async (e: React.FormEvent) => {
@@ -472,10 +549,13 @@ export function InventarioGerencial() {
     }
   };
 
-  const formatCurrency = (val: number, currency: 'USD' | 'UYU' = 'USD') => {
+  const formatCurrency = (val: number, currency: string = 'USD') => {
     if(!val) val = 0;
-    if (currency === 'UYU') return new Intl.NumberFormat('es-UY', { style: 'currency', currency: 'UYU' }).format(val).replace('UYU', '$');
-    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(val);
+    const cleanCurrency = (currency || 'USD').toUpperCase();
+    const num = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(val);
+    if (cleanCurrency === 'UYU') return `$ ${num}`;
+    if (cleanCurrency === 'USD') return `U$S ${num}`;
+    return `${cleanCurrency} ${num}`;
   };
 
   let filteredStock = stockConsolidado;
@@ -494,12 +574,18 @@ export function InventarioGerencial() {
               producto_nombre: curr.producto_nombre,
               categoria_nombre: curr.categoria_nombre,
               variaciones_etiquetas: 0,
-              capital_total: 0,
+              capital_por_moneda: {},
               variantes: []
           };
       }
       acc[curr.maestro_id].variaciones_etiquetas += curr.variaciones_etiquetas;
-      acc[curr.maestro_id].capital_total += (curr.cantidad_total * curr.costo);
+      
+      const mon = (curr.moneda || 'USD').toUpperCase();
+      if (!acc[curr.maestro_id].capital_por_moneda[mon]) {
+          acc[curr.maestro_id].capital_por_moneda[mon] = 0;
+      }
+      acc[curr.maestro_id].capital_por_moneda[mon] += (curr.capital_total || 0);
+
       acc[curr.maestro_id].variantes.push(curr);
       return acc;
   }, {} as any));
@@ -729,7 +815,7 @@ export function InventarioGerencial() {
                 <th className="px-8 py-5">Familia Maestro</th>
                 <th className="px-8 py-5 text-right">Cantidad Física</th>
                 <th className="px-8 py-5 text-center">Gestiones Lotes</th>
-                <th className="px-8 py-5 text-right">Patrimonio</th>
+                {isAdminStock && <th className="px-8 py-5 text-right">Patrimonio</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50 dark:divide-slate-900">
@@ -763,11 +849,23 @@ export function InventarioGerencial() {
                       <Layers className="w-3 h-3" /> {maestro.variaciones_etiquetas} Lotes Internos
                     </span>
                   </td>
-                  <td className="px-8 py-6 text-right">
-                    <span className="font-bold text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-900 px-3 py-1.5 rounded-lg border border-slate-100 dark:border-slate-800">
-                      {formatCurrency(maestro.capital_total)}
-                    </span>
-                  </td>
+                  {isAdminStock && (
+                    <td className="px-8 py-6 text-right">
+                      <div className="flex flex-col items-end gap-1">
+                        {Object.keys(maestro.capital_por_moneda).length === 0 ? (
+                          <span className="font-bold text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-900 px-3 py-1.5 rounded-lg border border-slate-100 dark:border-slate-800 text-xs block">
+                            {formatCurrency(0, 'USD')}
+                          </span>
+                        ) : (
+                          Object.entries(maestro.capital_por_moneda).map(([mon, total]: any) => (
+                            <span key={mon} className="font-bold text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-900 px-3 py-1.5 rounded-lg border border-slate-100 dark:border-slate-800 text-xs block">
+                              {formatCurrency(total, mon)}
+                            </span>
+                          ))
+                        )}
+                      </div>
+                    </td>
+                  )}
                 </tr>
                 {isExpanded && maestro.variantes.map((v: any, vIdx: number) => (
                   <tr key={v.variante_id + "_" + vIdx} className="bg-slate-50/50 dark:bg-slate-900/50">
@@ -792,9 +890,13 @@ export function InventarioGerencial() {
                          <button onClick={() => openEgresoAuto(v)} disabled={mainAccess === 'read'} title={mainAccess === 'read' ? 'No tienes permiso de escritura' : ''} className="btn-secondary text-[10px] py-1.5 px-3 disabled:opacity-50">Extraer AutoFIFO</button>
                        </div>
                     </td>
-                     <td className="px-8 py-4 text-right">
-                       <span className="text-xs font-medium text-slate-500">{formatCurrency(v.costo, v.moneda)} <span className="text-[9px] uppercase tracking-widest opacity-60 ml-1">UNID</span></span>
-                    </td>
+                    {isAdminStock && (
+                      <td className="px-8 py-4 text-right">
+                        <span className="text-sm font-bold text-slate-700 dark:text-slate-300">
+                          {formatCurrency(v.capital_total, v.moneda)}
+                        </span>
+                      </td>
+                    )}
                   </tr>
                 ))}
                 </React.Fragment>
@@ -1190,29 +1292,97 @@ export function InventarioGerencial() {
       </Modal>
 
       {/* MODAL DE EXPLORACION DE CAJAS (Lotes) */}
-      <Modal isOpen={isLabelDrillDownOpen} onClose={() => setIsLabelDrillDownOpen(false)} title={`Cajas en Bodega: ${variationChartProduct?.nombre_variante}`}>
-         <div className="space-y-4">
-             {labelCatalog.length === 0 ? (
-               <p className="text-slate-500 text-sm text-center py-6">No hay cajas activas para este atributo bajo este filtro geográfico.</p>
-             ) : (
-               labelCatalog.map((etq, i) => (
-                  <div key={etq.id} className="flex flex-col bg-slate-50 dark:bg-slate-900 p-4 rounded-xl border border-slate-100 dark:border-slate-800">
-                     <div className="flex justify-between items-center mb-2 border-b border-slate-100 dark:border-slate-800 pb-2">
-                        <span className="font-mono text-xs text-slate-500 font-black">{etq.codigo_barras}</span>
-                        <span className="font-black text-indigo-600 bg-indigo-50 px-2 py-1 rounded text-xs">{etq.cantidad_actual} físicas</span>
-                     </div>
-                     <div className="flex justify-between items-center mt-1">
-                        <span className="text-[10px] text-slate-400 uppercase tracking-widest flex items-center gap-1">
-                           <ArrowUpRight className="w-3 h-3"/> Ref Lote: [{etq.id}]
-                        </span>
-                        <span className="text-xs font-black text-teal-600 bg-teal-50 dark:bg-teal-900/30 px-2 py-0.5 rounded">
-                           {etq.peso ? `${etq.peso} kg` : 'Sin peso'}
-                        </span>
-                     </div>
-                  </div>
-               ))
-             )}
-         </div>
+      <Modal isOpen={isLabelDrillDownOpen} onClose={() => setIsLabelDrillDownOpen(false)} title={isAdminStock ? `Distribución de Costos y Lotes: ${variationChartProduct?.nombre_variante}` : `Distribución de Lotes: ${variationChartProduct?.nombre_variante}`}>
+         <div className="space-y-4 text-left">
+              {labelCatalog.length === 0 ? (
+                <p className="text-slate-500 text-sm text-center py-6">No hay stock activo para esta variante.</p>
+              ) : (
+                labelCatalog.map((group: any, i: number) => (
+                   <div key={i} className="flex flex-col bg-slate-50 dark:bg-slate-900 p-4 rounded-xl border border-slate-100 dark:border-slate-800 gap-2">
+                      <div className="flex justify-between items-center pb-2 border-b border-slate-100 dark:border-slate-800">
+                         <div>
+                            <span className="font-black text-sm text-slate-800 dark:text-white block">
+                               {group.cantidad_total} unidad(es)
+                            </span>
+                            <span className="text-[10px] text-slate-400 font-bold block mt-0.5">
+                               Ingreso: {group.fecha_ingreso}
+                            </span>
+                         </div>
+                         {isAdminStock && (
+                           <div className="flex items-center gap-2">
+                             <span className="font-black text-emerald-600 bg-emerald-50 dark:bg-emerald-900/30 px-3 py-1 rounded text-sm">
+                                {formatCurrency(group.costo_unitario, variationChartProduct?.moneda)} c/u
+                             </span>
+                             <button 
+                               onClick={() => openEditCostoGroupModal(variationChartProduct, group)} 
+                               className="btn-secondary text-[10px] py-1 px-2.5 border-blue-200 text-blue-700 hover:bg-blue-50"
+                             >
+                               Editar Costo
+                             </button>
+                           </div>
+                         )}
+                      </div>
+                      <div className="flex justify-end items-center text-xs">
+                         <span className="text-[10px] text-indigo-500 bg-indigo-50 px-2 py-0.5 rounded font-bold">
+                            {group.cantidad_lotes} lote(s) / caja(s)
+                         </span>
+                      </div>
+                   </div>
+                ))
+              )}
+          </div>
+       </Modal>
+
+      {/* MODAL EDITAR COSTO */}
+      <Modal isOpen={editingVariant !== null && editingGroup !== null} onClose={() => { setEditingVariant(null); setEditingGroup(null); }} title={`Editar Costo de Lote: ${editingVariant?.nombre_variante || ''}`}>
+        <div className="space-y-6 text-left">
+          <div className="p-4 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-xl space-y-1.5 text-xs text-slate-500 font-medium">
+            <p><strong>Fecha Ingreso:</strong> {editingGroup?.fecha_ingreso}</p>
+            <p><strong>Costo Actual:</strong> {formatCurrency(editingGroup?.costo_unitario, editingVariant?.moneda)}</p>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Nuevo Costo Unitario ({editingVariant?.moneda})</label>
+            <input 
+              type="number" 
+              min="0" 
+              step="0.01" 
+              value={newCosto} 
+              onChange={e => setNewCosto(e.target.value)} 
+              className="input-nexus w-full bg-slate-50 dark:bg-slate-900 border-none ring-1 ring-slate-200" 
+              placeholder="0.00"
+            />
+          </div>
+
+          <div className="flex items-center gap-3 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-xl border border-blue-100 dark:border-blue-800">
+            <input 
+              type="checkbox" 
+              id="updateExistingStock" 
+              checked={updateExistingStock} 
+              onChange={e => setUpdateExistingStock(e.target.checked)} 
+              className="w-4 h-4 text-blue-600 border-slate-300 rounded focus:ring-blue-500"
+            />
+            <label htmlFor="updateExistingStock" className="text-xs font-medium text-slate-700 dark:text-slate-300 cursor-pointer">
+              Actualizar también el costo predeterminado de la variante (para futuros ingresos).
+            </label>
+          </div>
+
+          <div className="flex gap-4">
+            <button 
+              onClick={() => { setEditingVariant(null); setEditingGroup(null); }} 
+              className="w-1/2 py-3 border-2 border-slate-200 dark:border-slate-800 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800 transition font-black text-xs uppercase"
+            >
+              Cancelar
+            </button>
+            <button 
+              onClick={handleSaveCosto} 
+              disabled={savingCosto} 
+              className="w-1/2 btn-primary py-3 uppercase tracking-widest font-black shadow-lg shadow-blue-500/20 disabled:opacity-50 text-xs"
+            >
+              {savingCosto ? 'Guardando...' : 'Guardar'}
+            </button>
+          </div>
+        </div>
       </Modal>
 
       {/* MODAL DE EXTRACCION AUTOFIFO */}

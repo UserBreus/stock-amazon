@@ -25,19 +25,25 @@ export function TopMovimientosModal({ isOpen, onClose }: TopMovimientosModalProp
     const [datosEvolucion, setDatosEvolucion] = useState<any[]>([]);
     const [topNames, setTopNames] = useState<string[]>([]);
     const [loading, setLoading] = useState(false);
+    const [selectedArticuloId, setSelectedArticuloId] = useState<string>('todos');
 
     useEffect(() => {
         if (isOpen) {
             fetchCategorias();
+            setSelectedArticuloId('todos');
             fetchDatos();
         }
     }, [isOpen]);
 
     useEffect(() => {
+        setSelectedArticuloId('todos');
+    }, [catId]);
+
+    useEffect(() => {
         if (isOpen) {
             fetchDatos();
         }
-    }, [fechaDesde, fechaHasta, catId, agrupacion]);
+    }, [fechaDesde, fechaHasta, catId, agrupacion, selectedArticuloId]);
 
     const fetchCategorias = async () => {
         try {
@@ -65,7 +71,7 @@ export function TopMovimientosModal({ isOpen, onClose }: TopMovimientosModalProp
                             FROM Stock_Movimientos m
                             INNER JOIN Stock_Etiquetas e ON m.etiqueta_id = e.id
                             WHERE e.variante_id = v.id 
-                              AND m.tipo_movimiento = 'consumo'
+                              AND m.tipo_movimiento IN ('baja_consumo', 'egreso_final')
                               AND m.fecha >= '${fechaDesde} 00:00:00' AND m.fecha <= '${fechaHasta} 23:59:59'
                         ), 0)
                         +
@@ -87,7 +93,7 @@ export function TopMovimientosModal({ isOpen, onClose }: TopMovimientosModalProp
                             FROM Stock_Movimientos m
                             INNER JOIN Stock_Etiquetas e ON m.etiqueta_id = e.id
                             WHERE e.variante_id = v.id 
-                              AND m.tipo_movimiento = 'consumo'
+                              AND m.tipo_movimiento IN ('baja_consumo', 'egreso_final')
                               AND m.fecha >= '${fechaDesde} 00:00:00' AND m.fecha <= '${fechaHasta} 23:59:59'
                         ), 0)
                         +
@@ -114,9 +120,26 @@ export function TopMovimientosModal({ isOpen, onClose }: TopMovimientosModalProp
             setDatosTotales(totales);
 
             if (agrupacion !== 'totales' && totales.length > 0) {
-                const top5 = totales.slice(0, 5);
-                setTopNames(top5.map(t => t.name));
-                const top5Ids = top5.map(t => t.id).join(',');
+                let targetIds = '';
+                let targetNames: string[] = [];
+
+                if (selectedArticuloId !== 'todos') {
+                    const matched = totales.find(t => String(t.id) === selectedArticuloId);
+                    if (matched) {
+                        targetIds = `'${matched.id.toString().replace(/'/g, "''")}'`;
+                        targetNames = [matched.name];
+                    } else {
+                        const top5 = totales.slice(0, 5);
+                        targetIds = top5.map(t => `'${t.id.toString().replace(/'/g, "''")}'`).join(',');
+                        targetNames = top5.map(t => t.name);
+                    }
+                } else {
+                    const top5 = totales.slice(0, 5);
+                    targetIds = top5.map(t => `'${t.id.toString().replace(/'/g, "''")}'`).join(',');
+                    targetNames = top5.map(t => t.name);
+                }
+
+                setTopNames(targetNames);
 
                 const queryEvolucion = `
                     SELECT 
@@ -129,10 +152,10 @@ export function TopMovimientosModal({ isOpen, onClose }: TopMovimientosModalProp
                     INNER JOIN Stock_Variantes v ON e.variante_id = v.id
                     INNER JOIN Stock_Productos_Maestros p ON v.producto_maestro_id = p.id
                     LEFT JOIN Stock_Categorias c ON p.categoria_id = c.id
-                    WHERE m.tipo_movimiento = 'consumo'
+                    WHERE m.tipo_movimiento IN ('baja_consumo', 'egreso_final')
                       AND m.fecha >= '${fechaDesde} 00:00:00' AND m.fecha <= '${fechaHasta} 23:59:59'
                       ${catFilter}
-                      AND v.id IN (${top5Ids})
+                      AND v.id IN (${targetIds})
                       
                     UNION ALL
                     
@@ -148,7 +171,7 @@ export function TopMovimientosModal({ isOpen, onClose }: TopMovimientosModalProp
                     WHERE DATEFROMPARTS(h.anio, h.mes, 1) >= '${fechaDesde}' 
                       AND DATEFROMPARTS(h.anio, h.mes, 1) <= '${fechaHasta} 23:59:59'
                       ${catFilter}
-                      AND v.id IN (${top5Ids})
+                      AND v.id IN (${targetIds})
                 `;
                 const evoRaw = await executeAWSQuery(queryEvolucion);
 
@@ -269,6 +292,21 @@ export function TopMovimientosModal({ isOpen, onClose }: TopMovimientosModalProp
                                 <option value="todas">-- Todas las Familias --</option>
                                 {categorias.map(c => (
                                     <option key={c.id} value={c.id}>{c.nombre}</option>
+                                ))}
+                            </select>
+                        </div>
+                        <div className="flex-[2] min-w-[200px]">
+                            <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-2 flex items-center gap-2">
+                                <Activity className="w-4 h-4"/> Producto Específico
+                            </label>
+                            <select 
+                                className="input-nexus w-full bg-white dark:bg-slate-900 h-12 font-bold text-indigo-600 dark:text-indigo-400"
+                                value={selectedArticuloId}
+                                onChange={(e) => setSelectedArticuloId(e.target.value)}
+                            >
+                                <option value="todos">-- Comparar Top 5 --</option>
+                                {datosTotales.map(a => (
+                                    <option key={a.id} value={a.id}>{a.name}</option>
                                 ))}
                             </select>
                         </div>

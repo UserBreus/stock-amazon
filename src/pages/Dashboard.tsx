@@ -12,13 +12,15 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { executeAWSQuery } from '../lib/aws-client';
 import { TopMovimientosModal } from '../components/TopMovimientosModal';
+import { ConsumoDetalleModal } from '../components/ConsumoDetalleModal';
+import { printReporteDashboard } from '../lib/printReporteDashboard';
 
 // Paletas de colores modernas para los gráficos
 const COLORS_PIE = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316'];
 const STATUS_COLORS = { optimo: '#10b981', alerta: '#f59e0b', critico: '#ef4444' };
 
 export function Dashboard() {
-    const { darkMode } = useAuth();
+    const { darkMode, user } = useAuth();
     
     // Estados de datos
     const [loading, setLoading] = useState(true);
@@ -33,7 +35,9 @@ export function Dashboard() {
     const [anomaliasConsumo, setAnomaliasConsumo] = useState<any[]>([]);
     
     const [isTopModalOpen, setIsTopModalOpen] = useState(false);
+    const [isConsumoModalOpen, setIsConsumoModalOpen] = useState(false);
     const [selectedDepositoModal, setSelectedDepositoModal] = useState<any | null>(null);
+    const [articuloMasConsumido, setArticuloMasConsumido] = useState<{ nombre: string; cantidad: number } | null>(null);
 
     useEffect(() => {
         fetchDashboardData();
@@ -54,7 +58,7 @@ export function Dashboard() {
                     FROM Stock_Variantes v
                 `).catch(e => { console.error('Error kpisRes:', e); return []; }),
                 executeAWSQuery(`
-                    SELECT v.moneda, ISNULL(SUM(v.costo * e.cantidad_actual), 0) as capital
+                    SELECT v.moneda, ISNULL(SUM(COALESCE(NULLIF(e.costo_unitario_real, 0), v.costo, 0) * e.cantidad_actual), 0) as capital
                     FROM Stock_Variantes v
                     INNER JOIN Stock_Etiquetas e ON e.variante_id = v.id
                     WHERE e.cantidad_actual > 0 AND e.estado = 'activo'
@@ -64,13 +68,31 @@ export function Dashboard() {
                     SELECT TOP 10 
                         v.nombre_variante, 
                         p.nombre as producto,
-                        ISNULL((SELECT SUM(m.cantidad_afectada) FROM Stock_Movimientos m INNER JOIN Stock_Etiquetas e ON m.etiqueta_id = e.id WHERE e.variante_id = v.id AND m.tipo_movimiento = 'consumo'), 0) + ISNULL((SELECT SUM(h.cantidad_consumida) FROM Stock_Consumo_Historico h WHERE h.variante_id = v.id), 0) as total_movimiento
+                        (
+                            ISNULL((
+                                SELECT SUM(m.cantidad_afectada)
+                                FROM Stock_Movimientos m
+                                INNER JOIN Stock_Etiquetas e ON m.etiqueta_id = e.id
+                                WHERE e.variante_id = v.id 
+                                  AND m.tipo_movimiento IN ('baja_consumo', 'egreso_final')
+                                  AND m.fecha >= DATEADD(month, DATEDIFF(month, 0, GETDATE()), 0)
+                                  AND m.fecha < DATEADD(month, DATEDIFF(month, 0, GETDATE()) + 1, 0)
+                            ), 0)
+                            +
+                            ISNULL((
+                                SELECT SUM(h.cantidad_consumida)
+                                FROM Stock_Consumo_Historico h
+                                WHERE h.variante_id = v.id
+                                  AND h.anio = YEAR(GETDATE())
+                                  AND h.mes = MONTH(GETDATE())
+                            ), 0)
+                        ) as total_movimiento
                     FROM Stock_Variantes v
                     INNER JOIN Stock_Productos_Maestros p ON v.producto_maestro_id = p.id
                     ORDER BY total_movimiento DESC
                 `).catch(e => { console.error('Error topRes:', e); return []; }),
                 executeAWSQuery(`
-                    SELECT d.nombre, SUM(e.cantidad_actual) as valor, SUM(v.costo * e.cantidad_actual) as capital_local, v.moneda
+                    SELECT d.nombre, SUM(e.cantidad_actual) as valor, SUM(COALESCE(NULLIF(e.costo_unitario_real, 0), v.costo, 0) * e.cantidad_actual) as capital_local, v.moneda
                     FROM Stock_Depositos d
                     INNER JOIN Stock_Etiquetas e ON e.deposito_id = d.id
                     INNER JOIN Stock_Variantes v ON e.variante_id = v.id
@@ -120,7 +142,7 @@ export function Dashboard() {
                     INNER JOIN Stock_Etiquetas e ON m.etiqueta_id = e.id
                     INNER JOIN Stock_Variantes v ON e.variante_id = v.id
                     INNER JOIN Stock_Productos_Maestros p ON v.producto_maestro_id = p.id
-                    WHERE m.tipo_movimiento = 'consumo' AND m.fecha >= DATEADD(day, -7, GETDATE())
+                    WHERE m.tipo_movimiento IN ('baja_consumo', 'egreso_final') AND m.fecha >= DATEADD(day, -7, GETDATE())
                     GROUP BY v.nombre_variante, p.nombre
                     HAVING SUM(CASE WHEN m.fecha >= DATEADD(day, -1, GETDATE()) THEN m.cantidad_afectada ELSE 0 END) > 0
                 `).catch(e => { console.error('Error anomaliasRes:', e); return []; })
@@ -143,10 +165,25 @@ export function Dashboard() {
                 setCapital({ usd, uyu });
             }
 
-            if (topRes) setTopConsumo(topRes.filter((t: any) => t.total_movimiento > 0).map((t: any) => ({
-                ...t,
-                nombre_variante: formatName(t.producto, t.nombre_variante)
-            })).reverse());
+            if (topRes) {
+                const formattedTop = topRes.map((t: any) => ({
+                    ...t,
+                    nombre_variante: formatName(t.producto, t.nombre_variante)
+                }));
+                
+                if (formattedTop.length > 0 && formattedTop[0].total_movimiento > 0) {
+                    setArticuloMasConsumido({
+                        nombre: formattedTop[0].nombre_variante,
+                        cantidad: formattedTop[0].total_movimiento
+                    });
+                } else {
+                    setArticuloMasConsumido(null);
+                }
+
+                setTopConsumo(formattedTop.filter((t: any) => t.total_movimiento > 0).reverse());
+            } else {
+                setArticuloMasConsumido(null);
+            }
             
             if (distAlmRes) {
                 // Agregar capital por almacen
@@ -323,14 +360,32 @@ export function Dashboard() {
                     </p>
                 </div>
                 <div className="flex gap-3">
-                    <button className="px-6 py-3 rounded-xl font-black text-xs uppercase tracking-widest bg-white dark:bg-slate-800 text-slate-800 dark:text-white border-2 border-slate-200 dark:border-slate-700 hover:border-indigo-500 dark:hover:border-indigo-500 transition-all flex items-center gap-2 shadow-sm hover:shadow-md">
+                    <button 
+                        onClick={() => printReporteDashboard({
+                            kpis,
+                            capital,
+                            mostConsumed: articuloMasConsumido,
+                            topConsumo,
+                            distAlmacenes,
+                            distCategorias,
+                            recomendacionesGlobales,
+                            almacenesConQuiebres: almacenesConQuiebres.map(a => ({
+                                nombre: a.nombre,
+                                valor: a.items.reduce((sum: number, i: any) => sum + i.stock_actual, 0),
+                                capUSD: a.items.reduce((sum: number, i: any) => sum + (i.moneda === 'USD' ? (i.stock_actual * i.costo) : 0), 0),
+                                capUYU: a.items.reduce((sum: number, i: any) => sum + ((i.moneda === 'UYU' || i.moneda === '$U') ? (i.stock_actual * i.costo) : 0), 0),
+                            })),
+                            usuario: user?.nombre_completo || user?.id || 'Desconocido'
+                        })}
+                        className="px-6 py-3 rounded-xl font-black text-xs uppercase tracking-widest bg-white dark:bg-slate-800 text-slate-800 dark:text-white border-2 border-slate-200 dark:border-slate-700 hover:border-indigo-500 dark:hover:border-indigo-500 transition-all flex items-center gap-2 shadow-sm hover:shadow-md cursor-pointer text-center"
+                    >
                         <Download className="w-4 h-4"/> Generar Reporte Gerencial
                     </button>
                 </div>
             </div>
 
             {/* Fila 1: KPIs Principales (Diseño Compacto y Poderoso) */}
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
                 <KPICard 
                     title="Activos Valorizados (USD)" 
                     value={`USD ${new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(capital.usd)}`}
@@ -359,6 +414,29 @@ export function Dashboard() {
                     colorClass="text-indigo-500"
                     bgClass="bg-indigo-50 dark:bg-indigo-900/20 border-indigo-100 dark:border-indigo-800/30"
                 />
+                <div 
+                    onClick={() => setIsConsumoModalOpen(true)}
+                    className="border rounded-2xl p-6 relative overflow-hidden group hover:-translate-y-1 transition-all duration-300 shadow-sm hover:shadow-md bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 cursor-pointer hover:border-rose-300 dark:hover:border-rose-800"
+                >
+                    <div className="flex justify-between items-start mb-4">
+                        <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-900/20 text-rose-500">
+                            <TrendingDown className="w-6 h-6"/>
+                        </div>
+                        <span className="text-[10px] font-black uppercase bg-rose-100 dark:bg-rose-900/50 text-rose-600 dark:text-rose-400 px-2 py-1 rounded-md">
+                            Top Consumo
+                        </span>
+                    </div>
+                    <h3 className="text-xl font-black text-slate-800 dark:text-slate-100 tracking-tight line-clamp-1 mb-1" title={articuloMasConsumido?.nombre || "Ninguno"}>
+                        {articuloMasConsumido ? articuloMasConsumido.nombre : "Ninguno"}
+                    </h3>
+                    <div className="flex items-baseline gap-2 mb-1">
+                        <span className="text-2xl font-black text-slate-800 dark:text-slate-100">
+                            {articuloMasConsumido ? articuloMasConsumido.cantidad.toLocaleString() : "0"}
+                        </span>
+                        <span className="text-xs font-bold text-slate-400 uppercase">Unidades</span>
+                    </div>
+                    <span className="text-[11px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest">Más consumido este mes</span>
+                </div>
             </div>
 
             {/* Fila 2: El Cerebro Analítico (Recomendaciones, Anomalías y Quiebres) */}
@@ -655,6 +733,11 @@ export function Dashboard() {
             <TopMovimientosModal 
                 isOpen={isTopModalOpen}
                 onClose={() => setIsTopModalOpen(false)}
+            />
+
+            <ConsumoDetalleModal 
+                isOpen={isConsumoModalOpen}
+                onClose={() => setIsConsumoModalOpen(false)}
             />
 
             {/* Modal de Quiebres por Almacén */}

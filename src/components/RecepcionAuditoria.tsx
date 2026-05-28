@@ -446,6 +446,32 @@ export function RecepcionAuditoria({ onRecargaRequerida, onCartChange }: Recepci
          }
       }
 
+      // Sincronizar costo de las variantes si está en 0 o NULL
+      const varianteIdsInvolucradas = Array.from(new Set(
+          lineasAuditoria
+              .filter(l => l.Auditada > 0 && l.variante_id)
+              .map(l => l.variante_id.toString())
+      ));
+
+      if (varianteIdsInvolucradas.length > 0) {
+          const idsEscapados = varianteIdsInvolucradas.map(id => `'${id.replace(/'/g, "''")}'`).join(',');
+          q += `
+            UPDATE v
+            SET v.costo = sub.nuevo_costo
+            FROM Stock_Variantes v
+            INNER JOIN (
+                SELECT e.variante_id, MAX(e.costo_unitario_real) as nuevo_costo
+                FROM Stock_Etiquetas e
+                WHERE e.variante_id IN (${idsEscapados})
+                  AND e.estado = 'activo'
+                  AND e.costo_unitario_real > 0
+                GROUP BY e.variante_id
+            ) sub ON v.id = sub.variante_id
+            WHERE v.id IN (${idsEscapados})
+              AND (v.costo IS NULL OR v.costo = 0);
+          `;
+      }
+
       try {
           const result = await executeAWSQuery(q);
           toast.success("¡Stock ingresado exitosamente al inventario!");

@@ -107,6 +107,47 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           console.error("Error parsing stored user", e);
           localStorage.removeItem('nexus_custom_user');
         }
+      } else {
+        const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+        if (isLocalhost) {
+          try {
+            const res = await executeAWSQuery(`SELECT * FROM usuarios WHERE id = 'Martin'`);
+            if (res && res.length > 0) {
+               let parsedPermisos = {};
+               try { parsedPermisos = typeof res[0].permisos === 'string' ? JSON.parse(res[0].permisos) : res[0].permisos; } catch(e){}
+               const enrichedUser = { 
+                   ...res[0], 
+                   is_super_admin: res[0].rol === 'administrador' || res[0].is_super_admin || false, 
+                   permisos_obj: parsedPermisos || { apps: ['stock'] }
+               };
+               setUser(enrichedUser as any);
+               localStorage.setItem('nexus_custom_user', JSON.stringify(enrichedUser));
+            } else {
+              const fallbackUser: UserProfile = {
+                id: "Martin",
+                usuario: "Martin",
+                nombre_completo: "Martin (Local Admin)",
+                rol: "administrador",
+                is_super_admin: true,
+                permisos_obj: { apps: ["stock", "ventas"] }
+              };
+              setUser(fallbackUser);
+              localStorage.setItem('nexus_custom_user', JSON.stringify(fallbackUser));
+            }
+          } catch(e) {
+            console.error("Auto-login local falló, usando fallback local:", e);
+            const fallbackUser: UserProfile = {
+              id: "Martin",
+              usuario: "Martin",
+              nombre_completo: "Martin (Local Admin)",
+              rol: "administrador",
+              is_super_admin: true,
+              permisos_obj: { apps: ["stock", "ventas"] }
+            };
+            setUser(fallbackUser);
+            localStorage.setItem('nexus_custom_user', JSON.stringify(fallbackUser));
+          }
+        }
       }
       setLoading(false);
     };

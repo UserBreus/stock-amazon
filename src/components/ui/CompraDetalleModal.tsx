@@ -155,33 +155,42 @@ export function CompraDetalleModal({ isOpen, compra, onClose, onUpdate, onEditDr
            
            const refLimpia = (compra.referencia_factura || '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
            const provId = compra.proveedor_id;
-           
-           for (const item of editedDetalles) {
-               q += `
-                   INSERT INTO Stock_Compras_Detalle (compra_id, variante_id, cantidad, precio_unitario)
-                   VALUES ('${compra.id}', '${item.variante_id}', ${item.cantidad}, ${item.precio_unitario});
-               `;
-               
-               const rand = Math.random().toString(36).substring(2, 9);
-               if (item.tipo_gestion === 'lote_individual') {
-                   q += `
-                      DECLARE @Iter_${rand} INT = 0;
-                      WHILE @Iter_${rand} < ${Math.floor(item.cantidad)}
-                      BEGIN
-                        INSERT INTO Stock_Etiquetas (codigo_barras, variante_id, deposito_id, cantidad_inicial, cantidad_actual, compra_id, costo_unitario_real, estado)
-                        VALUES ('${provId}${refLimpia}' + CAST(@CompraSeq AS VARCHAR), '${item.variante_id}', @AlmacenId, 1, 0, '${compra.id}', ${item.precio_unitario || 0}, 'pendiente_recepcion');
-                        SET @Iter_${rand} = @Iter_${rand} + 1;
-                        SET @CompraSeq = @CompraSeq + 1;
-                      END
-                   `;
-               } else {
-                   q += `
-                      INSERT INTO Stock_Etiquetas (codigo_barras, variante_id, deposito_id, cantidad_inicial, cantidad_actual, compra_id, costo_unitario_real, estado)
-                      VALUES ('${provId}${refLimpia}' + CAST(@CompraSeq AS VARCHAR), '${item.variante_id}', @AlmacenId, ${item.cantidad}, 0, '${compra.id}', ${item.precio_unitario || 0}, 'pendiente_recepcion');
-                      SET @CompraSeq = @CompraSeq + 1;
-                   `;
-               }
-           }
+           const isRecibido = compra.progreso === 'recibido' || compra.estado === 'completada';
+            
+            for (const item of editedDetalles) {
+                q += `
+                    INSERT INTO Stock_Compras_Detalle (compra_id, variante_id, cantidad, precio_unitario)
+                    VALUES ('${compra.id}', '${item.variante_id}', ${item.cantidad}, ${item.precio_unitario});
+                `;
+                
+                if (isRecibido) {
+                    q += `
+                       UPDATE Stock_Etiquetas 
+                       SET costo_unitario_real = ${item.precio_unitario || 0}
+                       WHERE compra_id = '${compra.id}' AND variante_id = '${item.variante_id}';
+                    `;
+                } else {
+                    const rand = Math.random().toString(36).substring(2, 9);
+                    if (item.tipo_gestion === 'lote_individual') {
+                        q += `
+                           DECLARE @Iter_${rand} INT = 0;
+                           WHILE @Iter_${rand} < ${Math.floor(item.cantidad)}
+                           BEGIN
+                             INSERT INTO Stock_Etiquetas (codigo_barras, variante_id, deposito_id, cantidad_inicial, cantidad_actual, compra_id, costo_unitario_real, estado)
+                             VALUES ('${provId}${refLimpia}' + CAST(@CompraSeq AS VARCHAR), '${item.variante_id}', @AlmacenId, 1, 0, '${compra.id}', ${item.precio_unitario || 0}, 'pendiente_recepcion');
+                             SET @Iter_${rand} = @Iter_${rand} + 1;
+                             SET @CompraSeq = @CompraSeq + 1;
+                           END
+                        `;
+                    } else {
+                        q += `
+                           INSERT INTO Stock_Etiquetas (codigo_barras, variante_id, deposito_id, cantidad_inicial, cantidad_actual, compra_id, costo_unitario_real, estado)
+                           VALUES ('${provId}${refLimpia}' + CAST(@CompraSeq AS VARCHAR), '${item.variante_id}', @AlmacenId, ${item.cantidad}, 0, '${compra.id}', ${item.precio_unitario || 0}, 'pendiente_recepcion');
+                           SET @CompraSeq = @CompraSeq + 1;
+                        `;
+                    }
+                }
+            }        
            
            q += `
                DECLARE @TotalCompra DECIMAL(18,2) = (SELECT NULLIF(total_compra,0) FROM Stock_Compras WHERE id = '${compra.id}');
