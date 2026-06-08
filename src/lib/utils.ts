@@ -12,3 +12,19 @@ export const formatCurrency = (val: number, currency: 'USD' | 'UYU' = 'USD') => 
   }
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(val);
 };
+
+export function getVisualName(catName?: string, maestroName?: string, variantName?: string): string {
+  const cat = (catName || '').trim();
+  const maestro = (maestroName || '').trim();
+  if (!variantName) return cat ? `${cat}_${maestro}` : maestro;
+  
+  let cleanVar = variantName.trim();
+  if (maestroName && cleanVar.toLowerCase().startsWith(maestroName.toLowerCase())) {
+    cleanVar = cleanVar.substring(maestroName.length).trim();
+  }
+  cleanVar = cleanVar.replace(/^[-_\s/,]+/, '').trim();
+  
+  const mainPart = cat ? `${cat}_${maestro}` : maestro;
+  return cleanVar ? `${mainPart}_${cleanVar}` : mainPart;
+}
+

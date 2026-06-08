@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Box, Send, Trash2, PlusCircle, ShoppingCart, MapPin, Search, ArrowDownRight, PackageCheck, AlertCircle, ScanBarcode, ArrowRight, ShieldCheck, ClipboardList, MinusCircle, Truck, Printer, ArrowUpRight, ArrowRightLeft, CheckCircle } from 'lucide-react';
 import { executeAWSQuery } from '../lib/aws-client';
-import { cn } from '../lib/utils';
+import { cn, getVisualName } from '../lib/utils';
 import { ModalSelector } from '../components/ui/ModalSelector';
 import { Modal } from '../components/ui/Modal';
 import { CategoryDrillDownModal } from '../components/ui/CategoryDrillDownModal';
@@ -214,10 +214,11 @@ export function InventarioOperativo() {
       setSelectedRemitoEstado(estado);
       try {
           const detailRes = await executeAWSQuery(`
-              SELECT i.*, v.nombre_variante as nombre_variante, p.nombre as producto_nombre 
+              SELECT i.*, v.nombre_variante as nombre_variante, p.nombre as producto_nombre, c.nombre as cat_nombre
               FROM wms_remitos_internos_items i
               JOIN Stock_Variantes v ON i.variante_id = v.id
               JOIN Stock_Productos_Maestros p ON v.producto_maestro_id = p.id
+              LEFT JOIN Stock_Categorias c ON p.categoria_id = c.id
               WHERE i.remito_id = ${remitoId}
           `);
           if (detailRes) {
@@ -465,8 +466,9 @@ export function InventarioOperativo() {
                                   <div key={et.id} className="card-nexus p-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-indigo-300 transition-colors flex flex-col group">
                                       <div className="flex justify-between items-start mb-3">
                                           <div>
-                                              <span className="text-[10px] font-black uppercase tracking-widest text-indigo-500 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20 px-2 py-0.5 rounded">{et.producto_sku || 'Artículo'}</span>
-                                              <h4 className="font-black text-slate-900 dark:text-white mt-1.5 leading-tight pr-4">{et.producto_nombre}</h4>
+                                              <h4 className="font-black text-slate-900 dark:text-white mt-1.5 leading-tight pr-4">
+                                                  {getVisualName(et.familia_nombre, et.producto_nombre, et.producto_sku)}
+                                              </h4>
                                           </div>
                                       </div>
                                       <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800 flex items-end justify-between">
@@ -518,7 +520,7 @@ export function InventarioOperativo() {
                   
                   // LEVEL 2: GROUP BY VARIANT
                   const groupedByVariant = currentFamilyTags.reduce((acc: any, curr: any) => {
-                      const varName = curr.producto_nombre + (curr.producto_sku ? ` (${curr.producto_sku})` : '');
+                      const varName = getVisualName(curr.familia_nombre, curr.producto_nombre, curr.producto_sku);
                       if (!acc[varName]) acc[varName] = [];
                       acc[varName].push(curr);
                       return acc;
@@ -585,12 +587,13 @@ export function InventarioOperativo() {
                                       <div className="flex justify-between items-start mb-3">
                                           <div>
                                               <div className="flex gap-2 items-center mb-1.5">
-                                                  <span className="text-[10px] font-black uppercase tracking-widest text-indigo-500 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20 px-2 py-0.5 rounded">{et.producto_sku || 'Artículo'}</span>
                                                   <span className="text-[10px] font-black uppercase tracking-widest text-slate-500 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded shadow-sm border border-slate-200 dark:border-slate-700">
                                                       {et.tipo_gestion === 'lote_individual' ? 'UNIDAD' : 'LOTE'}: #{et.id}
                                                   </span>
                                               </div>
-                                              <h4 className="font-black text-slate-900 dark:text-white leading-tight pr-4">{et.producto_nombre}</h4>
+                                              <h4 className="font-black text-slate-900 dark:text-white mt-1.5 leading-tight pr-4">
+                                                  {getVisualName(et.familia_nombre, et.producto_nombre, et.producto_sku)}
+                                              </h4>
                                           </div>
                                       </div>
                                       
@@ -912,7 +915,7 @@ export function InventarioOperativo() {
           <Modal isOpen={true} onClose={() => { setRemitoDetalleItems(null); setSelectedActiveRemitoId(null); setSelectedRemitoEstado(null); }} title={selectedRemitoEstado === 'EN_TRANSITO' ? "Controlar Recepción" : "Detalle de Remito"}>
               <div className="space-y-4">
                  {selectedRemitoEstado === 'EN_TRANSITO' && (
-                     <div className="bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 p-4 border border-amber-200 dark:border-amber-800 text-sm font-bold rounded-2xl">
+                     <div className="bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:amber-400 p-4 border border-amber-200 dark:border-amber-800 text-sm font-bold rounded-2xl">
                         Por favor verifique que las cantidades físicas coincidan con lo enviado. Si llegaron menos, modifique el "Recibido".
                      </div>
                  )}
@@ -923,7 +926,9 @@ export function InventarioOperativo() {
                      remitoDetalleItems.map((item, idx) => (
                          <div key={idx} className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-slate-50 dark:bg-slate-900 rounded-xl p-4 border border-slate-200 dark:border-slate-800">
                              <div className="flex-1">
-                                 <h5 className="font-black text-slate-800 dark:text-white leading-tight mb-1">{item.producto_nombre}</h5>
+                                 <h5 className="font-black text-slate-800 dark:text-white leading-tight mb-1">
+                                     {getVisualName(item.cat_nombre, item.producto_nombre, item.nombre_variante)}
+                                 </h5>
                                  <span className="text-xs font-bold text-slate-500 bg-slate-200 dark:bg-slate-800 px-2 py-0.5 rounded">{item.nombre_variante}</span>
                              </div>
                              <div className="flex items-center gap-6 shrink-0">

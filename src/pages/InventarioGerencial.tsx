@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import { executeAWSQuery } from '../lib/aws-client';
 import { printRemito } from '../lib/printRemito';
-import { cn } from '../lib/utils';
+import { cn, getVisualName } from '../lib/utils';
 import { Modal } from '../components/ui/Modal';
 import { BarcodeScanner } from '../components/ui/BarcodeScanner';
 import { useAuth } from '../context/AuthContext';
@@ -195,10 +195,11 @@ export function InventarioGerencial() {
       setSelectedModalSol(sol);
       try {
           const res = await executeAWSQuery(`
-             SELECT i.*, v.nombre_variante, p.nombre as producto_nombre
+             SELECT i.*, v.nombre_variante, p.nombre as producto_nombre, c.nombre as cat_nombre
              FROM wms_solicitudes_items i
              JOIN Stock_Variantes v ON i.variante_id = v.id
              JOIN Stock_Productos_Maestros p ON v.producto_maestro_id = p.id
+             LEFT JOIN Stock_Categorias c ON p.categoria_id = c.id
              WHERE i.solicitud_id = ${sol.id}
           `);
           setSolicitudItems(prev => ({ ...prev, [sol.id]: res || [] }));
@@ -348,10 +349,11 @@ export function InventarioGerencial() {
   const handleVerHistorialDetalles = async (rem: any) => {
       try {
           const detailRes = await executeAWSQuery(`
-              SELECT i.*, v.nombre_variante as nombre_variante, p.nombre as producto_nombre, e.codigo_barras
+              SELECT i.*, v.nombre_variante as nombre_variante, p.nombre as producto_nombre, c.nombre as cat_nombre, e.codigo_barras
               FROM wms_remitos_internos_items i
               JOIN Stock_Variantes v ON i.variante_id = v.id
               JOIN Stock_Productos_Maestros p ON v.producto_maestro_id = p.id
+              LEFT JOIN Stock_Categorias c ON p.categoria_id = c.id
               LEFT JOIN Stock_Etiquetas e ON i.etiqueta_generada_id = e.id
               WHERE i.remito_id = ${rem.id}
           `);
@@ -872,7 +874,7 @@ export function InventarioGerencial() {
                     <td className="px-8 py-4 pl-24">
                       <div className="flex flex-col">
                         <span className="text-sm font-bold text-slate-700 dark:text-slate-300 flex items-center gap-2">
-                           <div className="w-1.5 h-1.5 rounded-full bg-indigo-500"></div> {v.nombre_variante || 'N/A'}
+                           <div className="w-1.5 h-1.5 rounded-full bg-indigo-500"></div> {getVisualName(v.categoria_nombre, v.producto_nombre, v.nombre_variante)}
                         </span>
                         <span className="text-[10px] text-slate-400 font-mono tracking-widest mt-1 uppercase">{v.sku}</span>
                       </div>
@@ -1003,8 +1005,9 @@ export function InventarioGerencial() {
                           {solicitudItems[selectedModalSol.id].map((item: any) => (
                             <tr key={item.id} className="hover:bg-slate-50">
                               <td className="px-5 py-3">
-                                 <p className="font-bold text-slate-800">{item.producto_nombre}</p>
-                                 <p className="text-[10px] uppercase font-bold text-slate-500">{item.nombre_variante}</p>
+                                 <p className="font-bold text-slate-800">
+                                     {getVisualName(item.cat_nombre, item.producto_nombre, item.nombre_variante)}
+                                 </p>
                               </td>
                               <td className="px-5 py-3 text-center">
                                  <input 
@@ -1203,7 +1206,7 @@ export function InventarioGerencial() {
                             <thead><tr className="border-b"><th className="py-2 px-3 text-[10px] border-r">Cantidad</th><th className="py-2 px-3 text-[10px] border-r">Lotes (Multi-Secuencia)</th><th className="py-2 px-3 text-[10px]">Artículo</th></tr></thead>
                             <tbody className="divide-y">
                                 {pageItems.map((c:any, idx:number)=>(
-                                   <tr key={idx} className="bg-white"><td className="py-2 px-3 border-r font-black text-center">{c.cantidad_a_extraer || c.cantidad_enviada}</td><td className="py-2 px-3 border-r font-mono text-xs text-slate-500">{c.codigo_barras || 'N/A'}</td><td className="py-2 px-3 font-bold">{c.producto_nombre} <span className="text-[10px] font-normal px-2 ml-2 rounded bg-slate-100">{c.nombre_variante}</span></td></tr>
+                                   <tr key={idx} className="bg-white"><td className="py-2 px-3 border-r font-black text-center">{c.cantidad_a_extraer || c.cantidad_enviada}</td><td className="py-2 px-3 border-r font-mono text-xs text-slate-500">{c.codigo_barras || 'N/A'}</td><td className="py-2 px-3 font-bold">{getVisualName(c.cat_nombre, c.producto_nombre, c.nombre_variante)}</td></tr>
                                 ))}
                             </tbody>
                         </table>
@@ -1249,7 +1252,7 @@ export function InventarioGerencial() {
                             <thead><tr className="border-b"><th className="py-2 px-3 text-[10px] border-r">Cantidad</th><th className="py-2 px-3 text-[10px] border-r">Lotes (Multi-Secuencia)</th><th className="py-2 px-3 text-[10px]">Artículo</th></tr></thead>
                             <tbody className="divide-y">
                                 {pageItems.map((c:any, idx:number)=>(
-                                   <tr key={idx} className="bg-white"><td className="py-2 px-3 border-r font-black text-center">{c.cantidad_a_extraer}</td><td className="py-2 px-3 border-r font-mono text-xs">{c.codigo_barras}</td><td className="py-2 px-3 font-bold">{c.producto_nombre} <span className="text-[10px] font-normal px-2 ml-2 rounded bg-slate-100">{c.nombre_variante}</span></td></tr>
+                                   <tr key={idx} className="bg-white"><td className="py-2 px-3 border-r font-black text-center">{c.cantidad_a_extraer}</td><td className="py-2 px-3 border-r font-mono text-xs">{c.codigo_barras}</td><td className="py-2 px-3 font-bold">{getVisualName(c.cat_nombre, c.producto_nombre, c.nombre_variante)}</td></tr>
                                 ))}
                             </tbody>
                         </table>

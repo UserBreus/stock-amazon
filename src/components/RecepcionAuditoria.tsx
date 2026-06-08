@@ -5,7 +5,7 @@ import { executeAWSQuery } from '../lib/aws-client';
 import { useAuth } from '../context/AuthContext';
 import toast from 'react-hot-toast';
 import { ModalSelector } from './ui/ModalSelector';
-import { cn } from '../lib/utils';
+import { cn, getVisualName } from '../lib/utils';
 import { CategoryDrillDownModal } from './ui/CategoryDrillDownModal';
 import { PrintLabelsModal, PrintLabelEntry } from './ui/PrintLabelsModal';
 
@@ -81,7 +81,7 @@ export function RecepcionAuditoria({ onRecargaRequerida, onCartChange }: Recepci
           if(prods) {
               setProductos(prods.map((p:any) => ({
                   id: p.variante_id,
-                  nombre: `${p.producto_nombre} (${p.nombre_variante})`,
+                  nombre: getVisualName(p.cat_nombre, p.producto_nombre, p.nombre_variante),
                   producto_maestro_id: p.producto_maestro_id,
                   producto_nombre: p.producto_nombre,
                   nombre_variante: p.nombre_variante,
@@ -106,13 +106,14 @@ export function RecepcionAuditoria({ onRecargaRequerida, onCartChange }: Recepci
       try {
           const [rs, preMintedRes] = await Promise.all([
               executeAWSQuery(`
-                  SELECT d.variante_id, d.cantidad as esperada, d.precio_unitario, v.nombre_variante, p.nombre as producto_nombre, p.unidad_base, m.gramos_por_metro_lineal, p.tipo_gestion
-                  FROM Stock_Compras_Detalle d
-                  INNER JOIN Stock_Variantes v ON d.variante_id = v.id
-                  INNER JOIN Stock_Productos_Maestros p ON v.producto_maestro_id = p.id
-                  LEFT JOIN wms_equivalencias_metricas m ON p.id = m.producto_maestro_id
-                  WHERE d.compra_id = '${compraId}'
-              `),
+                   SELECT d.variante_id, d.cantidad as esperada, d.precio_unitario, v.nombre_variante, p.nombre as producto_nombre, c.nombre as cat_nombre, p.unidad_base, m.gramos_por_metro_lineal, p.tipo_gestion
+                   FROM Stock_Compras_Detalle d
+                   INNER JOIN Stock_Variantes v ON d.variante_id = v.id
+                   INNER JOIN Stock_Productos_Maestros p ON v.producto_maestro_id = p.id
+                   LEFT JOIN Stock_Categorias c ON p.categoria_id = c.id
+                   LEFT JOIN wms_equivalencias_metricas m ON p.id = m.producto_maestro_id
+                   WHERE d.compra_id = '${compraId}'
+               `),
               executeAWSQuery(`
                   SELECT e.id, e.codigo_barras, e.variante_id, e.cantidad_inicial, p.tipo_gestion 
                   FROM Stock_Etiquetas e
@@ -146,7 +147,7 @@ export function RecepcionAuditoria({ onRecargaRequerida, onCartChange }: Recepci
 
                   const l = {
                       variante_id: r.variante_id,
-                      descripcion: `${r.producto_nombre} - ${r.nombre_variante}`,
+                      descripcion: getVisualName(r.cat_nombre, r.producto_nombre, r.nombre_variante),
                       esperada: r.esperada,
                       Auditada: aud,
                       cantidadSecundaria: audSec,

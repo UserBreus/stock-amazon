@@ -4,7 +4,7 @@ import { IconManager } from '../components/IconManager';
 import { useUIConfig, DynamicUIIcon } from '../context/UIContext';
 
 import { executeAWSQuery } from '../lib/aws-client';
-import { cn } from '../lib/utils';
+import { cn, getVisualName } from '../lib/utils';
 import { motion } from 'framer-motion';
 import toast from 'react-hot-toast';
 import { ModalSelector } from '../components/ui/ModalSelector';
@@ -472,7 +472,7 @@ export function ConfiguracionMaestros() {
         executeAWSQuery("SELECT * FROM Stock_Categorias ORDER BY nombre"),
         executeAWSQuery("SELECT * FROM Stock_Proveedores ORDER BY nombre"),
         executeAWSQuery("SELECT p.*, c.nombre as cat_nombre FROM Stock_Productos_Maestros p LEFT JOIN Stock_Categorias c ON p.categoria_id = c.id ORDER BY p.nombre"),
-        executeAWSQuery("SELECT v.id, v.nombre_variante, v.codigo_variante, v.producto_maestro_id, p.nombre as prod_nombre FROM Stock_Variantes v INNER JOIN Stock_Productos_Maestros p ON v.producto_maestro_id = p.id ORDER BY p.nombre, v.nombre_variante")
+        executeAWSQuery("SELECT v.id, v.nombre_variante, v.codigo_variante, v.producto_maestro_id, p.nombre as prod_nombre, c.nombre as categoria_nombre FROM Stock_Variantes v INNER JOIN Stock_Productos_Maestros p ON v.producto_maestro_id = p.id LEFT JOIN Stock_Categorias c ON p.categoria_id = c.id ORDER BY p.nombre, v.nombre_variante")
       ]);
       if(cats) setCategorias(cats);
       if(provs) setProveedores(provs);
@@ -1905,7 +1905,7 @@ export function ConfiguracionMaestros() {
                    <select className="input-nexus w-full mb-6 font-bold" value={transferVarTargetId} onChange={(e) => setTransferVarTargetId(e.target.value)}>
                        <option value="">Selecciona el nuevo Artículo/Variante que heredará estos datos...</option>
                        {variantes.filter(v => v.id !== deleteVarToMove.id).map(v => (
-                           <option key={v.id} value={v.id}>{v.prod_nombre} - {v.nombre_variante}</option>
+                           <option key={v.id} value={v.id}>{getVisualName(v.categoria_nombre, v.prod_nombre, v.nombre_variante)}</option>
                        ))}
                    </select>
 

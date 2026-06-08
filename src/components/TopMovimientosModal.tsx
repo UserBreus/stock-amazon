@@ -4,7 +4,7 @@ import { X, Calendar, Layers, BarChart2, TrendingUp, PackageSearch, Activity } f
 import { executeAWSQuery } from '../lib/aws-client';
 import { BarChart, Bar, LineChart, Line, Legend, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { useAuth } from '../context/AuthContext';
-import { cn } from '../lib/utils';
+import { cn, getVisualName } from '../lib/utils';
 
 interface TopMovimientosModalProps {
     isOpen: boolean;
@@ -111,7 +111,7 @@ export function TopMovimientosModal({ isOpen, onClose }: TopMovimientosModalProp
             const totalesRaw = await executeAWSQuery(queryTotales);
             const totales = (totalesRaw || []).map((d: any) => ({
                 id: d.variante_id,
-                name: d.nombre_variante ? `${d.prod_nombre} (${d.nombre_variante})` : d.prod_nombre,
+                name: getVisualName(d.categoria_nombre, d.prod_nombre, d.nombre_variante),
                 product: d.prod_nombre,
                 category: d.categoria_nombre || 'Sin Familia',
                 consumo: d.total_movimiento
@@ -146,6 +146,7 @@ export function TopMovimientosModal({ isOpen, onClose }: TopMovimientosModalProp
                         m.fecha,
                         v.nombre_variante,
                         p.nombre as prod_nombre,
+                        c.nombre as cat_nombre,
                         m.cantidad_afectada as cantidad
                     FROM Stock_Movimientos m
                     INNER JOIN Stock_Etiquetas e ON m.etiqueta_id = e.id
@@ -163,6 +164,7 @@ export function TopMovimientosModal({ isOpen, onClose }: TopMovimientosModalProp
                         DATEFROMPARTS(h.anio, h.mes, 1) as fecha,
                         v.nombre_variante,
                         p.nombre as prod_nombre,
+                        c.nombre as cat_nombre,
                         h.cantidad_consumida as cantidad
                     FROM Stock_Consumo_Historico h
                     INNER JOIN Stock_Variantes v ON h.variante_id = v.id
@@ -192,7 +194,7 @@ export function TopMovimientosModal({ isOpen, onClose }: TopMovimientosModalProp
                     else if (agrupacion === 'mensual') key = `${yyyy}-${mm}`;
                     else if (agrupacion === 'semestral') key = `${yyyy}-${d.getMonth() <= 5 ? 'S1' : 'S2'}`;
 
-                    const formattedName = r.nombre_variante ? `${r.prod_nombre} (${r.nombre_variante})` : r.prod_nombre;
+                    const formattedName = getVisualName(r.cat_nombre, r.prod_nombre, r.nombre_variante);
                     if(!groupedMap[key]) groupedMap[key] = { fecha: key };
                     if(!groupedMap[key][formattedName]) groupedMap[key][formattedName] = 0;
                     groupedMap[key][formattedName] += r.cantidad;

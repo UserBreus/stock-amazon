@@ -3,7 +3,7 @@ import { motion } from 'framer-motion';
 import { ShoppingCart, Receipt, Plus, Package, Box, ChevronLeft, QrCode } from 'lucide-react';
 import { ComprasDashboard } from '../components/gestion/ComprasDashboard';
 import { executeAWSQuery } from '../lib/aws-client';
-import { cn } from '../lib/utils';
+import { cn, getVisualName } from '../lib/utils';
 import { useAuth } from '../context/AuthContext';
 import { ModalSelector } from '../components/ui/ModalSelector';
 import { CategoryDrillDownModal } from '../components/ui/CategoryDrillDownModal';
@@ -486,12 +486,9 @@ export function Ingresos() {
                                        <QrCode className="w-3 h-3" /> QR
                                      </button>
                                      <div className="min-w-0">
-                                        <p className="font-bold text-sm text-slate-800 leading-none truncate">{item.variante.producto_padre}</p>
-                                        {item.variante.nombre_variante && (
-                                            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-1 bg-slate-100 px-2 py-0.5 rounded inline-block truncate max-w-full">
-                                                {item.variante.nombre_variante}
-                                            </p>
-                                        )}
+                                        <p className="font-bold text-sm text-slate-800 leading-none truncate">
+                                            {getVisualName(item.variante.cat_nombre, item.variante.producto_padre, item.variante.nombre_variante)}
+                                        </p>
                                      </div>
                                 </div>
                                 <div className="col-span-2 flex justify-center">
@@ -587,7 +584,7 @@ export function Ingresos() {
         categorias={categorias}
         productos={variantes.map(v => ({
            id: v.id.toString(),
-           nombre: v.nombre_variante ? `${v.producto_padre} (${v.nombre_variante})` : v.producto_padre,
+           nombre: getVisualName(v.cat_nombre, v.producto_padre, v.nombre_variante),
            nombre_variante: v.nombre_variante,
            sku: v.codigo_variante || v.sku, // El código de la variante manda en compra
            categoria_id: v.categoria_id,

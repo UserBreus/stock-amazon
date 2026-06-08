@@ -14,6 +14,7 @@ import { executeAWSQuery } from '../lib/aws-client';
 import { TopMovimientosModal } from '../components/TopMovimientosModal';
 import { ConsumoDetalleModal } from '../components/ConsumoDetalleModal';
 import { printReporteDashboard } from '../lib/printReporteDashboard';
+import { getVisualName } from '../lib/utils';
 
 // Paletas de colores modernas para los gráficos
 const COLORS_PIE = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316'];
@@ -68,6 +69,7 @@ export function Dashboard() {
                     SELECT TOP 10 
                         v.nombre_variante, 
                         p.nombre as producto,
+                        c.nombre as categoria,
                         (
                             ISNULL((
                                 SELECT SUM(m.cantidad_afectada)
@@ -89,6 +91,7 @@ export function Dashboard() {
                         ) as total_movimiento
                     FROM Stock_Variantes v
                     INNER JOIN Stock_Productos_Maestros p ON v.producto_maestro_id = p.id
+                    LEFT JOIN Stock_Categorias c ON p.categoria_id = c.id
                     ORDER BY total_movimiento DESC
                 `).catch(e => { console.error('Error topRes:', e); return []; }),
                 executeAWSQuery(`
@@ -124,34 +127,36 @@ export function Dashboard() {
                 executeAWSQuery(`
                     SELECT 
                         v.nombre_variante, d.nombre as deposito, p.nombre as producto,
+                        c.nombre as categoria,
                         ISNULL(ad.cantidad_alerta, 0) as alerta,
                         ISNULL(ad.cantidad_critica, 0) as critica,
                         ISNULL((SELECT SUM(cantidad_actual) FROM Stock_Etiquetas e WHERE e.variante_id = v.id AND e.deposito_id = d.id AND e.estado='activo'), 0) as stock_actual
                     FROM Stock_Alertas_Depositos ad
                     INNER JOIN Stock_Variantes v ON ad.variante_id = v.id
                     INNER JOIN Stock_Productos_Maestros p ON v.producto_maestro_id = p.id
+                    LEFT JOIN Stock_Categorias c ON p.categoria_id = c.id
                     INNER JOIN Stock_Depositos d ON ad.deposito_id = d.id
                     WHERE ad.cantidad_alerta > 0 OR ad.cantidad_critica > 0
                 `).catch(e => { console.error('Error alertasDepRes:', e); return []; }),
                 executeAWSQuery(`
                     SELECT 
                         v.nombre_variante, p.nombre as producto,
+                        MAX(c.nombre) as categoria,
                         SUM(CASE WHEN m.fecha >= DATEADD(day, -1, GETDATE()) THEN m.cantidad_afectada ELSE 0 END) as consumo_24h,
                         SUM(CASE WHEN m.fecha >= DATEADD(day, -7, GETDATE()) THEN m.cantidad_afectada ELSE 0 END) as consumo_7d
                     FROM Stock_Movimientos m
                     INNER JOIN Stock_Etiquetas e ON m.etiqueta_id = e.id
                     INNER JOIN Stock_Variantes v ON e.variante_id = v.id
                     INNER JOIN Stock_Productos_Maestros p ON v.producto_maestro_id = p.id
+                    LEFT JOIN Stock_Categorias c ON p.categoria_id = c.id
                     WHERE m.tipo_movimiento IN ('baja_consumo', 'egreso_final') AND m.fecha >= DATEADD(day, -7, GETDATE())
                     GROUP BY v.nombre_variante, p.nombre
                     HAVING SUM(CASE WHEN m.fecha >= DATEADD(day, -1, GETDATE()) THEN m.cantidad_afectada ELSE 0 END) > 0
                 `).catch(e => { console.error('Error anomaliasRes:', e); return []; })
             ]);
 
-            const formatName = (prod: string, variant: string) => {
-                if (!variant) return prod;
-                if (variant.toLowerCase().includes(prod.toLowerCase())) return variant;
-                return `${prod} (${variant})`;
+            const formatName = (cat: string, prod: string, variant: string) => {
+                return getVisualName(cat, prod, variant);
             };
 
             if (kpisRes && kpisRes[0]) setKpis({ variantes: kpisRes[0].total_variantes, unidades: kpisRes[0].total_unidades });
@@ -168,7 +173,7 @@ export function Dashboard() {
             if (topRes) {
                 const formattedTop = topRes.map((t: any) => ({
                     ...t,
-                    nombre_variante: formatName(t.producto, t.nombre_variante)
+                    nombre_variante: formatName(t.categoria, t.producto, t.nombre_variante)
                 }));
                 
                 if (formattedTop.length > 0 && formattedTop[0].total_movimiento > 0) {
@@ -201,13 +206,13 @@ export function Dashboard() {
             if (stockGlobalRes) {
                 setNivelesStockGlobal(stockGlobalRes.map((s: any) => ({
                     ...s,
-                    nombre_variante: formatName(s.producto, s.nombre_variante)
+                    nombre_variante: formatName(s.categoria, s.producto, s.nombre_variante)
                 })));
             }
             if (alertasDepRes) {
                 setAlertasPorAlmacen(alertasDepRes.map((q: any) => ({
                     ...q,
-                    nombre_variante: formatName(q.producto, q.nombre_variante)
+                    nombre_variante: formatName(q.categoria, q.producto, q.nombre_variante)
                 })));
             }
             
@@ -220,7 +225,7 @@ export function Dashboard() {
                         ...a, 
                         avgDiario7d, 
                         esPico,
-                        nombre_variante: formatName(a.producto, a.nombre_variante)
+                        nombre_variante: formatName(a.categoria, a.producto, a.nombre_variante)
                     };
                 }).filter((a: any) => a.esPico);
                 setAnomaliasConsumo(detected.sort((a: any, b: any) => b.consumo_24h - a.consumo_24h));

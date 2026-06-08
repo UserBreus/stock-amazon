@@ -4,7 +4,7 @@ import { X, Calendar, Layers, BarChart2, TrendingUp, PackageSearch, Activity, Sl
 import { executeAWSQuery } from '../lib/aws-client';
 import { BarChart, Bar, LineChart, Line, Legend, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { useAuth } from '../context/AuthContext';
-import { cn } from '../lib/utils';
+import { cn, getVisualName } from '../lib/utils';
 
 interface ConsumoDetalleModalProps {
     isOpen: boolean;
@@ -109,7 +109,7 @@ export function ConsumoDetalleModal({ isOpen, onClose }: ConsumoDetalleModalProp
                         mes: r.mes,
                         monthKey: `${r.anio}-${mesStr}`,
                         variante_id: r.variante_id,
-                        nombre_completo: r.nombre_variante ? `${r.prod_nombre} (${r.nombre_variante})` : r.prod_nombre,
+                        nombre_completo: getVisualName(r.categoria_nombre, r.prod_nombre, r.nombre_variante),
                         categoria_nombre: r.categoria_nombre || 'Sin Familia',
                         categoria_id: String(r.categoria_id),
                         cantidad: Number(r.cantidad)

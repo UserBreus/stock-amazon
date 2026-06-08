@@ -5,7 +5,7 @@ import { executeAWSQuery } from '../lib/aws-client';
 import { useAuth } from '../context/AuthContext';
 import { BarcodeScanner } from './ui/BarcodeScanner';
 import toast from 'react-hot-toast';
-import { cn } from '../lib/utils';
+import { cn, getVisualName } from '../lib/utils';
 import { Modal } from './ui/Modal';
 import { CategoryDrillDownModal } from './ui/CategoryDrillDownModal';
 import { printRemito } from '../lib/printRemito';
@@ -70,6 +70,7 @@ export function DespachoEgresos({ initialOperationType = 'traslado', initialMode
                     a.variante_id,
                     v.nombre_variante,
                     pm.nombre as producto_nombre,
+                    c.nombre as cat_nombre,
                     pm.unidad_base,
                     pm.tipo_gestion,
                     a.cantidad_ideal,
@@ -79,6 +80,7 @@ export function DespachoEgresos({ initialOperationType = 'traslado', initialMode
                  FROM Stock_Alertas_Depositos a
                  JOIN Stock_Variantes v ON a.variante_id = v.id
                  JOIN Stock_Productos_Maestros pm ON v.producto_maestro_id = pm.id
+                 LEFT JOIN Stock_Categorias c ON pm.categoria_id = c.id
                  WHERE a.deposito_id = ${val}
               `);
               
@@ -130,13 +132,14 @@ export function DespachoEgresos({ initialOperationType = 'traslado', initialMode
       try {
          const res = await executeAWSQuery(`
             SELECT TOP 50 m.id, m.fecha, m.tipo_movimiento, m.cantidad_afectada,
-                   e.codigo_barras, v.nombre_variante, pm.nombre as producto_nombre,
+                   e.codigo_barras, v.nombre_variante, pm.nombre as producto_nombre, c.nombre as cat_nombre,
                    o.nombre as ori_nombre, d.nombre as des_nombre,
                    (SELECT cantidad_actual FROM Stock_Etiquetas WHERE variante_id = e.variante_id AND deposito_id = m.deposito_destino_id) as alert_saldo_destino
             FROM Stock_Movimientos m
             INNER JOIN Stock_Etiquetas e ON m.etiqueta_id = e.id
             INNER JOIN Stock_Variantes v ON e.variante_id = v.id
             INNER JOIN Stock_Productos_Maestros pm ON v.producto_maestro_id = pm.id
+            LEFT JOIN Stock_Categorias c ON pm.categoria_id = c.id
             LEFT JOIN Stock_Depositos o ON m.deposito_origen_id = o.id
             LEFT JOIN Stock_Depositos d ON m.deposito_destino_id = d.id
             WHERE m.tipo_movimiento LIKE '%traslado%' OR m.tipo_movimiento LIKE '%egreso%'
@@ -159,10 +162,11 @@ export function DespachoEgresos({ initialOperationType = 'traslado', initialMode
      setLoadingCode(true);
      try {
          const res = await executeAWSQuery(`
-            SELECT e.*, v.nombre_variante, pm.nombre as producto_nombre, d.nombre as deposito_nombre
+            SELECT e.*, v.nombre_variante, pm.nombre as producto_nombre, c.nombre as cat_nombre, d.nombre as deposito_nombre
             FROM Stock_Etiquetas e
             INNER JOIN Stock_Variantes v ON e.variante_id = v.id
             INNER JOIN Stock_Productos_Maestros pm ON v.producto_maestro_id = pm.id
+            LEFT JOIN Stock_Categorias c ON pm.categoria_id = c.id
             LEFT JOIN Stock_Depositos d ON e.deposito_id = d.id
             WHERE e.codigo_barras = '${code.trim()}'
          `);
@@ -199,11 +203,12 @@ export function DespachoEgresos({ initialOperationType = 'traslado', initialMode
               SELECT v.id, 
                      v.nombre_variante,
                      v.nombre_variante as nombre,
-                     pm.id as producto_maestro_id, pm.nombre as producto_nombre, pm.categoria_id,
+                     pm.id as producto_maestro_id, pm.nombre as producto_nombre, pm.categoria_id, c.nombre as cat_nombre,
                      pm.tipo_gestion,
                      COALESCE((SELECT CAST(SUM(cantidad_actual) AS INT) FROM Stock_Etiquetas WHERE variante_id = v.id AND deposito_id = ${origenId} AND estado = 'activo'), 0) as stock_total
               FROM Stock_Variantes v
               INNER JOIN Stock_Productos_Maestros pm ON v.producto_maestro_id = pm.id
+              LEFT JOIN Stock_Categorias c ON pm.categoria_id = c.id
               WHERE EXISTS (
                  SELECT 1 FROM Stock_Etiquetas e WHERE e.variante_id = v.id AND e.deposito_id = ${origenId} AND e.estado = 'activo'
               )
@@ -235,10 +240,11 @@ export function DespachoEgresos({ initialOperationType = 'traslado', initialMode
           
           const etqRes = await executeAWSQuery(`
               SELECT e.id, e.codigo_barras, e.cantidad_actual, e.cantidad_inicial, e.variante_id,
-                     v.nombre_variante, pm.nombre as producto_nombre, d.nombre as deposito_nombre
+                     v.nombre_variante, pm.nombre as producto_nombre, c.nombre as cat_nombre, d.nombre as deposito_nombre
               FROM Stock_Etiquetas e
               INNER JOIN Stock_Variantes v ON v.id = e.variante_id
               INNER JOIN Stock_Productos_Maestros pm ON pm.id = v.producto_maestro_id
+              LEFT JOIN Stock_Categorias c ON pm.categoria_id = c.id
               LEFT JOIN Stock_Depositos d ON d.id = e.deposito_id
               WHERE e.variante_id = ${varianteId}
                 AND e.deposito_id = ${origenId}
@@ -335,7 +341,8 @@ export function DespachoEgresos({ initialOperationType = 'traslado', initialMode
                  codigo_barras: loteCodigo,
                  cantidad_a_extraer: allocQty,
                  producto_nombre: info.producto_nombre,
-                 nombre_variante: info.nombre_variante
+                 nombre_variante: info.nombre_variante,
+                 cat_nombre: info.cat_nombre
               });
               if (allocQty === initialLoteQty) {
                   if (isTransfer) {
@@ -359,7 +366,7 @@ export function DespachoEgresos({ initialOperationType = 'traslado', initialMode
                   queries.push(`UPDATE Stock_Etiquetas SET cantidad_actual = cantidad_actual - ${allocQty} WHERE id = ${loteId};`);
                   if (isTransfer) {
                       const newCode = `${loteCodigo}-S${Math.floor(Math.random()*999)}`;
-                      labelsToPrint.push({ codigo_barras: newCode, producto_nombre: info.producto_nombre, nombre_variante: info.nombre_variante, cantidad_actual: allocQty });
+                      labelsToPrint.push({ codigo_barras: newCode, producto_nombre: info.producto_nombre, nombre_variante: info.nombre_variante, cat_nombre: info.cat_nombre, cantidad_actual: allocQty });
                       queryVarCounter++;
                       queries.push(`
                           DECLARE @NewLote_${queryVarCounter} INT;
@@ -493,7 +500,7 @@ export function DespachoEgresos({ initialOperationType = 'traslado', initialMode
                                      <div key={idx} className={cn("border p-4 rounded-xl flex items-center shadow-sm flex-col gap-3 transition-colors", Number(item.cantidad_a_extraer) > item.cantidad_actual ? "bg-rose-50 dark:bg-rose-950/20 border-rose-300 dark:border-rose-900" : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800")}>
                                          <div className="w-full flex items-center">
                                              <div className="flex-1 min-w-0">
-                                                <div className="flex items-center gap-2"><h4 className="font-black truncate">{item.producto_nombre}</h4><span className="bg-slate-100 dark:bg-slate-800 px-2 rounded text-[10px] font-bold">{item.nombre_variante}</span></div>
+                                                 <div className="flex items-center gap-2"><h4 className="font-black truncate">{getVisualName(item.cat_nombre, item.producto_nombre, item.nombre_variante)}</h4></div>
                                                 <p className="text-[10px] font-mono text-slate-400 mt-1 uppercase tracking-widest">{item.codigo_barras}</p>
                                              </div>
                                              <div className={cn("flex-shrink-0 mx-4 lg:mx-8 text-center px-3 py-1 rounded-lg border", Number(item.cantidad_a_extraer) > item.cantidad_actual ? "bg-rose-200 border-rose-300 dark:bg-rose-900/30" : "bg-emerald-50 dark:bg-emerald-900/30 border-emerald-100 dark:border-emerald-800/50")}>
@@ -572,8 +579,7 @@ export function DespachoEgresos({ initialOperationType = 'traslado', initialMode
                                                  <div key={i} className={cn("p-3 rounded-xl border flex flex-col gap-2 transition-colors", isFulfilled ? "bg-emerald-50 border-emerald-200 dark:bg-emerald-900/10 dark:border-emerald-800/30 opacity-70" : "bg-white border-slate-200 dark:bg-slate-900 dark:border-slate-800")}>
                                                      <div className="flex justify-between items-start">
                                                          <div>
-                                                             <p className="font-bold text-xs leading-tight text-slate-700 dark:text-slate-300">{rec.producto_nombre}</p>
-                                                             <p className="text-[10px] font-bold text-slate-400">{rec.nombre_variante}</p>
+                                                             <p className="font-bold text-xs leading-tight text-slate-700 dark:text-slate-300">{getVisualName(rec.cat_nombre, rec.producto_nombre, rec.nombre_variante)}</p>
                                                          </div>
                                                          {isFulfilled && <CheckCircle className="w-4 h-4 text-emerald-500" />}
                                                      </div>
@@ -756,8 +762,8 @@ export function DespachoEgresos({ initialOperationType = 'traslado', initialMode
                              <tr key={c.id + '-' + idx} className="bg-white hover:bg-slate-50 transition-colors">
                                 <td className="text-center py-4 px-6 print:py-1 print:text-[11px] border-r border-slate-100 font-black text-lg print:text-sm text-slate-700">{c.cantidad_a_extraer}</td>
                                 <td className="text-center py-4 px-6 print:py-1 print:text-[11px] border-r border-slate-100 font-mono font-bold text-xs tracking-tighter text-slate-500">{c.codigo_barras}</td>
-                                <td className="py-4 px-6 print:py-1 print:px-2 print:text-[11px] border-r border-slate-100 font-black tracking-tight text-slate-800">{c.producto_nombre}</td>
-                                <td className="text-center py-4 px-6 print:py-1 print:text-[11px] font-bold text-[10px] uppercase bg-slate-50/50 tracking-widest text-slate-500">{c.nombre_variante}</td>
+                                <td className="py-4 px-6 print:py-1 print:px-2 print:text-[11px] border-r border-slate-100 font-black tracking-tight text-slate-800">{getVisualName(c.cat_nombre, c.producto_nombre, c.nombre_variante)}</td>
+                                <td className="text-center py-4 px-6 print:py-1 print:text-[11px] font-bold text-[10px] uppercase bg-slate-50/50 tracking-widest text-slate-500">-</td>
                              </tr>
                           ))}
                        </tbody>
@@ -853,8 +859,7 @@ export function DespachoEgresos({ initialOperationType = 'traslado', initialMode
                                   }
                                }}>
                                  <div>
-                                    <h4 className="font-black text-slate-800 dark:text-slate-100 line-clamp-2 leading-tight">{etq.producto_nombre}</h4>
-                                    <span className="inline-block mt-1 text-xs font-bold bg-slate-200 dark:bg-slate-800 px-2 py-0.5 rounded text-slate-600 dark:text-slate-300">{etq.nombre_variante}</span>
+                                    <h4 className="font-black text-slate-800 dark:text-slate-100 line-clamp-2 leading-tight">{getVisualName(etq.cat_nombre, etq.producto_nombre, etq.nombre_variante)}</h4>
                                     
                                     <div className="flex items-center gap-2 mt-3">
                                        <p className="text-xs font-mono font-bold bg-indigo-50 text-indigo-600 dark:bg-indigo-900/30 dark:text-indigo-400 px-2 py-1 rounded border border-indigo-100 dark:border-indigo-800/50 flex items-center gap-1"><Scan className="w-3 h-3"/> {etq.codigo_barras}</p>
@@ -950,8 +955,8 @@ export function DespachoEgresos({ initialOperationType = 'traslado', initialMode
                                      <tr key={c.id + '-' + idx} className="border-b border-black">
                                         <td className="text-center py-4 border-r-2 border-black font-black text-xl">{c.cantidad_a_extraer}</td>
                                         <td className="text-center py-4 border-r-2 border-black font-mono font-bold text-sm tracking-tighter">{c.codigo_barras}</td>
-                                        <td className="text-left py-4 px-4 border-r-2 border-black font-bold uppercase text-slate-800">{c.producto_nombre}</td>
-                                        <td className="text-center py-4 font-bold text-xs uppercase bg-slate-50">{c.nombre_variante}</td>
+                                        <td className="text-left py-4 px-4 border-r-2 border-black font-bold uppercase text-slate-800">{getVisualName(c.cat_nombre, c.producto_nombre, c.nombre_variante)}</td>
+                                        <td className="text-center py-4 font-bold text-xs uppercase bg-slate-50">-</td>
                                      </tr>
                                   ))}
                                </tbody>
