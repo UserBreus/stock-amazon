@@ -15,10 +15,28 @@ export function GestionImportaciones() {
   const [selectedImp, setSelectedImp] = useState<any | null>(null);
   const [comprasDetalle, setComprasDetalle] = useState<any[]>([]);
   const [loadingDetalle, setLoadingDetalle] = useState(false);
+  const [templateSteps, setTemplateSteps] = useState<Record<number, any[]>>({});
 
   useEffect(() => {
     fetchImportaciones();
+    fetchTemplateSteps();
   }, []);
+
+  const fetchTemplateSteps = async () => {
+    try {
+      const steps = await executeAWSQuery("SELECT * FROM Stock_Plantillas_Progreso_Pasos ORDER BY plantilla_id, orden");
+      const grouped: Record<number, any[]> = {};
+      if (steps) {
+        steps.forEach((s: any) => {
+          if (!grouped[s.plantilla_id]) grouped[s.plantilla_id] = [];
+          grouped[s.plantilla_id].push(s);
+        });
+      }
+      setTemplateSteps(grouped);
+    } catch(e) {
+      console.error("Error fetching template steps:", e);
+    }
+  };
 
   const fetchImportaciones = async () => {
     setLoading(true);
@@ -27,11 +45,13 @@ export function GestionImportaciones() {
         SELECT 
             i.id, i.origen, i.empresa_importadora, i.contacto_importadora,
             i.empresa_transporte_local, i.contacto_transporte_local, i.estado, i.fecha_creacion, i.progreso,
+            i.plantilla_progreso_id,
             COUNT(c.id) as cantidad_compras
         FROM Stock_Importaciones i
         LEFT JOIN Stock_Compras c ON c.importacion_id = i.id
         GROUP BY i.id, i.origen, i.empresa_importadora, i.contacto_importadora,
-                 i.empresa_transporte_local, i.contacto_transporte_local, i.estado, i.fecha_creacion, i.progreso
+                 i.empresa_transporte_local, i.contacto_transporte_local, i.estado, i.fecha_creacion, i.progreso,
+                 i.plantilla_progreso_id
         ORDER BY i.fecha_creacion DESC
       `;
       const res = await executeAWSQuery(q);
@@ -101,8 +121,11 @@ export function GestionImportaciones() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-3 space-y-4">
             {importaciones.map(imp => {
-                const currentIdx = timelineKeys.indexOf(imp.progreso);
-                const pct = currentIdx === -1 ? 0 : (currentIdx / (timelineKeys.length - 1)) * 100;
+                const steps = templateSteps[imp.plantilla_progreso_id || 1] || [];
+                const currentIdx = steps.findIndex((s: any) => s.clave === imp.progreso);
+                const pct = steps.length <= 1 || currentIdx === -1 ? 0 : (currentIdx / (steps.length - 1)) * 100;
+                const currentStepObj = steps.find((s: any) => s.clave === imp.progreso);
+                const progressLabel = currentStepObj ? currentStepObj.etiqueta : (imp.progreso || 'Desconocido').replace(/_/g, ' ');
                 
                 return (
                 <div key={imp.id} className="card-nexus p-0 overflow-hidden flex flex-col sm:flex-row border-2 border-transparent hover:border-indigo-200 dark:hover:border-indigo-800 transition-colors">
@@ -136,7 +159,7 @@ export function GestionImportaciones() {
                         <div className="mt-2 w-full max-w-lg">
                            <div className="flex justify-between mb-1">
                              <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest">Tracking Progress</p>
-                             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{(imp.progreso || 'Desconocido').replace(/_/g, ' ')}</p>
+                             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{progressLabel}</p>
                            </div>
                            <div className="w-full rounded-full h-1.5 bg-slate-100 dark:bg-slate-800 overflow-hidden">
                                 <div className="h-full bg-indigo-500 rounded-full transition-all duration-1000 ease-out" style={{ width: `${pct}%`}}></div>

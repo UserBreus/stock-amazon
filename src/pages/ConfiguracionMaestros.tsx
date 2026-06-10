@@ -1,6 +1,35 @@
-import { useEffect, useState } from 'react';
-import { Settings, Box, Network, Truck, Search, Folder, ArrowLeft, Palette, LayoutDashboard, Tag, Layers, ArchiveRestore, History, Edit3, Trash2, Banknote, FileText, ChevronRight , AlertOctagon, DollarSign, AlertCircle} from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Settings, Box, Network, Truck, Search, Folder, ArrowLeft, Palette, LayoutDashboard, Tag, Layers, ArchiveRestore, History, Edit3, Trash2, Banknote, FileText, ChevronRight , AlertOctagon, DollarSign, AlertCircle, Workflow, Anchor, Ship, MapPin, CheckCircle2, Plus} from 'lucide-react';
+import * as LucideIcons from 'lucide-react';
 import { IconManager } from '../components/IconManager';
+
+const ALL_LUCIDE_ICONS = Object.keys(LucideIcons).filter(name => 
+    /^[A-Z][a-zA-Z0-9]*$/.test(name) && 
+    typeof (LucideIcons as any)[name] !== 'undefined' &&
+    name !== 'default'
+);
+
+const COMMON_ICONS = [
+    'Package', 'Factory', 'Truck', 'Anchor', 'Ship', 'MapPin', 'CheckCircle2', 'FileText', 
+    'AlertTriangle', 'Calendar', 'Globe', 'Activity', 'Clock', 'Settings', 'DollarSign', 
+    'Database', 'User', 'Users', 'Shield', 'Lock', 'Key', 'Search', 'Home', 'Info', 
+    'File', 'Folder', 'Inbox', 'Mail', 'Phone', 'Bell', 'ShoppingCart', 'CreditCard'
+];
+
+const PREDEFINED_STEPS = [
+    { label: 'Realizada', key: 'realizada', icon: 'Package', desc: 'Compra u orden inicializada' },
+    { label: 'En Fabricación', key: 'en_fabricacion', icon: 'Factory', desc: 'Los productos se están manufacturando' },
+    { label: 'En Depósito Traslado', key: 'en_deposito_traslado', icon: 'Truck', desc: 'Mercancía en bodega intermedia o terrestre' },
+    { label: 'Esperando Embarque', key: 'esperando_embarque', icon: 'Anchor', desc: 'Listo en puerto/aeropuerto de origen' },
+    { label: 'Embarcado', key: 'embarcado', icon: 'Ship', desc: 'En tránsito marítimo o aéreo' },
+    { label: 'Puerto de Origen', key: 'puerto_origen', icon: 'Anchor', desc: 'Salida de aduana origen' },
+    { label: 'Puerto Intermedio', key: 'puerto_intermedio', icon: 'MapPin', desc: 'Tránsito internacional' },
+    { label: 'Puerto de Destino', key: 'puerto_destino', icon: 'Anchor', desc: 'Llegada local' },
+    { label: 'En Aduana', key: 'en_aduana', icon: 'FileText', desc: 'Procesamiento de importación' },
+    { label: 'Esperando Envío', key: 'esperando_envio', icon: 'Truck', desc: 'Listo para transporte local' },
+    { label: 'Recibido', key: 'recibido', icon: 'CheckCircle2', desc: 'Mercadería ingresada en depósito central' },
+    { label: 'En Tránsito', key: 'en_transito', icon: 'Truck', desc: 'Flete en ruta terrestre' }
+];
 import { useUIConfig, DynamicUIIcon } from '../context/UIContext';
 
 import { executeAWSQuery } from '../lib/aws-client';
@@ -16,7 +45,7 @@ import { GestionAlertasStock } from '../components/gestion/GestionAlertasStock';
 import { GestionCostosCero } from '../components/gestion/GestionCostosCero';
 
 export function ConfiguracionMaestros() {
-  const [activeTab, setActiveTab] = useState<'hub'|'categorias'|'titulos_base'|'diccionario'|'modelos'|'proveedores'|'rendimientos'|'iconos'|'almacenes'|'monedas'|'usuarios'|'historicos'|'tipos_facturas'|'alertas_stock'|'costos_cero'>('hub');
+  const [activeTab, setActiveTab] = useState<'hub'|'categorias'|'titulos_base'|'diccionario'|'modelos'|'proveedores'|'rendimientos'|'iconos'|'almacenes'|'monedas'|'usuarios'|'historicos'|'tipos_facturas'|'alertas_stock'|'costos_cero'|'plantillas_progreso'>('hub');
   const { isEditMode, setEditingComponentId, uiConfigs, updateConfigLocal } = useUIConfig();
   
   // Categorias
@@ -81,6 +110,181 @@ export function ConfiguracionMaestros() {
   const [valoresBase, setValoresBase] = useState<{id: number, atributo_id: number, valor: string}[]>([]);
   const [unidadesMedida, setUnidadesMedida] = useState<{id: number, nombre: string}[]>([]);
 
+  // Plantillas de Progreso Logístico
+  const [plantillas, setPlantillas] = useState<any[]>([]);
+  const [selectedPlantillaId, setSelectedPlantillaId] = useState<number | null>(null);
+  const [platName, setPlatName] = useState('');
+  const [platDesc, setPlatDesc] = useState('');
+  const [platSteps, setPlatSteps] = useState<{ id?: number; clave: string; etiqueta: string; icono: string; tempId?: string }[]>([]);
+  const [stepName, setStepName] = useState('');
+  const [stepIcon, setStepIcon] = useState('Package');
+  const [isIconModalOpen, setIsIconModalOpen] = useState(false);
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
+  const [isSavingPlantilla, setIsSavingPlantilla] = useState(false);
+
+  const handleDragStartStep = (e: React.DragEvent, index: number) => {
+      setDraggedIndex(index);
+      e.dataTransfer.setData('text/plain', index.toString());
+      e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleDragOverStep = (e: React.DragEvent, idx: number) => {
+      e.preventDefault();
+      if (draggedIndex === null || draggedIndex === idx) return;
+      
+      const updatedSteps = [...platSteps];
+      const [draggedItem] = updatedSteps.splice(draggedIndex, 1);
+      updatedSteps.splice(idx, 0, draggedItem);
+      
+      // Auto re-sequence keys
+      const resequenced = updatedSteps.map((s, i) => ({ ...s, clave: (i + 1).toString() }));
+      setPlatSteps(resequenced);
+      setDraggedIndex(idx);
+  };
+
+  const handleDragEndStep = () => {
+      setDraggedIndex(null);
+  };
+
+  const fetchPlantillas = async () => {
+      try {
+          const pRes = await executeAWSQuery("SELECT * FROM Stock_Plantillas_Progreso ORDER BY nombre");
+          const sRes = await executeAWSQuery("SELECT * FROM Stock_Plantillas_Progreso_Pasos ORDER BY plantilla_id, orden");
+          
+          const stepsByPlantilla: Record<number, any[]> = {};
+          if (sRes) {
+              sRes.forEach((s: any) => {
+                  if (!stepsByPlantilla[s.plantilla_id]) stepsByPlantilla[s.plantilla_id] = [];
+                  stepsByPlantilla[s.plantilla_id].push(s);
+              });
+          }
+          
+          if (pRes) {
+              setPlantillas(pRes.map((p: any) => ({
+                  ...p,
+                  pasos: stepsByPlantilla[p.id] || []
+              })));
+          }
+      } catch(e) { console.error('Error fetching plantillas', e); }
+  };
+
+  const savePlantilla = async (e: React.FormEvent, forceNew: boolean = false) => {
+      e.preventDefault();
+      if (!platName.trim()) return toast.error("Por favor ingrese un nombre para la plantilla.");
+      if (platSteps.length === 0) return toast.error("La plantilla debe tener al menos un paso.");
+      
+      setIsSavingPlantilla(true);
+      try {
+          let query = 'SET XACT_ABORT ON;\nBEGIN TRANSACTION;\n';
+          const isUpdating = selectedPlantillaId && !forceNew;
+          if (isUpdating) {
+              query += `
+                  UPDATE Stock_Plantillas_Progreso 
+                  SET nombre = '${platName.replace(/'/g, "''")}', descripcion = '${platDesc.replace(/'/g, "''")}'
+                  WHERE id = ${selectedPlantillaId};
+                  DELETE FROM Stock_Plantillas_Progreso_Pasos WHERE plantilla_id = ${selectedPlantillaId};
+              `;
+              platSteps.forEach((s: any, idx: number) => {
+                  query += `
+                      INSERT INTO Stock_Plantillas_Progreso_Pasos (plantilla_id, clave, etiqueta, icono, orden)
+                      VALUES (${selectedPlantillaId}, '${(idx + 1).toString()}', '${s.etiqueta.replace(/'/g, "''")}', '${s.icono.replace(/'/g, "''")}', ${idx + 1});
+                  `;
+              });
+          } else {
+              query += `
+                  DECLARE @NewPlatId INT;
+                  INSERT INTO Stock_Plantillas_Progreso (nombre, descripcion)
+                  VALUES ('${platName.replace(/'/g, "''")}', '${platDesc.replace(/'/g, "''")}');
+                  SET @NewPlatId = SCOPE_IDENTITY();
+              `;
+              platSteps.forEach((s: any, idx: number) => {
+                  query += `
+                      INSERT INTO Stock_Plantillas_Progreso_Pasos (plantilla_id, clave, etiqueta, icono, orden)
+                      VALUES (@NewPlatId, '${(idx + 1).toString()}', '${s.etiqueta.replace(/'/g, "''")}', '${s.icono.replace(/'/g, "''")}', ${idx + 1});
+                  `;
+              });
+          }
+          query += 'COMMIT TRANSACTION;\n';
+          
+          await executeAWSQuery(query);
+          toast.success(isUpdating ? "Plantilla actualizada!" : "Plantilla creada!");
+          setSelectedPlantillaId(null);
+          setPlatName('');
+          setPlatDesc('');
+          setPlatSteps([]);
+          await fetchPlantillas();
+      } catch(err: any) {
+          toast.error("Error al guardar plantilla: " + err.message);
+      } finally {
+          setIsSavingPlantilla(false);
+      }
+  };
+
+  const deletePlantilla = async (id: number) => {
+      try {
+          // Check if there are active purchases or imports linked to this template
+          const checkDeps = await executeAWSQuery(`
+              SELECT 
+                (SELECT COUNT(*) FROM Stock_Compras WHERE plantilla_progreso_id = ${id}) as compras_count,
+                (SELECT COUNT(*) FROM Stock_Importaciones WHERE plantilla_progreso_id = ${id}) as importaciones_count
+          `);
+          
+          const deps = checkDeps[0];
+          const totalDeps = deps.compras_count + deps.importaciones_count;
+          
+          if (totalDeps > 0) {
+              const confirmMigrate = window.confirm(
+                  `Esta plantilla está asignada a ${deps.compras_count} compra(s) y ${deps.importaciones_count} importación(es).\n` +
+                  `Si continúas, estos registros se migrarán automáticamente a la Plantilla Estándar (Nativa).\n` +
+                  `¿Deseas continuar y eliminar la plantilla?`
+              );
+              if (!confirmMigrate) return;
+              
+              // Migrate linked records and delete the template in a single transaction
+              const query = `
+                  SET XACT_ABORT ON;
+                  BEGIN TRANSACTION;
+                  
+                  -- Reset purchases to default template (1) and reset their progress step to 'realizada'
+                  UPDATE Stock_Compras 
+                  SET plantilla_progreso_id = 1, 
+                      progreso = 'realizada' 
+                  WHERE plantilla_progreso_id = ${id};
+                  
+                  -- Reset imports to default template (1) and reset progress
+                  UPDATE Stock_Importaciones 
+                  SET plantilla_progreso_id = 1, 
+                      progreso = 'realizada' 
+                  WHERE plantilla_progreso_id = ${id};
+                  
+                  -- Delete steps and template
+                  DELETE FROM Stock_Plantillas_Progreso_Pasos WHERE plantilla_id = ${id};
+                  DELETE FROM Stock_Plantillas_Progreso WHERE id = ${id};
+                  
+                  COMMIT TRANSACTION;
+              `;
+              await executeAWSQuery(query);
+          } else {
+              if (!window.confirm("¿Está seguro de eliminar esta plantilla de progreso?")) return;
+              
+              // Delete directly inside transaction
+              const query = `
+                  SET XACT_ABORT ON;
+                  BEGIN TRANSACTION;
+                  DELETE FROM Stock_Plantillas_Progreso_Pasos WHERE plantilla_id = ${id};
+                  DELETE FROM Stock_Plantillas_Progreso WHERE id = ${id};
+                  COMMIT TRANSACTION;
+              `;
+              await executeAWSQuery(query);
+          }
+          
+          toast.success("Plantilla eliminada correctamente!");
+          await fetchPlantillas();
+      } catch(err: any) {
+          toast.error("Error al eliminar la plantilla: " + err.message);
+      }
+  };
+
   // Rendimientos
   const [rendProdId, setRendProdId] = useState('');
   const [rendGramos, setRendGramos] = useState('');
@@ -134,6 +338,9 @@ export function ConfiguracionMaestros() {
          executeAWSQuery("SELECT * FROM Stock_Depositos ORDER BY id ASC")
             .then((deps) => { if (deps) setAlmacenes(deps); })
             .catch(console.error);
+     }
+     if(activeTab === 'plantillas_progreso') {
+         fetchPlantillas();
      }
   }, [activeTab]);
 
@@ -921,6 +1128,27 @@ export function ConfiguracionMaestros() {
               <div className="flex-1 flex flex-col items-center">
                  <h3 className="text-xs font-black text-slate-800 dark:text-white mb-1 leading-tight text-center">{uiConfigs['btn_sys_costos_cero']?.label || 'Artículos sin costo'}</h3>
                  <p className="text-slate-400 font-medium text-[10px] leading-tight text-center line-clamp-2 max-w-[120px]">{uiConfigs['btn_sys_costos_cero']?.sub_label || 'Asignar costos.'}</p>
+              </div>
+        </button>
+
+        <button 
+             draggable={isEditMode}
+             onDragStart={(e) => handleDragStart(e, 'btn_sys_plantillas_progreso')}
+             onDragOver={handleDragOver}
+             onDrop={(e) => handleDrop(e, 'btn_sys_plantillas_progreso')}
+             onClick={(e) => {
+                 if (isEditMode) { e.preventDefault(); setEditingComponentId('btn_sys_plantillas_progreso'); }
+                 else { setActiveTab('plantillas_progreso'); }
+             }} 
+             style={{ order: uiConfigs['btn_sys_plantillas_progreso']?.order_index || 13 }}
+             className={`${isEditMode ? 'ring-2 ring-indigo-500 hover:ring-indigo-500/50 cursor-move border-dashed shadow-[0_0_15px_rgba(99,102,241,0.5)]' : ''} bg-white dark:bg-slate-900 border border-slate-200 hover:border-slate-400 dark:border-slate-800 dark:hover:border-slate-600 p-4 rounded-2xl text-center transition-all h-full group flex flex-col items-center gap-2 hover:shadow-md hover:-translate-y-0.5`}
+          >
+              <div className="p-3 bg-transparent text-slate-700 dark:text-slate-300 group-hover:scale-110 transition-transform flex items-center justify-center">
+                 <DynamicUIIcon id="btn_sys_plantillas_progreso" fallback={Workflow} className={`w-6 h-6 ${uiConfigs['btn_sys_plantillas_progreso']?.icon_color || ''}`} />
+              </div>
+              <div className="flex-1 flex flex-col items-center">
+                 <h3 className="text-xs font-black text-slate-800 dark:text-white mb-1 leading-tight text-center">{uiConfigs['btn_sys_plantillas_progreso']?.label || 'Plantillas Progreso'}</h3>
+                 <p className="text-slate-400 font-medium text-[10px] leading-tight text-center line-clamp-2 max-w-[120px]">{uiConfigs['btn_sys_plantillas_progreso']?.sub_label || 'Flujos de progreso.'}</p>
               </div>
         </button>
 
@@ -1846,6 +2074,13 @@ export function ConfiguracionMaestros() {
         onSelect={() => {}}
       />
 
+      <IconSelectorModal
+        isOpen={isIconModalOpen}
+        onClose={() => setIsIconModalOpen(false)}
+        onSelect={setStepIcon}
+        currentIcon={stepIcon}
+      />
+
       {activeTab === 'tipos_facturas' && (
         <motion.div initial={{opacity:0}} animate={{opacity:1}} className="card-nexus p-8 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
           <h3 className="text-xl font-black text-slate-900 dark:text-white mb-2 flex items-center gap-2"><FileText className="w-5 h-5 text-emerald-500"/> Tipos de Comprobantes</h3>
@@ -1878,6 +2113,351 @@ export function ConfiguracionMaestros() {
               <GestionCostosCero />
           </motion.div>
         )}
+
+        {activeTab === 'plantillas_progreso' && (
+          <motion.div initial={{opacity:0}} animate={{opacity:1}} className="space-y-8">
+              
+              {/* CREADOR / EDITOR DE PLANTILLA */}
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+                  
+                  {/* COLUMNA IZQUIERDA: CONFIGURACIÓN Y BOTONERA */}
+                  <div className="lg:col-span-6 card-nexus p-8 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm relative space-y-6">
+                      {selectedPlantillaId && (
+                         <div className="absolute top-6 right-6">
+                            <button type="button" onClick={() => { setSelectedPlantillaId(null); setPlatName(''); setPlatDesc(''); setPlatSteps([]); }} className="text-xs font-bold text-red-500 hover:text-red-700 bg-red-100 hover:bg-red-200 px-3 py-1.5 rounded-lg transition-colors cursor-pointer">Cancelar Edición</button>
+                         </div>
+                      )}
+
+                      <div>
+                          <h3 className="text-xl font-black text-slate-900 dark:text-white mb-2 flex items-center gap-2">
+                              <Workflow className="w-5 h-5 text-indigo-500"/> 
+                              {selectedPlantillaId ? 'Editar Plantilla' : 'Nueva Plantilla de Progreso'}
+                          </h3>
+                          <p className="text-xs text-slate-500 dark:text-slate-400 font-bold">Configura el nombre y selecciona las etapas logísticas presionando sobre ellas.</p>
+                      </div>
+
+                      {/* Header Fields */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div>
+                              <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-1.5 block">Nombre de la Plantilla *</label>
+                              <input type="text" className="input-nexus w-full bg-slate-50 dark:bg-slate-950 focus:bg-white dark:focus:bg-slate-900 font-bold" required value={platName} onChange={e=>setPlatName(e.target.value)} placeholder="Ej: Aéreo Express, Marítimo Estándar..." />
+                          </div>
+                          <div>
+                              <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-1.5 block">Descripción</label>
+                              <input type="text" className="input-nexus w-full bg-slate-50 dark:bg-slate-950 focus:bg-white dark:focus:bg-slate-900 font-bold" value={platDesc} onChange={e=>setPlatDesc(e.target.value)} placeholder="Ej: Usar para compras aéreas..." />
+                          </div>
+                      </div>
+
+                      {/* Botonera de Selección Rápida */}
+                      <div className="border-t border-slate-100 dark:border-slate-800 pt-4 space-y-3">
+                          <h4 className="font-black text-xs text-indigo-600 uppercase tracking-widest">Seleccionar Etapas Rápidas</h4>
+                          <p className="text-[10px] text-slate-400 font-bold">Presiona sobre las etapas en el orden que desees para añadirlas al flujo.</p>
+                          
+                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                              {PREDEFINED_STEPS.map((step) => {
+                                  const IconComponent = (LucideIcons as any)[step.icon] || LucideIcons.Package;
+                                  const isAlreadyAdded = platSteps.some(s => s.etiqueta === step.label);
+                                  return (
+                                      <button
+                                          key={step.key}
+                                          type="button"
+                                          disabled={isAlreadyAdded}
+                                          onClick={() => {
+                                              if (isAlreadyAdded) return;
+                                              const newStep = {
+                                                  clave: '',
+                                                  etiqueta: step.label,
+                                                  icono: step.icon,
+                                                  tempId: `temp-${Math.random()}-${Date.now()}`
+                                              };
+                                              setPlatSteps(prev => {
+                                                  const next = [...prev, newStep];
+                                                  return next.map((s, idx) => ({ ...s, clave: (idx + 1).toString() }));
+                                              });
+                                          }}
+                                          className={cn(
+                                              "flex flex-col items-center justify-center p-3 rounded-xl border text-center transition-all group relative cursor-pointer",
+                                              isAlreadyAdded 
+                                                  ? "bg-slate-50 dark:bg-slate-900 border-slate-150 dark:border-slate-800 opacity-40 cursor-not-allowed" 
+                                                  : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-indigo-400 hover:bg-indigo-50/20 dark:hover:bg-indigo-950/20 active:scale-95"
+                                          )}
+                                      >
+                                          <IconComponent className={cn("w-5 h-5 mb-1.5 transition-transform group-hover:scale-110", isAlreadyAdded ? "text-slate-400" : "text-indigo-500")} />
+                                          <span className="text-[11px] font-black text-slate-700 dark:text-slate-200 leading-none">{step.label}</span>
+                                      </button>
+                                  );
+                              })}
+                          </div>
+                      </div>
+
+                      {/* Creación de Etapa Personalizada */}
+                      <div className="border-t border-slate-100 dark:border-slate-800 pt-4 space-y-4">
+                          <div className="flex justify-between items-center">
+                              <h4 className="font-black text-xs text-emerald-600 uppercase tracking-widest">Etapa Personalizada</h4>
+                              <span className="text-[9px] bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400 px-2 py-0.5 rounded font-black">Opcional</span>
+                          </div>
+                          
+                          <div className="grid grid-cols-3 gap-3 items-end">
+                              <div className="col-span-2">
+                                  <label className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block mb-1">Etiqueta de Etapa *</label>
+                                  <input 
+                                      type="text" 
+                                      className="input-nexus w-full text-xs font-bold py-2 px-3 bg-slate-50 dark:bg-slate-950" 
+                                      value={stepName} 
+                                      onChange={e=>setStepName(e.target.value)} 
+                                      placeholder="Ej: Control de Calidad" 
+                                  />
+                              </div>
+                              <div>
+                                  <label className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block mb-1">Ícono</label>
+                                  <button
+                                      type="button"
+                                      onClick={() => setIsIconModalOpen(true)}
+                                      className="w-full flex items-center justify-center gap-2 py-2 px-3 bg-slate-50 dark:bg-slate-950 hover:bg-slate-100 dark:hover:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl transition-all font-bold text-xs cursor-pointer h-[34px]"
+                                  >
+                                      {React.createElement((LucideIcons as any)[stepIcon] || LucideIcons.Package, { className: "w-4 h-4 text-indigo-500" })}
+                                      <span className="truncate">{stepIcon}</span>
+                                  </button>
+                              </div>
+                          </div>
+                          <button 
+                              type="button" 
+                              onClick={() => {
+                                  if (!stepName.trim()) return toast.error("La etiqueta de la etapa es obligatoria.");
+                                  
+                                  const newStep = { 
+                                      clave: '', 
+                                      etiqueta: stepName, 
+                                      icono: stepIcon,
+                                      tempId: `temp-${Math.random()}-${Date.now()}`
+                                  };
+                                  setPlatSteps(prev => {
+                                      const next = [...prev, newStep];
+                                      return next.map((s, idx) => ({ ...s, clave: (idx + 1).toString() }));
+                                  });
+                                  setStepName('');
+                                  setStepIcon('Package');
+                              }}
+                              className="w-full bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black py-2.5 rounded-xl transition-all shadow-sm shadow-emerald-500/20 cursor-pointer flex items-center justify-center gap-1.5 h-[38px]"
+                          >
+                              <Plus className="w-4 h-4" /> Agregar Etapa Personalizada
+                          </button>
+                      </div>
+                  </div>
+
+                  {/* COLUMNA DERECHA: ORDENACIÓN DE ETAPAS */}
+                  <div className="lg:col-span-6 card-nexus p-8 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between min-h-[500px]">
+                      
+                      <div className="space-y-4">
+                          <div>
+                              <h3 className="text-sm font-black text-slate-800 dark:text-white uppercase tracking-widest">Estructura del Flujo ({platSteps.length} Pasos)</h3>
+                              <p className="text-[10px] text-slate-400 font-bold mt-1">Arrastra las tarjetas para ordenar los pasos logísticos.</p>
+                          </div>
+                          
+                          <div className="space-y-2 max-h-[350px] overflow-y-auto custom-scrollbar pr-2">
+                              {platSteps.length === 0 && (
+                                  <div className="py-12 text-center text-slate-400 font-medium italic border border-dashed border-slate-100 dark:border-slate-850 rounded-2xl">
+                                      No has seleccionado etapas aún. Presiona los botones de la izquierda para construir el flujo.
+                                  </div>
+                              )}
+                              {platSteps.map((step, idx) => {
+                                  const IconComponent = (LucideIcons as any)[step.icono] || LucideIcons.Package;
+                                  const isDragging = idx === draggedIndex;
+                                  return (
+                                      <div 
+                                          key={step.tempId || step.clave}
+                                          draggable={true}
+                                          onDragStart={(e) => handleDragStartStep(e, idx)}
+                                          onDragOver={(e) => handleDragOverStep(e, idx)}
+                                          onDragEnd={handleDragEndStep}
+                                          className={cn(
+                                              "flex items-center justify-between p-3.5 bg-slate-50 dark:bg-slate-955 border rounded-2xl hover:border-indigo-300 dark:hover:border-indigo-900/60 cursor-grab active:cursor-grabbing transition-all select-none shadow-sm hover:shadow",
+                                              isDragging 
+                                                  ? "opacity-30 border-dashed border-indigo-500 scale-95 rotate-1 bg-indigo-50/10" 
+                                                  : "border-slate-150/70 dark:border-slate-850"
+                                          )}
+                                      >
+                                          <div className="flex items-center gap-3">
+                                              <span className="text-xs font-mono font-black text-indigo-500 bg-indigo-50 dark:bg-indigo-955/40 w-6 h-6 rounded-full flex items-center justify-center shrink-0 border border-indigo-100 dark:border-indigo-900/40">
+                                                  {idx + 1}
+                                              </span>
+                                              <IconComponent className="w-4.5 h-4.5 text-slate-500 shrink-0" />
+                                              <div className="flex flex-col">
+                                                  <span className="font-bold text-xs text-slate-800 dark:text-slate-200">{step.etiqueta}</span>
+                                                  <span className="text-[9px] font-mono text-slate-400 uppercase tracking-widest font-black">Clave: {step.clave}</span>
+                                              </div>
+                                          </div>
+                                          <button 
+                                              type="button" 
+                                              onClick={() => {
+                                                  setPlatSteps(prev => {
+                                                      const next = prev.filter((_, i) => i !== idx);
+                                                      return next.map((s, i) => ({ ...s, clave: (i + 1).toString() }));
+                                                  });
+                                              }} 
+                                              className="p-1.5 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-955/20 text-slate-350 hover:text-rose-500 cursor-pointer transition-colors"
+                                              title="Quitar Etapa"
+                                          >
+                                              <Trash2 className="w-3.5 h-3.5" />
+                                          </button>
+                                      </div>
+                                  );
+                              })}
+                          </div>
+                      </div>
+
+                      <div className="pt-6 border-t border-slate-100 dark:border-slate-800 flex flex-col sm:flex-row gap-3">
+                          {selectedPlantillaId ? (
+                              <>
+                                  <button 
+                                      type="button"
+                                      disabled={isSavingPlantilla}
+                                      onClick={(e) => { e.preventDefault(); savePlantilla(e as any, false); }} 
+                                      className="btn-primary flex-1 py-3.5 font-black !bg-indigo-600 hover:!bg-indigo-700 shadow-lg shadow-indigo-500/20 text-sm tracking-wide transition-all cursor-pointer disabled:opacity-50"
+                                  >
+                                      {isSavingPlantilla ? 'Guardando...' : 'Actualizar Plantilla'}
+                                  </button>
+                                  <button 
+                                      type="button"
+                                      disabled={isSavingPlantilla}
+                                      onClick={(e) => { e.preventDefault(); savePlantilla(e as any, true); }} 
+                                      className="btn-secondary flex-1 py-3.5 font-black bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-white text-sm tracking-wide transition-all cursor-pointer disabled:opacity-50 border border-slate-200 dark:border-slate-700 rounded-xl"
+                                  >
+                                      Guardar como Nueva
+                                  </button>
+                              </>
+                          ) : (
+                              <button 
+                                  type="button"
+                                  disabled={isSavingPlantilla}
+                                  onClick={(e) => { e.preventDefault(); savePlantilla(e as any, false); }} 
+                                  className="btn-primary w-full py-3.5 font-black !bg-indigo-600 hover:!bg-indigo-700 shadow-lg shadow-indigo-500/20 text-sm tracking-wide transition-all cursor-pointer disabled:opacity-50"
+                              >
+                                  {isSavingPlantilla ? 'Guardando...' : 'Crear Plantilla de Progreso'}
+                              </button>
+                          )}
+                      </div>
+                  </div>
+              </div>
+
+              {/* VISTA PREVIA HORIZONTAL EN TIEMPO REAL */}
+              <div className="card-nexus p-8 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-6">
+                  <div>
+                      <h4 className="font-black text-xs text-indigo-600 uppercase tracking-widest text-center md:text-left">Vista Previa del Progreso (Formación Real)</h4>
+                      <p className="text-[10px] text-slate-400 font-bold mt-1 text-center md:text-left">Así es como el usuario final visualizará la línea de tiempo en el sistema.</p>
+                  </div>
+                  
+                  {platSteps.length === 0 ? (
+                      <div className="py-8 text-center text-slate-400 font-bold italic">Selecciona etapas arriba para previsualizar la línea de tiempo.</div>
+                  ) : (
+                      <div className="relative pt-4 pb-12 overflow-x-auto custom-scrollbar">
+                          <div className="min-w-[700px] flex items-center justify-between px-16 relative">
+                              {/* Línea horizontal trasera conectora */}
+                              <div className="absolute left-[80px] right-[80px] top-6 h-1 bg-slate-200 dark:bg-slate-850 rounded-full z-0"></div>
+                              {/* Línea horizontal pintada (activa hasta la mitad como demo) */}
+                              <div 
+                                  className="absolute left-[80px] top-6 h-1 bg-indigo-500 rounded-full z-0 transition-all duration-700"
+                                  style={{ width: `calc(${Math.max(0, platSteps.length - 2) / Math.max(1, platSteps.length - 1) * 100}% - 10px)` }}
+                              ></div>
+
+                              {platSteps.map((step, idx) => {
+                                  const IconComponent = (LucideIcons as any)[step.icono] || LucideIcons.Package;
+                                  const isDemoActive = idx < platSteps.length - 1;
+                                  const isDemoCurrent = idx === Math.max(0, platSteps.length - 2);
+                                  return (
+                                      <div key={step.tempId || step.clave} className="flex flex-col items-center gap-3 relative z-10 shrink-0">
+                                          <div className={cn(
+                                              "w-12 h-12 rounded-2xl flex items-center justify-center border-4 transition-all shadow-sm",
+                                              isDemoCurrent ? "bg-indigo-50 border-indigo-500 text-indigo-600 scale-110 shadow-lg shadow-indigo-500/20" : 
+                                              isDemoActive ? "bg-indigo-500 border-indigo-500 text-white" : 
+                                              "bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-400"
+                                          )}>
+                                              <IconComponent className="w-5 h-5" />
+                                          </div>
+                                          <div className="text-center w-28 absolute top-14">
+                                              <p className={cn("text-[10px] font-black uppercase tracking-wider leading-tight", isDemoCurrent ? "text-indigo-600" : isDemoActive ? "text-slate-800 dark:text-slate-200" : "text-slate-400")}>
+                                                  {step.etiqueta}
+                                              </p>
+                                              <p className="text-[8px] font-mono text-slate-400 mt-0.5">Etapa {idx + 1}</p>
+                                          </div>
+                                      </div>
+                                  );
+                              })}
+                          </div>
+                      </div>
+                  )}
+              </div>
+
+              {/* LISTADO DE PLANTILLAS ACTIVAS */}
+              <div className="card-nexus p-8 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
+                  <h3 className="text-xl font-black text-slate-900 dark:text-white mb-6">Plantillas Activas en el Sistema</h3>
+                  <div className="space-y-4 max-h-[70vh] overflow-y-auto custom-scrollbar pr-2">
+                      {plantillas.map((p, idx) => (
+                          <div key={p.id || idx} className="p-5 border border-slate-105 dark:border-slate-80/60 bg-slate-50 dark:bg-slate-950 rounded-2xl flex flex-col hover:border-indigo-200 dark:hover:border-indigo-900/50 transition-colors relative group">
+                              <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity flex gap-2">
+                                  <button 
+                                      onClick={() => { 
+                                          setSelectedPlantillaId(p.id); 
+                                          setPlatName(p.nombre); 
+                                          setPlatDesc(p.descripcion || ''); 
+                                          setPlatSteps(p.pasos.map((s: any) => ({ 
+                                              id: s.id,
+                                              clave: s.clave, 
+                                              etiqueta: s.etiqueta, 
+                                              icono: s.icono,
+                                              tempId: s.id ? `db-${s.id}` : `temp-${Math.random()}-${Date.now()}`
+                                          })));
+                                      }} 
+                                      className="p-1.5 bg-white dark:bg-slate-900 border border-slate-250 dark:border-slate-800 hover:text-blue-500 rounded-lg shadow-sm cursor-pointer"
+                                      title="Editar Plantilla"
+                                  >
+                                      <Edit3 className="w-3.5 h-3.5" />
+                                  </button>
+                                  {p.id !== 1 && (
+                                      <button 
+                                          onClick={() => deletePlantilla(p.id)} 
+                                          className="p-1.5 bg-white dark:bg-slate-900 border border-slate-250 dark:border-slate-800 hover:text-red-500 rounded-lg shadow-sm cursor-pointer"
+                                          title="Eliminar Plantilla"
+                                      >
+                                          <Trash2 className="w-3.5 h-3.5" />
+                                      </button>
+                                  )}
+                              </div>
+
+                              <div>
+                                  <h4 className="font-black text-sm text-slate-800 dark:text-slate-100 uppercase tracking-wider flex items-center gap-2">
+                                      <Workflow className="w-4 h-4 text-indigo-500" />
+                                      {p.nombre}
+                                      {p.id === 1 && <span className="text-[8px] bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 px-2 py-0.5 rounded font-black border border-slate-300 dark:border-slate-700">[NATIVO]</span>}
+                                  </h4>
+                                  {p.descripcion && <p className="text-xs text-slate-400 font-medium mt-1 pr-16">{p.descripcion}</p>}
+                              </div>
+
+                              {/* Timeline mini-trazabilidad */}
+                              <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-900 flex items-center flex-wrap gap-2">
+                                  {p.pasos.map((s: any, sIdx: number) => {
+                                      const miniIcon = (LucideIcons as any)[s.icono] || LucideIcons.Package;
+                                      return (
+                                          <div key={s.id || sIdx} className="flex items-center gap-1">
+                                              <span className="text-[10px] font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 px-2.5 py-1 rounded-lg text-slate-600 dark:text-slate-300 flex items-center gap-1.5 shadow-sm">
+                                                  {React.createElement(miniIcon, { className: "w-3 h-3 text-indigo-500 shrink-0" })}
+                                                  {s.etiqueta}
+                                              </span>
+                                              {sIdx < p.pasos.length - 1 && <ChevronRight className="w-3 h-3 text-slate-300 animate-pulse" />}
+                                          </div>
+                                      );
+                                  })}
+                              </div>
+                          </div>
+                      ))}
+                      {plantillas.length === 0 && (
+                          <div className="py-12 text-center text-slate-400 font-bold italic">No hay plantillas de progreso configuradas en el sistema.</div>
+                      )}
+                  </div>
+              </div>
+          </motion.div>
+        )}
+
 
         {deleteVarToMove && (
             <div className="fixed inset-0 z-[60] bg-slate-900/60 backdrop-blur-[2px] flex items-center justify-center p-4">
@@ -1920,4 +2500,143 @@ export function ConfiguracionMaestros() {
 
 </div>
   );
+}
+
+
+// ==========================================
+// SUB-COMPONENTE: SELECTOR DE ICONOS MODAL
+// ==========================================
+
+interface IconSelectorModalProps {
+    isOpen: boolean;
+    onClose: () => void;
+    onSelect: (iconName: string) => void;
+    currentIcon: string;
+}
+
+function IconSelectorModal({ isOpen, onClose, onSelect, currentIcon }: IconSelectorModalProps) {
+    const [search, setSearch] = useState('');
+    
+    if (!isOpen) return null;
+    
+    const filteredIcons = ALL_LUCIDE_ICONS.filter(name => 
+        name.toLowerCase().includes(search.toLowerCase())
+    );
+    
+    const visibleIcons = filteredIcons.slice(0, 200);
+    
+    return (
+        <div className="fixed inset-0 z-[60] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 max-w-2xl w-full border border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col max-h-[80vh] ring-1 ring-black/5">
+                
+                {/* Header */}
+                <div className="flex justify-between items-center mb-4">
+                    <div>
+                        <h3 className="text-lg font-black text-slate-900 dark:text-white">Seleccionar Ícono</h3>
+                        <p className="text-xs text-slate-500 font-bold uppercase tracking-widest">Elige entre más de mil íconos de Lucide</p>
+                    </div>
+                    <button 
+                        type="button" 
+                        onClick={() => { setSearch(''); onClose(); }} 
+                        className="text-slate-400 hover:text-slate-600 dark:hover:text-white font-black hover:bg-slate-100 dark:hover:bg-slate-850 p-2 rounded-xl transition-all cursor-pointer text-xs"
+                    >
+                        ✕ Cerrar
+                    </button>
+                </div>
+                
+                {/* Search Box */}
+                <div className="relative mb-5">
+                    <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input 
+                        type="text" 
+                        placeholder="Buscar ícono por nombre (ej: ship, box, check)..." 
+                        className="input-nexus w-full pl-10 pr-4 py-2 text-sm bg-slate-50 dark:bg-slate-950 focus:bg-white dark:focus:bg-slate-900 font-bold"
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                        autoFocus
+                    />
+                </div>
+                
+                {/* Icon Grid Area */}
+                <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 space-y-5">
+                    
+                    {/* Common Icons */}
+                    {!search && (
+                        <div className="space-y-2">
+                            <h4 className="text-[10px] font-black uppercase tracking-widest text-indigo-500">Íconos Frecuentes</h4>
+                            <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
+                                {COMMON_ICONS.map(name => {
+                                    const IconComponent = (LucideIcons as any)[name] || LucideIcons.Package;
+                                    const isSelected = currentIcon === name;
+                                    return (
+                                        <button
+                                            key={name}
+                                            type="button"
+                                            onClick={() => {
+                                                onSelect(name);
+                                                setSearch('');
+                                                onClose();
+                                            }}
+                                            className={cn(
+                                                "flex flex-col items-center justify-center p-3 rounded-xl border text-center transition-all cursor-pointer group hover:scale-105 active:scale-95",
+                                                isSelected 
+                                                    ? "bg-indigo-50 border-indigo-500 text-indigo-600 dark:bg-indigo-950/40 dark:border-indigo-900" 
+                                                    : "bg-slate-50 dark:bg-slate-950 border-slate-100 dark:border-slate-850 hover:border-indigo-400 dark:hover:border-indigo-900/60"
+                                            )}
+                                        >
+                                            <IconComponent className={cn("w-5 h-5 mb-1 group-hover:scale-110 transition-transform", isSelected ? "text-indigo-600" : "text-slate-500 dark:text-slate-400")} />
+                                            <span className="text-[9px] font-bold text-slate-500 dark:text-slate-400 truncate max-w-full leading-none">{name}</span>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    )}
+                    
+                    {/* General Grid */}
+                    <div className="space-y-2">
+                        <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                            {search ? `Resultados de búsqueda (${filteredIcons.length})` : 'Todos los Íconos'}
+                        </h4>
+                        
+                        {visibleIcons.length === 0 ? (
+                            <p className="text-xs text-slate-400 italic text-center py-6">No se encontraron íconos con ese nombre.</p>
+                        ) : (
+                            <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
+                                {visibleIcons.map(name => {
+                                    const IconComponent = (LucideIcons as any)[name];
+                                    if (!IconComponent) return null;
+                                    const isSelected = currentIcon === name;
+                                    return (
+                                        <button
+                                            key={name}
+                                            type="button"
+                                            onClick={() => {
+                                                onSelect(name);
+                                                setSearch('');
+                                                onClose();
+                                            }}
+                                            className={cn(
+                                                "flex flex-col items-center justify-center p-3 rounded-xl border text-center transition-all cursor-pointer group hover:scale-105 active:scale-95",
+                                                isSelected 
+                                                    ? "bg-indigo-50 border-indigo-500 text-indigo-600 dark:bg-indigo-950/40 dark:border-indigo-900" 
+                                                    : "bg-white dark:bg-slate-900 border-slate-150 dark:border-slate-800 hover:border-indigo-400 dark:hover:border-indigo-900/60"
+                                            )}
+                                        >
+                                            <IconComponent className={cn("w-5 h-5 mb-1 group-hover:scale-110 transition-transform", isSelected ? "text-indigo-600" : "text-slate-500 dark:text-slate-400")} />
+                                            <span className="text-[9px] font-bold text-slate-500 dark:text-slate-400 truncate max-w-full leading-none">{name}</span>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        )}
+                        
+                        {filteredIcons.length > 200 && (
+                            <p className="text-[10px] text-slate-400 text-center py-2">Mostrando los primeros 200 resultados. Refina tu búsqueda para encontrar más.</p>
+                        )}
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
 }

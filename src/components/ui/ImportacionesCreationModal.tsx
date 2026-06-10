@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Globe2, Building2, Truck, Save, ShoppingCart, Info, Loader2 } from 'lucide-react';
+import { X, Globe2, Building2, Truck, Save, ShoppingCart, Info, Loader2, Workflow } from 'lucide-react';
 import { executeAWSQuery } from '../../lib/aws-client';
 import toast from 'react-hot-toast';
 import { cn, formatCurrency } from '../../lib/utils';
@@ -25,10 +25,27 @@ export function ImportacionesCreationModal({ isOpen, onClose, onSuccess }: Props
   const [empresaTransporte, setEmpresaTransporte] = useState('');
   const [contactoTransporte, setContactoTransporte] = useState('');
   const [selectedCompras, setSelectedCompras] = useState<Set<string>>(new Set());
+  const [plantillas, setPlantillas] = useState<any[]>([]);
+  const [selectedPlantillaId, setSelectedPlantillaId] = useState<number | ''>('');
+
+  const fetchPlantillas = async () => {
+      try {
+          const res = await executeAWSQuery("SELECT id, nombre FROM Stock_Plantillas_Progreso ORDER BY nombre");
+          setPlantillas(res || []);
+          if (res && res.some((p: any) => p.id === 1)) {
+              setSelectedPlantillaId(1);
+          } else if (res && res.length > 0) {
+              setSelectedPlantillaId(res[0].id);
+          }
+      } catch (e) {
+          console.error("Error fetching plantillas:", e);
+      }
+  };
 
   useEffect(() => {
      if (isOpen) {
          fetchComprasLibres();
+         fetchPlantillas();
          setSelectedCompras(new Set());
          setOrigen('');
          setEmpresaImportadora('');
@@ -78,10 +95,24 @@ export function ImportacionesCreationModal({ isOpen, onClose, onSuccess }: Props
       try {
           const newId = crypto.randomUUID();
           
+          // Obtener el primer paso de la plantilla seleccionada
+          let firstStepKey = 'realizada';
+          if (selectedPlantillaId) {
+              const stepRes = await executeAWSQuery(`
+                  SELECT TOP 1 clave FROM Stock_Plantillas_Progreso_Pasos 
+                  WHERE plantilla_id = ${selectedPlantillaId} 
+                  ORDER BY orden ASC
+              `);
+              if (stepRes && stepRes.length > 0) {
+                  firstStepKey = stepRes[0].clave;
+              }
+          }
+
           const insertImp = `
             INSERT INTO Stock_Importaciones (
                 id, origen, empresa_importadora, contacto_importadora,
-                empresa_transporte_local, contacto_transporte_local, creado_por
+                empresa_transporte_local, contacto_transporte_local, creado_por,
+                plantilla_progreso_id, progreso
             ) VALUES (
                 '${newId}',
                 '${origen.replace(/'/g, "''")}',
@@ -89,7 +120,9 @@ export function ImportacionesCreationModal({ isOpen, onClose, onSuccess }: Props
                 '${contactoImportador.replace(/'/g, "''")}',
                 '${empresaTransporte.replace(/'/g, "''")}',
                 '${contactoTransporte.replace(/'/g, "''")}',
-                '${user?.usuario || 'Sistema'}'
+                '${user?.usuario || 'Sistema'}',
+                ${selectedPlantillaId || 'NULL'},
+                '${firstStepKey.replace(/'/g, "''")}'
             );
           `;
           await executeAWSQuery(insertImp);
@@ -97,7 +130,11 @@ export function ImportacionesCreationModal({ isOpen, onClose, onSuccess }: Props
           // Update compras
           const idList = Array.from(selectedCompras).map(id => `'${id}'`).join(',');
           const updateCompras = `
-            UPDATE Stock_Compras SET importacion_id = '${newId}' WHERE id IN (${idList});
+            UPDATE Stock_Compras 
+            SET importacion_id = '${newId}',
+                plantilla_progreso_id = ${selectedPlantillaId || 'NULL'},
+                progreso = '${firstStepKey.replace(/'/g, "''")}' 
+            WHERE id IN (${idList});
           `;
           await executeAWSQuery(updateCompras);
 
@@ -140,9 +177,28 @@ export function ImportacionesCreationModal({ isOpen, onClose, onSuccess }: Props
                        <Globe2 className="w-4 h-4"/> Logística y Origen
                     </h3>
                     <div className="space-y-4">
-                       <div>
-                          <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Puerto / País de Origen *</label>
-                          <input required value={origen} onChange={e => setOrigen(e.target.value)} placeholder="Ej: Shanghái, China" className="w-full bg-slate-100 dark:bg-slate-800 border-none rounded-xl px-4 py-3 text-sm font-bold text-slate-800 dark:text-white outline-none focus:ring-2 ring-indigo-500 transition-all"/>
+                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div>
+                             <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Puerto / País de Origen *</label>
+                             <input required value={origen} onChange={e => setOrigen(e.target.value)} placeholder="Ej: Shanghái, China" className="w-full bg-slate-100 dark:bg-slate-800 border-none rounded-xl px-4 py-3 text-sm font-bold text-slate-800 dark:text-white outline-none focus:ring-2 ring-indigo-500 transition-all"/>
+                          </div>
+                          <div>
+                             <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-1">
+                                <Workflow className="w-3 h-3 text-indigo-500"/> Plantilla de Progreso *
+                             </label>
+                             <select 
+                                required 
+                                value={selectedPlantillaId} 
+                                onChange={e => setSelectedPlantillaId(e.target.value ? Number(e.target.value) : '')} 
+                                className="w-full bg-slate-100 dark:bg-slate-800 border-none rounded-xl px-4 py-3 text-sm font-bold text-slate-800 dark:text-white outline-none focus:ring-2 ring-indigo-500 transition-all cursor-pointer"
+                             >
+                                {plantillas.map(p => (
+                                    <option key={p.id} value={p.id}>
+                                        {p.nombre} {p.id === 1 ? '(Nativa)' : ''}
+                                    </option>
+                                ))}
+                             </select>
+                          </div>
                        </div>
                        <div className="grid grid-cols-2 gap-4">
                            <div>

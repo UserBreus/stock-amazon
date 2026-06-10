@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Modal } from './Modal';
 import { executeAWSQuery } from '../../lib/aws-client';
-import { Package, Truck, Anchor, CheckCircle2, Factory, Ship, MapPin, QrCode, Printer } from 'lucide-react';
+import { Package, Truck, Anchor, CheckCircle2, Factory, Ship, MapPin, QrCode, Printer, Workflow, Loader2 } from 'lucide-react';
+import * as LucideIcons from 'lucide-react';
 import { cn } from '../../lib/utils';
 import toast from 'react-hot-toast';
 import { printLabel } from '../../lib/printLabel';
@@ -18,22 +19,67 @@ export function CompraDetalleModal({ isOpen, compra, onClose, onUpdate, onEditDr
    const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
    const [isEditing, setIsEditing] = useState(false);
    const [editedDetalles, setEditedDetalles] = useState<any[]>([]);
-   
-   const timelineSteps = [
-     { key: 'realizada', label: 'Realizada', icon: Package },
-     { key: 'en_fabricacion', label: 'En Fabricación', icon: Factory },
-     { key: 'en_deposito_traslado', label: 'Depósito de Traslado', icon: Truck },
-     { key: 'esperando_embarque', label: 'Esperando Embarque', icon: Anchor },
-     { key: 'embarcado', label: 'Embarcado', icon: Ship },
-     { key: 'puerto_intermedio', label: 'Puerto Intermedio', icon: MapPin },
-     { key: 'puerto_uruguayo', label: 'Puerto Uruguayo', icon: Anchor },
-     { key: 'esperando_envio', label: 'Esperando a que nos envíen', icon: Truck },
-     { key: 'recibido', label: 'Recibido', icon: CheckCircle2 }
-   ];
+   const [plantillas, setPlantillas] = useState<any[]>([]);
+   const [selectedPlantillaId, setSelectedPlantillaId] = useState<number>(1);
+   const [currentTemplateSteps, setCurrentTemplateSteps] = useState<any[]>([]);
+   const [loadingTemplate, setLoadingTemplate] = useState(false);
 
    useEffect(() => {
-      if(isOpen && compra) fetchDetalles();
+      if(isOpen && compra) {
+          fetchDetalles();
+          const platId = compra.plantilla_progreso_id || 1;
+          setSelectedPlantillaId(platId);
+          fetchPlantillasAndSteps(platId);
+      }
    }, [isOpen, compra]);
+
+   const fetchPlantillasAndSteps = async (plantillaId: number) => {
+       setLoadingTemplate(true);
+       try {
+           const [pList, pSteps] = await Promise.all([
+               executeAWSQuery("SELECT id, nombre FROM Stock_Plantillas_Progreso ORDER BY nombre"),
+               executeAWSQuery(`SELECT * FROM Stock_Plantillas_Progreso_Pasos WHERE plantilla_id = ${plantillaId} ORDER BY orden`)
+           ]);
+           if (pList) setPlantillas(pList);
+           if (pSteps) setCurrentTemplateSteps(pSteps);
+       } catch (e) {
+           console.error("Error loading template details:", e);
+       } finally {
+           setLoadingTemplate(false);
+       }
+   };
+
+   const handleReplaceTemplate = async (newPlantillaId: number) => {
+       if (isUpdating || !compra) return;
+       if (!window.confirm("¿Seguro que deseas cambiar la plantilla de progreso? Se restablecerá el progreso al primer paso de la nueva plantilla.")) return;
+       setIsUpdating(true);
+       try {
+           const stepRes = await executeAWSQuery(`
+               SELECT TOP 1 clave FROM Stock_Plantillas_Progreso_Pasos 
+               WHERE plantilla_id = ${newPlantillaId} 
+               ORDER BY orden ASC
+           `);
+           let firstStepKey = 'realizada';
+           if (stepRes && stepRes.length > 0) {
+               firstStepKey = stepRes[0].clave;
+           }
+
+           await executeAWSQuery(`
+               UPDATE Stock_Compras 
+               SET plantilla_progreso_id = ${newPlantillaId}, 
+                   progreso = '${firstStepKey.replace(/'/g, "''")}' 
+               WHERE id = '${compra.id}'
+           `);
+           toast.success('Plantilla de progreso actualizada y progreso restablecido.');
+           setSelectedPlantillaId(newPlantillaId);
+           await fetchPlantillasAndSteps(newPlantillaId);
+           onUpdate();
+       } catch(e:any) {
+           toast.error('Error al cambiar de plantilla: ' + e.message);
+       } finally {
+           setIsUpdating(false);
+       }
+   };
 
    const fetchDetalles = async () => {
       setIsLoading(true);
@@ -155,7 +201,8 @@ export function CompraDetalleModal({ isOpen, compra, onClose, onUpdate, onEditDr
            
            const refLimpia = (compra.referencia_factura || '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
            const provId = compra.proveedor_id;
-           const isRecibido = compra.progreso === 'recibido' || compra.estado === 'completada';
+           const lastStepKey = currentTemplateSteps.length > 0 ? currentTemplateSteps[currentTemplateSteps.length - 1].clave : 'recibido';
+           const isRecibido = compra.progreso === lastStepKey || compra.estado === 'completada';
             
             for (const item of editedDetalles) {
                 q += `
@@ -235,13 +282,12 @@ export function CompraDetalleModal({ isOpen, compra, onClose, onUpdate, onEditDr
 
    if(!compra) return null;
 
-   const currentStepIndex = timelineSteps.findIndex(s => s.key === compra.progreso);
+   const currentStepIndex = currentTemplateSteps.findIndex(s => s.clave === compra.progreso);
 
    return (
        <>
        <Modal isOpen={isOpen} onClose={onClose} title={`Detalle de Compra: ${compra.referencia_factura}`} maxWidth="max-w-5xl">
            <div className="space-y-6">
-                {/* Print Labels Banner */}
                 <div className="flex items-center justify-between bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800/50 rounded-xl px-5 py-3">
                   <div className="flex items-center gap-3">
                     <QrCode className="w-5 h-5 text-indigo-600" />
@@ -459,64 +505,95 @@ export function CompraDetalleModal({ isOpen, compra, onClose, onUpdate, onEditDr
                        </div>
                    </div>
 
-                   <div className="space-y-6">
-                       <div className="bg-slate-50 dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700">
-                          <h4 className="font-black text-slate-800 dark:text-white text-lg mb-4">Progreso Logístico</h4>
-                          <div className="flex flex-col gap-1 relative pl-4 border-l-2 border-slate-200 dark:border-slate-700">
-                              {timelineSteps.map((step, idx) => {
-                                  const isCompleted = currentStepIndex >= idx;
-                                  const isCurrent = currentStepIndex === idx;
-                                  return (
-                                      <div key={step.key} className="relative py-3 flex items-center justify-between group">
-                                          <div className={cn("absolute -left-[25px] w-4 h-4 rounded-full border-2 bg-white dark:bg-slate-900 transition-colors", isCompleted ? "border-emerald-500 bg-emerald-500" : "border-slate-300 dark:border-slate-600")} />
-                                          <div className="flex items-center gap-3">
-                                              <step.icon className={cn("w-5 h-5", isCompleted ? "text-emerald-600" : "text-slate-400")} />
-                                              <span className={cn("font-bold", isCurrent ? "text-emerald-700 dark:text-emerald-400" : (isCompleted ? "text-slate-700 dark:text-slate-200" : "text-slate-400"))}>{step.label}</span>
-                                          </div>
-                                          
-                                          {compra.estado !== 'pre-compra' && !isCurrent && (
-                                              <button 
-                                                  disabled={isUpdating}
-                                                  onClick={() => updateProgreso(step.key)} 
-                                                  className="opacity-0 group-hover:opacity-100 px-3 py-1 bg-slate-200 dark:bg-slate-700 text-xs font-bold rounded-lg hover:bg-slate-300 transition-all"
-                                              >
-                                                  Marcar
-                                              </button>
-                                          )}
-                                      </div>
-                                  );
-                              })}
-                          </div>
-                       </div>
-
-                       {compra.estado === 'pre-compra' && (
-                           <div className="card-nexus p-6 border-amber-200 bg-amber-50">
-                               <h4 className="font-black text-amber-900 text-lg mb-2">Pre-Compra / Borrador</h4>
-                               <p className="text-sm font-medium text-amber-700 mb-4">Esta compra no ha sido confirmada formalmente. Puedes continuar editándola o confirmarla para iniciar el tracking logístico.</p>
-                               <div className="flex flex-col gap-2">
-                                   <button 
-                                      onClick={() => onEditDraft(compra.id)}
-                                      className="w-full py-3 bg-white text-amber-700 font-bold rounded-xl border border-amber-300 hover:bg-amber-100 transition-colors"
-                                   >
-                                      Continuar Editando
-                                   </button>
-                                   <button 
-                                      onClick={async () => {
-                                          setIsUpdating(true);
-                                          await executeAWSQuery(`UPDATE Stock_Compras SET estado = 'pendiente', progreso = 'realizada' WHERE id = '${compra.id}'`);
-                                          toast.success("Compra confirmada!");
-                                          onUpdate();
-                                          setIsUpdating(false);
-                                      }}
-                                      disabled={isUpdating}
-                                      className="w-full py-3 bg-amber-600 text-white font-bold rounded-xl hover:bg-amber-700 transition-colors"
-                                   >
-                                      Confirmar Compra
-                                   </button>
-                               </div>
+                    <div className="space-y-6">
+                        <div className="bg-slate-50 dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700">
+                           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 mb-4">
+                              <h4 className="font-black text-slate-800 dark:text-white text-lg">Progreso Logístico</h4>
+                              <div className="flex items-center gap-1.5">
+                                  <Workflow className="w-3.5 h-3.5 text-indigo-500" />
+                                  <select
+                                      disabled={isUpdating || compra.importacion_id !== null}
+                                      value={selectedPlantillaId}
+                                      onChange={e => handleReplaceTemplate(Number(e.target.value))}
+                                      className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 text-[11px] font-bold text-slate-800 dark:text-white outline-none cursor-pointer shadow-sm"
+                                      title={compra.importacion_id ? "Heredado del expediente de importación" : "Cambiar plantilla"}
+                                  >
+                                      {plantillas.map(p => (
+                                          <option key={p.id} value={p.id}>{p.nombre}</option>
+                                      ))}
+                                  </select>
+                              </div>
                            </div>
-                       )}
-                   </div>
+                           
+                           {loadingTemplate ? (
+                               <div className="flex justify-center items-center py-10"><Loader2 className="w-6 h-6 animate-spin text-indigo-500" /></div>
+                           ) : (
+                               <div className="flex flex-col gap-1 relative pl-4 border-l-2 border-slate-200 dark:border-slate-700">
+                                   {currentTemplateSteps.map((step, idx) => {
+                                       const isCompleted = currentStepIndex >= idx;
+                                       const isCurrent = currentStepIndex === idx;
+                                       const Icon = (LucideIcons as any)[step.icono] || LucideIcons.Package;
+                                       return (
+                                           <div key={step.clave} className="relative py-3 flex items-center justify-between group">
+                                               <div className={cn("absolute -left-[25px] w-4 h-4 rounded-full border-2 bg-white dark:bg-slate-900 transition-colors", isCompleted ? "border-emerald-500 bg-emerald-500" : "border-slate-300 dark:border-slate-600")} />
+                                               <div className="flex items-center gap-3">
+                                                   <Icon className={cn("w-5 h-5", isCompleted ? "text-emerald-600" : "text-slate-400")} />
+                                                   <span className={cn("font-bold", isCurrent ? "text-emerald-700 dark:text-emerald-400" : (isCompleted ? "text-slate-700 dark:text-slate-200" : "text-slate-400"))}>{step.etiqueta}</span>
+                                               </div>
+                                               
+                                               {compra.estado !== 'pre-compra' && !isCurrent && (
+                                                   <button 
+                                                       disabled={isUpdating}
+                                                       onClick={() => updateProgreso(step.clave)} 
+                                                       className="opacity-0 group-hover:opacity-100 px-3 py-1 bg-slate-200 dark:bg-slate-700 text-xs font-bold rounded-lg hover:bg-slate-300 transition-all shadow-sm"
+                                                   >
+                                                       Marcar
+                                                   </button>
+                                               )}
+                                           </div>
+                                       );
+                                   })}
+                               </div>
+                           )}
+                        </div>
+
+                        {compra.estado === 'pre-compra' && (
+                            <div className="card-nexus p-6 border-amber-200 bg-amber-50">
+                                <h4 className="font-black text-amber-900 text-lg mb-2">Pre-Compra / Borrador</h4>
+                                <p className="text-sm font-medium text-amber-700 mb-4">Esta compra no ha sido confirmada formalmente. Puedes continuar editándola o confirmarla para iniciar el tracking logístico.</p>
+                                <div className="flex flex-col gap-2">
+                                    <button 
+                                       onClick={() => onEditDraft(compra.id)}
+                                       className="w-full py-3 bg-white text-amber-700 font-bold rounded-xl border border-amber-300 hover:bg-amber-100 transition-colors"
+                                    >
+                                       Continuar Editando
+                                    </button>
+                                    <button 
+                                       onClick={async () => {
+                                           setIsUpdating(true);
+                                           const stepRes = await executeAWSQuery(`
+                                               SELECT TOP 1 clave FROM Stock_Plantillas_Progreso_Pasos 
+                                               WHERE plantilla_id = ${compra.plantilla_progreso_id || 1} 
+                                               ORDER BY orden ASC
+                                           `);
+                                           let firstStepKey = 'realizada';
+                                           if (stepRes && stepRes.length > 0) {
+                                               firstStepKey = stepRes[0].clave;
+                                           }
+                                           await executeAWSQuery(`UPDATE Stock_Compras SET estado = 'pendiente', progreso = '${firstStepKey}' WHERE id = '${compra.id}'`);
+                                           toast.success("Compra confirmada!");
+                                           onUpdate();
+                                           setIsUpdating(false);
+                                       }}
+                                       disabled={isUpdating}
+                                       className="w-full py-3 bg-amber-600 text-white font-bold rounded-xl hover:bg-amber-700 transition-colors shadow-sm"
+                                    >
+                                       Confirmar Compra
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                    </div>
                </div>
            </div>
        </Modal>

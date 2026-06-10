@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Globe2, Building2, Truck, Box, Package, Factory, Anchor, Ship, MapPin, CheckCircle2, Loader2 } from 'lucide-react';
+import * as LucideIcons from 'lucide-react';
 import { executeAWSQuery } from '../../lib/aws-client';
 import toast from 'react-hot-toast';
 import { cn, formatCurrency } from '../../lib/utils';
@@ -13,28 +14,78 @@ interface Props {
   onUpdate: () => void;
 }
 
-const timelineSteps = [
-    { key: 'realizada', label: 'Realizada', icon: Package },
-    { key: 'en_fabricacion', label: 'En Fabricación', icon: Factory },
-    { key: 'en_deposito_traslado', label: 'Depósito de Traslado', icon: Truck },
-    { key: 'esperando_embarque', label: 'Esperando Embarque', icon: Anchor },
-    { key: 'embarcado', label: 'Embarcado', icon: Ship },
-    { key: 'puerto_intermedio', label: 'Puerto Intermedio', icon: MapPin },
-    { key: 'puerto_uruguayo', label: 'Puerto Uruguayo', icon: Anchor },
-    { key: 'esperando_envio', label: 'Esperando a que nos envíen', icon: Truck },
-    { key: 'recibido', label: 'Recibido', icon: CheckCircle2 }
-];
-
 export function ImportacionDetalleModal({ isOpen, onClose, importacion, onUpdate }: Props) {
   const [compras, setCompras] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
+  const [plantillas, setPlantillas] = useState<any[]>([]);
+  const [selectedPlantillaId, setSelectedPlantillaId] = useState<number>(1);
+  const [currentTemplateSteps, setCurrentTemplateSteps] = useState<any[]>([]);
+  const [loadingTemplate, setLoadingTemplate] = useState(false);
 
   useEffect(() => {
     if (isOpen && importacion) {
         fetchComprasDetalle();
+        const platId = importacion.plantilla_progreso_id || 1;
+        setSelectedPlantillaId(platId);
+        fetchPlantillasAndSteps(platId);
     }
   }, [isOpen, importacion]);
+
+  const fetchPlantillasAndSteps = async (plantillaId: number) => {
+      setLoadingTemplate(true);
+      try {
+          const [pList, pSteps] = await Promise.all([
+              executeAWSQuery("SELECT id, nombre FROM Stock_Plantillas_Progreso ORDER BY nombre"),
+              executeAWSQuery(`SELECT * FROM Stock_Plantillas_Progreso_Pasos WHERE plantilla_id = ${plantillaId} ORDER BY orden`)
+          ]);
+          if (pList) setPlantillas(pList);
+          if (pSteps) setCurrentTemplateSteps(pSteps);
+      } catch (e) {
+          console.error("Error loading template details:", e);
+      } finally {
+          setLoadingTemplate(false);
+      }
+  };
+
+  const handleReplaceTemplate = async (newPlantillaId: number) => {
+      if (isUpdating || !importacion) return;
+      if (!window.confirm("¿Seguro que deseas cambiar la plantilla de progreso? Se restablecerá el progreso al primer paso de la nueva plantilla.")) return;
+      setIsUpdating(true);
+      try {
+          const stepRes = await executeAWSQuery(`
+              SELECT TOP 1 clave FROM Stock_Plantillas_Progreso_Pasos 
+              WHERE plantilla_id = ${newPlantillaId} 
+              ORDER BY orden ASC
+          `);
+          let firstStepKey = 'realizada';
+          if (stepRes && stepRes.length > 0) {
+              firstStepKey = stepRes[0].clave;
+          }
+
+          const q = `
+             UPDATE Stock_Importaciones 
+             SET plantilla_progreso_id = ${newPlantillaId}, 
+                 progreso = '${firstStepKey.replace(/'/g, "''")}' 
+             WHERE id = '${importacion.id}';
+
+             UPDATE Stock_Compras 
+             SET plantilla_progreso_id = ${newPlantillaId}, 
+                 progreso = '${firstStepKey.replace(/'/g, "''")}' 
+             WHERE importacion_id = '${importacion.id}';
+          `;
+          await executeAWSQuery(q);
+          toast.success('Plantilla de progreso actualizada y progreso restablecido.');
+          
+          setSelectedPlantillaId(newPlantillaId);
+          await fetchPlantillasAndSteps(newPlantillaId);
+          onUpdate();
+      } catch(e:any) {
+          toast.error('Error al cambiar de plantilla: ' + e.message);
+      } finally {
+          setIsUpdating(false);
+      }
+  };
 
   const fetchComprasDetalle = async () => {
      setLoading(true);
@@ -75,11 +126,9 @@ export function ImportacionDetalleModal({ isOpen, onClose, importacion, onUpdate
      } finally {
          setIsUpdating(false);
      }
-  };
+  };  if (!isOpen || !importacion) return null;
 
-  if (!isOpen || !importacion) return null;
-
-  const currentStepIndex = timelineSteps.findIndex(s => s.key === importacion.progreso);
+  const currentStepIndex = currentTemplateSteps.findIndex(s => s.clave === importacion.progreso);
 
   return (
     <AnimatePresence>
@@ -148,59 +197,78 @@ export function ImportacionDetalleModal({ isOpen, onClose, importacion, onUpdate
               
               {/* DERECHA: SEGUIMIENTO LOGISTICO GLOBAL */}
               <div className="flex-1 bg-slate-50 dark:bg-slate-900/50 relative">
-                  <div className="p-6 border-b border-slate-200 dark:border-slate-800">
-                      <h3 className="font-black text-sm text-indigo-600 uppercase tracking-widest flex items-center gap-2">
-                         <Anchor className="w-4 h-4"/> Progreso Logístico Global
-                      </h3>
-                      <p className="text-xs font-bold text-slate-500 mt-1">Este carril controla y actualiza todas las compras vinculadas al unísono.</p>
+                  <div className="p-6 border-b border-slate-200 dark:border-slate-800 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                      <div>
+                          <h3 className="font-black text-sm text-indigo-600 uppercase tracking-widest flex items-center gap-2">
+                             <Anchor className="w-4 h-4"/> Progreso Logístico Global
+                          </h3>
+                          <p className="text-xs font-bold text-slate-500 mt-1">Este carril controla y actualiza todas las compras vinculadas al unísono.</p>
+                      </div>
+                      <div className="w-full md:w-auto shrink-0 flex items-center gap-2">
+                          <LucideIcons.Workflow className="w-4 h-4 text-indigo-500 animate-pulse" />
+                          <select 
+                              disabled={isUpdating}
+                              value={selectedPlantillaId}
+                              onChange={e => handleReplaceTemplate(Number(e.target.value))}
+                              className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-1.5 text-xs font-bold text-slate-800 dark:text-white outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer shadow-sm"
+                          >
+                              {plantillas.map(p => (
+                                  <option key={p.id} value={p.id}>{p.nombre}</option>
+                              ))}
+                          </select>
+                      </div>
                   </div>
                   <div className="p-8">
-                      <div className="relative">
-                          {/* Línea base inactiva */}
-                          <div className="absolute left-[23px] top-6 bottom-6 w-1 bg-slate-200 dark:bg-slate-800 rounded-full"></div>
-                          {/* Línea pintada activa */}
-                          <div 
-                              className="absolute left-[23px] top-6 w-1 bg-indigo-500 rounded-full transition-all duration-700 ease-out" 
-                              style={{ height: `calc(${Math.max(0, currentStepIndex) / (timelineSteps.length - 1) * 100}% - 12px)` }}
-                          ></div>
-                          
-                          <div className="space-y-8 relative">
-                              {timelineSteps.map((step, idx) => {
-                                  const isCompleted = currentStepIndex >= idx;
-                                  const isCurrent = currentStepIndex === idx;
-                                  const Icon = step.icon;
-                                  return (
-                                      <div key={step.key} className="flex flex-col items-start gap-3 relative group">
-                                         <div className="flex items-center gap-4 w-full">
-                                            <button 
-                                                disabled={isUpdating}
-                                                onClick={() => handleUpdateProgress(step.key)}
-                                                className={cn(
-                                                    "w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 border-4 transition-all relative z-10",
-                                                    isCurrent ? "bg-indigo-50 border-indigo-500 text-indigo-600 scale-110 shadow-lg shadow-indigo-500/20" : 
-                                                    isCompleted ? "bg-indigo-500 border-indigo-500 text-white" : 
-                                                    "bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-400 hover:border-indigo-300"
-                                                )}
-                                            >
-                                                {isUpdating && isCurrent ? <Loader2 className="w-5 h-5 animate-spin"/> : <Icon className="w-5 h-5" />}
-                                            </button>
-                                            <div className="flex-1">
-                                                <p className={cn("font-black text-sm transition-colors", isCurrent ? "text-indigo-600" : isCompleted ? "text-slate-800 dark:text-slate-200" : "text-slate-400")}>
-                                                    {step.label}
-                                                </p>
-                                                {isCurrent && <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest mt-1">Operación actual</p>}
-                                            </div>
-                                            {isCompleted && !isCurrent && (
-                                                <div className="w-8 h-8 rounded-full bg-emerald-50 text-emerald-500 flex items-center justify-center shrink-0">
-                                                    <CheckCircle2 className="w-4 h-4"/>
+                      {loadingTemplate ? (
+                          <div className="flex justify-center items-center py-20"><Loader2 className="w-8 h-8 animate-spin text-indigo-500" /></div>
+                      ) : (
+                          <div className="relative">
+                              {/* Línea base inactiva */}
+                              <div className="absolute left-[23px] top-6 bottom-6 w-1 bg-slate-200 dark:bg-slate-800 rounded-full"></div>
+                              {/* Línea pintada activa */}
+                              <div 
+                                  className="absolute left-[23px] top-6 w-1 bg-indigo-500 rounded-full transition-all duration-700 ease-out" 
+                                  style={{ height: `calc(${Math.max(0, currentStepIndex) / Math.max(1, currentTemplateSteps.length - 1) * 100}% - 12px)` }}
+                              ></div>
+                              
+                              <div className="space-y-8 relative">
+                                  {currentTemplateSteps.map((step, idx) => {
+                                      const isCompleted = currentStepIndex >= idx;
+                                      const isCurrent = currentStepIndex === idx;
+                                      const Icon = (LucideIcons as any)[step.icono] || LucideIcons.Package;
+                                      return (
+                                          <div key={step.clave} className="flex flex-col items-start gap-3 relative group">
+                                             <div className="flex items-center gap-4 w-full">
+                                                <button 
+                                                    disabled={isUpdating}
+                                                    onClick={() => handleUpdateProgress(step.clave)}
+                                                    className={cn(
+                                                        "w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 border-4 transition-all relative z-10",
+                                                        isCurrent ? "bg-indigo-50 border-indigo-500 text-indigo-600 scale-110 shadow-lg shadow-indigo-500/20" : 
+                                                        isCompleted ? "bg-indigo-500 border-indigo-500 text-white" : 
+                                                        "bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-400 hover:border-indigo-300"
+                                                    )}
+                                                >
+                                                    {isUpdating && isCurrent ? <Loader2 className="w-5 h-5 animate-spin"/> : <Icon className="w-5 h-5" />}
+                                                </button>
+                                                <div className="flex-1">
+                                                    <p className={cn("font-black text-sm transition-colors", isCurrent ? "text-indigo-600" : isCompleted ? "text-slate-800 dark:text-slate-200" : "text-slate-400")}>
+                                                        {step.etiqueta}
+                                                    </p>
+                                                    {isCurrent && <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest mt-1">Operación actual</p>}
                                                 </div>
-                                            )}
-                                         </div>
-                                      </div>
-                                  );
-                              })}
+                                                {isCompleted && !isCurrent && (
+                                                    <div className="w-8 h-8 rounded-full bg-emerald-50 text-emerald-500 flex items-center justify-center shrink-0">
+                                                        <CheckCircle2 className="w-4 h-4"/>
+                                                    </div>
+                                                )}
+                                             </div>
+                                          </div>
+                                      );
+                                  })}
+                              </div>
                           </div>
-                      </div>
+                      )}
                   </div>
               </div>
 

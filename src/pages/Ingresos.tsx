@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { ShoppingCart, Receipt, Plus, Package, Box, ChevronLeft, QrCode } from 'lucide-react';
+import { ShoppingCart, Receipt, Plus, Package, Box, ChevronLeft, QrCode, Workflow } from 'lucide-react';
 import { ComprasDashboard } from '../components/gestion/ComprasDashboard';
 import { executeAWSQuery } from '../lib/aws-client';
 import { cn, getVisualName } from '../lib/utils';
@@ -32,6 +32,8 @@ export function Ingresos() {
   const [gastosExtras, setGastosExtras] = useState<string>('');
   const [monedas, setMonedas] = useState<any[]>([]);
   const [monedaId, setMonedaId] = useState<string>('1');
+  const [plantillas, setPlantillas] = useState<any[]>([]);
+  const [selectedPlantillaId, setSelectedPlantillaId] = useState<number | ''>('');
 
   const monedaObj = monedas.find(m => m.id.toString() === monedaId.toString());
   const monedaSimbolo = monedaObj ? monedaObj.simbolo : '$';
@@ -63,14 +65,15 @@ export function Ingresos() {
 
   const fetchMaestros = async () => {
     try {
-      const [provs, tiposF, cats, vars, deps, maestRes, monRes] = await Promise.all([
+      const [provs, tiposF, cats, vars, deps, maestRes, monRes, plantRes] = await Promise.all([
         executeAWSQuery("SELECT * FROM Stock_Proveedores ORDER BY nombre"),
         executeAWSQuery("SELECT * FROM Stock_TiposFactura ORDER BY nombre"),
         executeAWSQuery("SELECT * FROM Stock_Categorias ORDER BY nombre"),
         executeAWSQuery("SELECT v.*, p.nombre as producto_padre, p.categoria_id, p.unidad_base, p.tipo_gestion, c.nombre as cat_nombre FROM Stock_Variantes v INNER JOIN Stock_Productos_Maestros p ON v.producto_maestro_id = p.id LEFT JOIN Stock_Categorias c ON p.categoria_id = c.id ORDER BY p.nombre, v.nombre_variante"),
         executeAWSQuery("SELECT id FROM Stock_Depositos WHERE tipo='central' ORDER BY id ASC"),
         executeAWSQuery("SELECT * FROM Stock_Productos_Maestros ORDER BY nombre"),
-        executeAWSQuery("SELECT * FROM Stock_Monedas ORDER BY id")
+        executeAWSQuery("SELECT * FROM Stock_Monedas ORDER BY id"),
+        executeAWSQuery("SELECT id, nombre FROM Stock_Plantillas_Progreso ORDER BY nombre")
       ]);
       if(provs) setProveedores(provs);
       if(tiposF) setTiposFactura(tiposF);
@@ -79,6 +82,14 @@ export function Ingresos() {
       if(monRes) setMonedas(monRes);
       if(vars) setVariantes(vars);
       if(deps && deps.length > 0) setAlmacenId(deps[0].id.toString());
+      if(plantRes) {
+          setPlantillas(plantRes);
+          if (plantRes.some((p: any) => p.id === 1)) {
+              setSelectedPlantillaId(1);
+          } else if (plantRes.length > 0) {
+              setSelectedPlantillaId(plantRes[0].id);
+          }
+      }
     } catch(e) { console.error(e); }
   };
 
@@ -136,6 +147,22 @@ export function Ingresos() {
      setIsProcesando(true);
 
      try {
+        let firstStepKey = 'realizada';
+        if (selectedPlantillaId && tipoIngreso === 'compra') {
+            try {
+                const stepRes = await executeAWSQuery(`
+                    SELECT TOP 1 clave FROM Stock_Plantillas_Progreso_Pasos 
+                    WHERE plantilla_id = ${selectedPlantillaId} 
+                    ORDER BY orden ASC
+                `);
+                if (stepRes && stepRes.length > 0) {
+                    firstStepKey = stepRes[0].clave;
+                }
+            } catch(e) {
+                console.error("Error fetching template first step:", e);
+            }
+        }
+
         if (tipoIngreso === 'compra') {
             const checkQuery = `SELECT id FROM Stock_Compras WHERE proveedor_id = '${provId}' AND UPPER(REPLACE(REPLACE(referencia_factura, ' ', ''), '-', '')) = '${refLimpia}' ${editingDraftId ? `AND id != '${editingDraftId}'` : ''}`;
             const existe = await executeAWSQuery(checkQuery);
@@ -167,7 +194,7 @@ export function Ingresos() {
 
             if (editingDraftId) {
                 q += `
-                   UPDATE Stock_Compras SET proveedor_id = '${provId}', referencia_factura = '${referencia}', tipo_factura_id = ${tipoFacturaId}, total_compra = ${total}, gastos_extras = ${valGastos}, estado = '${estado}', moneda_id = ${monedaId} WHERE id = '${editingDraftId}';
+                   UPDATE Stock_Compras SET proveedor_id = '${provId}', referencia_factura = '${referencia}', tipo_factura_id = ${tipoFacturaId}, total_compra = ${total}, gastos_extras = ${valGastos}, estado = '${estado}', moneda_id = ${monedaId}, plantilla_progreso_id = ${selectedPlantillaId || 'NULL'}, progreso = '${firstStepKey.replace(/'/g, "''")}' WHERE id = '${editingDraftId}';
                    DELETE FROM Stock_Compras_Detalle WHERE compra_id = '${editingDraftId}';
                    DELETE FROM Stock_Etiquetas WHERE compra_id = '${editingDraftId}' AND estado = 'pendiente_recepcion';
                    DECLARE @CompraId UNIQUEIDENTIFIER = '${editingDraftId}';
@@ -179,8 +206,8 @@ export function Ingresos() {
                        ALTER TABLE Stock_Compras ADD estado VARCHAR(50) DEFAULT 'pendiente';
                    END
                    DECLARE @CompraId UNIQUEIDENTIFIER = NEWID();
-                   INSERT INTO Stock_Compras (id, proveedor_id, referencia_factura, tipo_factura_id, total_compra, creado_por, estado, gastos_extras, moneda_id)
-                   VALUES (@CompraId, '${provId}', '${referencia}', ${tipoFacturaId}, ${total}, '${user?.id}', '${estado}', ${valGastos}, ${monedaId});
+                   INSERT INTO Stock_Compras (id, proveedor_id, referencia_factura, tipo_factura_id, total_compra, creado_por, estado, gastos_extras, moneda_id, plantilla_progreso_id, progreso)
+                   VALUES (@CompraId, '${provId}', '${referencia}', ${tipoFacturaId}, ${total}, '${user?.id}', '${estado}', ${valGastos}, ${monedaId}, ${selectedPlantillaId || 'NULL'}, '${firstStepKey.replace(/'/g, "''")}');
                 `;
             }
             
@@ -309,6 +336,11 @@ export function Ingresos() {
                      setRefError(false);
                      setTipoFacturaId('');
                      setEditingDraftId(null);
+                     if (plantillas.some(p => p.id === 1)) {
+                         setSelectedPlantillaId(1);
+                     } else if (plantillas.length > 0) {
+                         setSelectedPlantillaId(plantillas[0].id);
+                     }
                      setViewMode('form');
                  }}
                  onEditDraft={async (compra) => {
@@ -316,6 +348,7 @@ export function Ingresos() {
                      setReferencia(compra.referencia_factura);
                      setTipoFacturaId(compra.tipo_factura_id?.toString() || '');
                      setGastosExtras(compra.gastos_extras?.toString() || '');
+                     setSelectedPlantillaId(compra.plantilla_progreso_id || 1);
                      setEditingDraftId(compra.id);
                      
                      const res = await executeAWSQuery(`SELECT d.*, v.nombre_variante, p.nombre as producto_padre, p.unidad_base FROM Stock_Compras_Detalle d INNER JOIN Stock_Variantes v ON d.variante_id = v.id INNER JOIN Stock_Productos_Maestros p ON v.producto_maestro_id = p.id WHERE d.compra_id = '${compra.id}'`);
@@ -421,6 +454,22 @@ export function Ingresos() {
                                 value={gastosExtras}
                                 onChange={e=>setGastosExtras(e.target.value)}
                             />
+                        </div>
+                        <div className="space-y-2">
+                            <label className="text-[10px] font-bold uppercase text-slate-500 tracking-widest pl-1 flex items-center gap-1">
+                                <Workflow className="w-3 h-3 text-indigo-500" /> Plantilla de Progreso
+                            </label>
+                            <select 
+                                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-sm text-slate-800 transition-colors focus:border-indigo-400 shadow-sm outline-none cursor-pointer"
+                                value={selectedPlantillaId}
+                                onChange={e=>setSelectedPlantillaId(e.target.value ? Number(e.target.value) : '')}
+                            >
+                                {plantillas.map(p => (
+                                    <option key={p.id} value={p.id}>
+                                        {p.nombre} {p.id === 1 ? '(Nativa)' : ''}
+                                    </option>
+                                ))}
+                            </select>
                         </div>
                     </div>
                 </div>
