@@ -32,6 +32,8 @@ export function CompraDetalleModal({ isOpen, compra, onClose, onUpdate, onEditDr
    const [showPagosModal, setShowPagosModal] = useState(false);
    const [motivosList, setMotivosList] = useState<string[]>([]);
    const [isOpenDropdown, setIsOpenDropdown] = useState(false);
+   const [showNewMotiveInput, setShowNewMotiveInput] = useState(false);
+   const [newMotiveName, setNewMotiveName] = useState('');
 
    useEffect(() => {
       if(isOpen && compra) {
@@ -723,69 +725,99 @@ export function CompraDetalleModal({ isOpen, compra, onClose, onUpdate, onEditDr
                         </div>
                         <div className="relative">
                             <label className="text-[9px] font-bold uppercase text-slate-400 pl-1 block mb-1">Motivo de Pago</label>
-                            <div className="flex gap-1.5">
-                                <div className="relative flex-1">
+                            {showNewMotiveInput ? (
+                                <div className="flex gap-1.5">
                                     <input
                                         type="text"
-                                        placeholder="Seleccione o escriba..."
-                                        className="input-nexus w-full text-xs py-2 px-3 pr-8"
-                                        value={pagoTipoInput}
-                                        onChange={e => {
-                                            setPagoTipoInput(e.target.value);
-                                            setIsOpenDropdown(true);
-                                        }}
-                                        onFocus={() => setIsOpenDropdown(true)}
-                                        onBlur={() => {
-                                            setTimeout(() => setIsOpenDropdown(false), 200);
-                                        }}
+                                        placeholder="Nombre de motivo..."
+                                        className="input-nexus flex-1 text-xs py-2 px-3 border-emerald-300 dark:border-emerald-800/80"
+                                        value={newMotiveName}
+                                        onChange={e => setNewMotiveName(e.target.value)}
+                                        autoFocus
                                     />
-                                    {isOpenDropdown && (
-                                        <div className="absolute top-full left-0 right-0 mt-1 max-h-48 overflow-y-auto bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg shadow-xl z-55 divide-y divide-slate-100 dark:divide-slate-850">
-                                            {motivosList
-                                                .filter(m => m.toLowerCase().includes(pagoTipoInput.toLowerCase()))
-                                                .map(m => (
-                                                    <button
-                                                        key={m}
-                                                        type="button"
-                                                        className="w-full text-left px-3 py-2 text-xs hover:bg-indigo-50 dark:hover:bg-indigo-900/30 text-slate-800 dark:text-slate-200 font-medium"
-                                                        onMouseDown={() => {
-                                                            setPagoTipoInput(m);
-                                                        }}
-                                                    >
-                                                        {m}
-                                                    </button>
-                                                ))
-                                            }
-                                            {motivosList.filter(m => m.toLowerCase().includes(pagoTipoInput.toLowerCase())).length === 0 && (
-                                                <p className="p-2 text-center text-[10px] text-slate-400 italic">No hay coincidencias</p>
-                                            )}
-                                        </div>
-                                    )}
-                                </div>
-                                <button
-                                    type="button"
-                                    onClick={async () => {
-                                        const val = window.prompt("Ingrese el nombre del nuevo motivo de pago:");
-                                        if (val && val.trim()) {
+                                    <button
+                                        type="button"
+                                        onClick={async () => {
+                                            if (!newMotiveName.trim()) return toast.error("El nombre no puede estar vacío");
                                             try {
-                                                await executeAWSQuery(`INSERT INTO Stock_Pagos_Motivos (nombre) VALUES ('${val.trim().replace(/'/g, "''")}')`);
+                                                await executeAWSQuery(`INSERT INTO Stock_Pagos_Motivos (nombre) VALUES ('${newMotiveName.trim().replace(/'/g, "''")}')`);
                                                 toast.success("Motivo guardado.");
                                                 const res = await executeAWSQuery("SELECT nombre FROM Stock_Pagos_Motivos ORDER BY nombre ASC");
                                                 if (res) {
                                                     setMotivosList(res.map((r: any) => r.nombre));
-                                                    setPagoTipoInput(val.trim());
+                                                    setPagoTipoInput(newMotiveName.trim());
                                                 }
+                                                setNewMotiveName('');
+                                                setShowNewMotiveInput(false);
                                             } catch (e: any) {
                                                 toast.error("Error al guardar: " + e.message);
                                             }
-                                        }
-                                    }}
-                                    className="px-2.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 transition font-black text-xs"
-                                    title="Crear nuevo motivo"
-                                >
-                                    +
-                                </button>
-                            </div>
+                                        }}
+                                        className="px-2.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow-sm"
+                                    >
+                                        ✓
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setShowNewMotiveInput(false);
+                                            setNewMotiveName('');
+                                        }}
+                                        className="px-2.5 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg text-xs font-bold border border-slate-200 dark:border-slate-750"
+                                    >
+                                        ✕
+                                    </button>
+                                </div>
+                            ) : (
+                                <div className="flex gap-1.5">
+                                    <div className="relative flex-1">
+                                        <input
+                                            type="text"
+                                            placeholder="Seleccione o escriba..."
+                                            className="input-nexus w-full text-xs py-2 px-3 pr-8"
+                                            value={pagoTipoInput}
+                                            onChange={e => {
+                                                setPagoTipoInput(e.target.value);
+                                                setIsOpenDropdown(true);
+                                            }}
+                                            onFocus={() => setIsOpenDropdown(true)}
+                                            onBlur={() => {
+                                                setTimeout(() => setIsOpenDropdown(false), 200);
+                                            }}
+                                        />
+                                        {isOpenDropdown && (
+                                            <div className="absolute top-full left-0 right-0 mt-1 max-h-48 overflow-y-auto bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg shadow-xl z-55 divide-y divide-slate-100 dark:divide-slate-850">
+                                                {motivosList
+                                                    .filter(m => m.toLowerCase().includes(pagoTipoInput.toLowerCase()))
+                                                    .map(m => (
+                                                        <button
+                                                            key={m}
+                                                            type="button"
+                                                            className="w-full text-left px-3 py-2 text-xs hover:bg-indigo-50 dark:hover:bg-indigo-900/30 text-slate-800 dark:text-slate-200 font-medium"
+                                                            onMouseDown={() => {
+                                                                setPagoTipoInput(m);
+                                                            }}
+                                                        >
+                                                            {m}
+                                                        </button>
+                                                    ))
+                                                }
+                                                {motivosList.filter(m => m.toLowerCase().includes(pagoTipoInput.toLowerCase())).length === 0 && (
+                                                    <p className="p-2 text-center text-[10px] text-slate-400 italic">No hay coincidencias</p>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowNewMotiveInput(true)}
+                                        className="px-2.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 transition font-black text-xs"
+                                        title="Crear nuevo motivo"
+                                    >
+                                        +
+                                    </button>
+                                </div>
+                            )}
                         </div>
                         <div className="flex flex-col">
                             <label className="text-[9px] font-bold uppercase text-slate-400 pl-1 block mb-1">Detalle / Explicación</label>
