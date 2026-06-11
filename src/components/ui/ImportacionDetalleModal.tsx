@@ -29,6 +29,7 @@ export function ImportacionDetalleModal({ isOpen, onClose, importacion, onUpdate
   const [pagoTipoInput, setPagoTipoInput] = useState('Transferencia');
   const [pagoMotivoInput, setPagoMotivoInput] = useState('');
   const [pagoDestinoInput, setPagoDestinoInput] = useState('gastos');
+  const [showPagosModal, setShowPagosModal] = useState(false);
 
   useEffect(() => {
     if (isOpen && importacion) {
@@ -254,12 +255,24 @@ export function ImportacionDetalleModal({ isOpen, onClose, importacion, onUpdate
                      )}
                  </div>
 
-                  {/* Sección de Pagos de la Importación */}
+                  {/* Resumen de Pagos en Panel Principal */}
                   <div className="border-t border-slate-100 dark:border-slate-800 pt-6 space-y-4">
-                      <h3 className="font-black text-sm text-slate-800 dark:text-slate-100 uppercase tracking-widest flex items-center gap-2">
-                         <CreditCard className="w-4 h-4 text-indigo-500" />
-                         Pagos de la Importación
-                      </h3>
+                      <div className="flex justify-between items-center pb-2">
+                          <div>
+                              <h3 className="font-black text-sm text-slate-800 dark:text-slate-100 uppercase tracking-widest flex items-center gap-2">
+                                 <CreditCard className="w-4 h-4 text-indigo-500" />
+                                 Estado de Pagos
+                              </h3>
+                              <p className="text-[11px] text-slate-400 font-medium">Resumen consolidado de la importación</p>
+                          </div>
+                          <button
+                              onClick={() => setShowPagosModal(true)}
+                              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-sm transition-all flex items-center gap-1.5"
+                          >
+                              <CreditCard className="w-3.5 h-3.5" />
+                              Gestionar Pagos
+                          </button>
+                      </div>
                       
                       {/* Resumen Financiero de la Importación */}
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50 dark:bg-slate-900/40 p-4 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm">
@@ -282,137 +295,11 @@ export function ImportacionDetalleModal({ isOpen, onClose, importacion, onUpdate
                               </p>
                           </div>
                           <div className="text-center border-l border-slate-100 dark:border-slate-800">
-                              <p className="text-[9px] font-bold uppercase text-slate-400 tracking-wider">Pendiente Órdenes</p>
+                              <p className="text-[9px] font-bold uppercase text-slate-400 tracking-wider font-semibold">Pendiente Órdenes</p>
                               <p className={cn("text-sm font-black mt-1", saldoPendienteCompras <= 0 ? "text-emerald-600" : "text-amber-500")}>
                                   {formatCurrency(saldoPendienteCompras, 'USD')}
                               </p>
                           </div>
-                      </div>
-
-                      {/* Registrar nuevo pago */}
-                      <div className="bg-slate-50 dark:bg-slate-900/30 p-4 rounded-xl border border-slate-100 dark:border-slate-800 space-y-3">
-                          <p className="font-bold text-xs text-slate-800 dark:text-slate-200">Registrar Pago en Importación</p>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
-                              <div>
-                                  <label className="text-[9px] font-bold uppercase text-slate-400 pl-1 block mb-1">Monto</label>
-                                  <input 
-                                      type="number"
-                                      step="0.01"
-                                      placeholder="Monto"
-                                      className="input-nexus w-full text-xs py-2 px-3"
-                                      value={pagoMontoInput}
-                                      onChange={e => setPagoMontoInput(e.target.value)}
-                                  />
-                              </div>
-                              <div>
-                                  <label className="text-[9px] font-bold uppercase text-slate-400 pl-1 block mb-1">Tipo</label>
-                                  <select
-                                      className="input-nexus w-full text-xs py-2 px-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg outline-none cursor-pointer"
-                                      value={pagoTipoInput}
-                                      onChange={e => setPagoTipoInput(e.target.value)}
-                                  >
-                                      <option value="Transferencia">Transferencia</option>
-                                      <option value="Efectivo">Efectivo</option>
-                                      <option value="Cheque">Cheque</option>
-                                      <option value="Tarjeta">Tarjeta</option>
-                                      <option value="Otro">Otro</option>
-                                  </select>
-                              </div>
-                              <div>
-                                  <label className="text-[9px] font-bold uppercase text-slate-400 pl-1 block mb-1">Destino</label>
-                                  <select
-                                      className="input-nexus w-full text-xs py-2 px-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg outline-none cursor-pointer"
-                                      value={pagoDestinoInput}
-                                      onChange={e => setPagoDestinoInput(e.target.value)}
-                                  >
-                                      <option value="gastos">Gastos Importación (Gral.)</option>
-                                      {compras.map(c => (
-                                          <option key={c.id} value={c.id}>Orden: {c.referencia_factura || 'Sin Ref'}</option>
-                                      ))}
-                                  </select>
-                              </div>
-                              <div className="flex flex-col">
-                                  <label className="text-[9px] font-bold uppercase text-slate-400 pl-1 block mb-1">Detalle</label>
-                                  <div className="flex gap-2">
-                                      <input 
-                                          type="text"
-                                          placeholder="Concepto..."
-                                          className="input-nexus flex-1 text-xs py-2 px-3"
-                                          value={pagoMotivoInput}
-                                          onChange={e => setPagoMotivoInput(e.target.value)}
-                                      />
-                                      <button 
-                                          disabled={isUpdating}
-                                          onClick={registrarPago}
-                                          className="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition font-bold text-xs flex items-center justify-center gap-1 shadow-sm"
-                                      >
-                                          <Plus className="w-3.5 h-3.5" />
-                                          Grabar
-                                      </button>
-                                  </div>
-                              </div>
-                          </div>
-                      </div>
-
-                      {/* Listado de Pagos de la Importación */}
-                      <div className="space-y-2">
-                          <p className="font-bold text-xs text-slate-800 dark:text-slate-200">Historial de Pagos de la Importación</p>
-                          {pagos.length === 0 ? (
-                              <p className="text-xs text-slate-400 italic py-2 text-center bg-slate-50 dark:bg-slate-900/10 border border-slate-100 dark:border-slate-800 rounded-xl">
-                                  No hay pagos registrados para esta importación.
-                              </p>
-                          ) : (
-                              <div className="overflow-hidden border border-slate-100 dark:border-slate-800 rounded-xl bg-white dark:bg-slate-950 max-h-[25vh] overflow-y-auto custom-scrollbar">
-                                  <table className="w-full text-left text-xs">
-                                      <thead className="bg-slate-50 dark:bg-slate-900 font-bold text-slate-400 uppercase tracking-widest text-[9px] border-b border-slate-100 dark:border-slate-800 sticky top-0">
-                                          <tr>
-                                              <th className="p-3">Fecha</th>
-                                              <th className="p-3">Destino</th>
-                                              <th className="p-3">Tipo</th>
-                                              <th className="p-3">Detalle</th>
-                                              <th className="p-3 text-right">Monto</th>
-                                              <th className="p-3 w-10 text-center"></th>
-                                          </tr>
-                                      </thead>
-                                      <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                                          {pagos.map(p => {
-                                              const compraAsoc = compras.find(c => c.id === p.compra_id);
-                                              const destinoNombre = compraAsoc ? `Orden: ${compraAsoc.referencia_factura}` : 'Gastos Importación';
-                                              return (
-                                                  <tr key={p.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30">
-                                                      <td className="p-3 text-slate-500 font-medium">{new Date(p.fecha).toLocaleDateString()}</td>
-                                                      <td className="p-3">
-                                                          <span className={cn(
-                                                              "px-2 py-0.5 rounded-full font-bold text-[9px] uppercase tracking-wide",
-                                                              p.compra_id ? "bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-400" : "bg-indigo-50 text-indigo-700 dark:bg-indigo-900/20 dark:text-indigo-400"
-                                                          )}>
-                                                              {destinoNombre}
-                                                          </span>
-                                                      </td>
-                                                      <td className="p-3">
-                                                          <span className="px-2 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-full font-bold text-[9px] uppercase tracking-wide">
-                                                              {p.tipo_pago}
-                                                          </span>
-                                                      </td>
-                                                      <td className="p-3 font-medium text-slate-700 dark:text-slate-300">{p.motivo || '-'}</td>
-                                                      <td className="p-3 text-right font-black text-emerald-600">{formatCurrency(p.monto, 'USD')}</td>
-                                                      <td className="p-3 text-center">
-                                                          <button 
-                                                              disabled={isUpdating}
-                                                              onClick={() => eliminarPago(p.id)}
-                                                              className="text-slate-300 hover:text-rose-500 transition-colors p-1"
-                                                              title="Eliminar Pago"
-                                                          >
-                                                              <Trash2 className="w-4 h-4" />
-                                                          </button>
-                                                      </td>
-                                                  </tr>
-                                              );
-                                          })}
-                                      </tbody>
-                                  </table>
-                              </div>
-                          )}
                       </div>
                   </div>
 
@@ -496,6 +383,178 @@ export function ImportacionDetalleModal({ isOpen, onClose, importacion, onUpdate
               </div>
 
            </div>
+        {/* Sub-modal emergente para la gestión de pagos */}
+        <Modal
+            isOpen={showPagosModal}
+            onClose={() => setShowPagosModal(false)}
+            title={`Gestión de Pagos: Expediente ${importacion.origen}`}
+            maxWidth="max-w-4xl"
+        >
+            <div className="space-y-6">
+                {/* Resumen Financiero de la Importación */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50 dark:bg-slate-900/40 p-4 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm font-medium">
+                    <div className="text-center">
+                        <p className="text-[9px] font-bold uppercase text-slate-400 tracking-wider">Total Compras</p>
+                        <p className="text-sm font-black text-slate-700 dark:text-slate-300 mt-1">
+                            {formatCurrency(totalCompras, 'USD')}
+                        </p>
+                    </div>
+                    <div className="text-center border-l border-slate-100 dark:border-slate-800">
+                        <p className="text-[9px] font-bold uppercase text-slate-400 tracking-wider font-semibold">Pagado Órdenes</p>
+                        <p className="text-sm font-black text-emerald-600 mt-1">
+                            {formatCurrency(totalPagadoCompras, 'USD')}
+                        </p>
+                    </div>
+                    <div className="text-center border-l border-slate-100 dark:border-slate-800">
+                        <p className="text-[9px] font-bold uppercase text-slate-400 tracking-wider font-semibold font-semibold">Gtos. Importación</p>
+                        <p className="text-sm font-black text-indigo-600 mt-1">
+                            {formatCurrency(totalPagadoGastosImp, 'USD')}
+                        </p>
+                    </div>
+                    <div className="text-center border-l border-slate-100 dark:border-slate-800">
+                        <p className="text-[9px] font-bold uppercase text-slate-400 tracking-wider">Pendiente Órdenes</p>
+                        <p className={cn("text-sm font-black mt-1", saldoPendienteCompras <= 0 ? "text-emerald-600" : "text-amber-500")}>
+                            {formatCurrency(saldoPendienteCompras, 'USD')}
+                        </p>
+                    </div>
+                </div>
+
+                {/* Registrar nuevo pago */}
+                <div className="bg-slate-50 dark:bg-slate-900/30 p-4 rounded-xl border border-slate-100 dark:border-slate-800 space-y-3">
+                    <p className="font-bold text-xs text-slate-800 dark:text-slate-200">Registrar Pago en Importación</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+                        <div>
+                            <label className="text-[9px] font-bold uppercase text-slate-400 pl-1 block mb-1">Monto</label>
+                            <input 
+                                type="number"
+                                step="0.01"
+                                placeholder="Monto"
+                                className="input-nexus w-full text-xs py-2 px-3"
+                                value={pagoMontoInput}
+                                onChange={e => setPagoMontoInput(e.target.value)}
+                            />
+                        </div>
+                        <div>
+                            <label className="text-[9px] font-bold uppercase text-slate-400 pl-1 block mb-1">Tipo</label>
+                            <select
+                                className="input-nexus w-full text-xs py-2 px-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg outline-none cursor-pointer"
+                                value={pagoTipoInput}
+                                onChange={e => setPagoTipoInput(e.target.value)}
+                            >
+                                <option value="Transferencia">Transferencia</option>
+                                <option value="Efectivo">Efectivo</option>
+                                <option value="Cheque">Cheque</option>
+                                <option value="Tarjeta">Tarjeta</option>
+                                <option value="Otro">Otro</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label className="text-[9px] font-bold uppercase text-slate-400 pl-1 block mb-1">Destino</label>
+                            <select
+                                className="input-nexus w-full text-xs py-2 px-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg outline-none cursor-pointer"
+                                value={pagoDestinoInput}
+                                onChange={e => setPagoDestinoInput(e.target.value)}
+                            >
+                                <option value="gastos">Gastos Importación (Gral.)</option>
+                                {compras.map(c => (
+                                    <option key={c.id} value={c.id}>Orden: {c.referencia_factura || 'Sin Ref'}</option>
+                                ))}
+                            </select>
+                        </div>
+                        <div className="flex flex-col">
+                            <label className="text-[9px] font-bold uppercase text-slate-400 pl-1 block mb-1">Detalle</label>
+                            <div className="flex gap-2">
+                                <input 
+                                    type="text"
+                                    placeholder="Concepto..."
+                                    className="input-nexus flex-1 text-xs py-2 px-3"
+                                    value={pagoMotivoInput}
+                                    onChange={e => setPagoMotivoInput(e.target.value)}
+                                />
+                                <button 
+                                    disabled={isUpdating}
+                                    onClick={registrarPago}
+                                    className="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition font-bold text-xs flex items-center justify-center gap-1 shadow-sm"
+                                >
+                                    <Plus className="w-3.5 h-3.5" />
+                                    Grabar
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Listado de Pagos de la Importación */}
+                <div className="space-y-2">
+                    <p className="font-bold text-xs text-slate-800 dark:text-slate-200">Historial de Pagos de la Importación</p>
+                    {pagos.length === 0 ? (
+                        <p className="text-xs text-slate-400 italic py-3 text-center bg-slate-50 dark:bg-slate-900/10 border border-slate-100 dark:border-slate-800 rounded-xl">
+                            No hay pagos registrados para esta importación.
+                        </p>
+                    ) : (
+                        <div className="overflow-hidden border border-slate-100 dark:border-slate-800 rounded-xl bg-white dark:bg-slate-950 max-h-[30vh] overflow-y-auto custom-scrollbar">
+                            <table className="w-full text-left text-xs">
+                                <thead className="bg-slate-50 dark:bg-slate-900 font-bold text-slate-400 uppercase tracking-widest text-[9px] border-b border-slate-100 dark:border-slate-800 sticky top-0">
+                                    <tr>
+                                        <th className="p-3">Fecha</th>
+                                        <th className="p-3">Destino</th>
+                                        <th className="p-3">Tipo</th>
+                                        <th className="p-3">Detalle</th>
+                                        <th className="p-3 text-right">Monto</th>
+                                        <th className="p-3 w-10 text-center"></th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                                    {pagos.map(p => {
+                                        const compraAsoc = compras.find(c => c.id === p.compra_id);
+                                        const destinoNombre = compraAsoc ? `Orden: ${compraAsoc.referencia_factura}` : 'Gastos Importación';
+                                        return (
+                                            <tr key={p.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30">
+                                                <td className="p-3 text-slate-500 font-medium">{new Date(p.fecha).toLocaleDateString()}</td>
+                                                <td className="p-3">
+                                                    <span className={cn(
+                                                        "px-2 py-0.5 rounded-full font-bold text-[9px] uppercase tracking-wide",
+                                                        p.compra_id ? "bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-400" : "bg-indigo-50 text-indigo-700 dark:bg-indigo-900/20 dark:text-indigo-400"
+                                                    )}>
+                                                        {destinoNombre}
+                                                    </span>
+                                                </td>
+                                                <td className="p-3">
+                                                    <span className="px-2 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-full font-bold text-[9px] uppercase tracking-wide">
+                                                        {p.tipo_pago}
+                                                    </span>
+                                                </td>
+                                                <td className="p-3 font-medium text-slate-700 dark:text-slate-300">{p.motivo || '-'}</td>
+                                                <td className="p-3 text-right font-black text-emerald-600">{formatCurrency(p.monto, 'USD')}</td>
+                                                <td className="p-3 text-center">
+                                                    <button 
+                                                        disabled={isUpdating}
+                                                        onClick={() => eliminarPago(p.id)}
+                                                        className="text-slate-300 hover:text-rose-500 transition-colors p-1"
+                                                        title="Eliminar Pago"
+                                                    >
+                                                        <Trash2 className="w-4 h-4" />
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+                </div>
+
+                <div className="flex justify-end pt-3">
+                    <button 
+                        onClick={() => setShowPagosModal(false)} 
+                        className="px-4 py-2 bg-slate-100 text-slate-700 hover:bg-slate-200 font-bold text-xs rounded-xl border border-slate-200 transition-colors shadow-sm"
+                    >
+                        Cerrar
+                    </button>
+                </div>
+            </div>
+        </Modal>
         </motion.div>
       </div>
     </AnimatePresence>
