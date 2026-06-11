@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { ShoppingCart, Receipt, Plus, Package, Box, ChevronLeft, QrCode, Workflow } from 'lucide-react';
+import { ShoppingCart, Receipt, Plus, Package, Box, ChevronLeft, QrCode, Workflow, DollarSign } from 'lucide-react';
 import { ComprasDashboard } from '../components/gestion/ComprasDashboard';
 import { executeAWSQuery } from '../lib/aws-client';
 import { cn, getVisualName } from '../lib/utils';
@@ -22,6 +22,13 @@ export function Ingresos() {
   const [maestros, setMaestros] = useState<any[]>([]);
   const [variantes, setVariantes] = useState<any[]>([]);
   const [almacenId, setAlmacenId] = useState<string>('');
+
+  // Pagos Realizados
+  const [pagos, setPagos] = useState<{ id?: number; monto: number; tipo_pago: string; motivo: string }[]>([]);
+  const [pagoMontoInput, setPagoMontoInput] = useState('');
+  const [pagoTipoInput, setPagoTipoInput] = useState('Transferencia');
+  const [pagoMotivoInput, setPagoMotivoInput] = useState('');
+  const [compraImportacionId, setCompraImportacionId] = useState<string|null>(null);
 
   // Cabecera Compra
   const [tipoIngreso, setTipoIngreso] = useState<'compra' | 'importaciones'>('compra');
@@ -197,6 +204,7 @@ export function Ingresos() {
                    UPDATE Stock_Compras SET proveedor_id = '${provId}', referencia_factura = '${referencia}', tipo_factura_id = ${tipoFacturaId}, total_compra = ${total}, gastos_extras = ${valGastos}, estado = '${estado}', moneda_id = ${monedaId}, plantilla_progreso_id = ${selectedPlantillaId || 'NULL'}, progreso = '${firstStepKey.replace(/'/g, "''")}' WHERE id = '${editingDraftId}';
                    DELETE FROM Stock_Compras_Detalle WHERE compra_id = '${editingDraftId}';
                    DELETE FROM Stock_Etiquetas WHERE compra_id = '${editingDraftId}' AND estado = 'pendiente_recepcion';
+                   DELETE FROM Stock_Pagos WHERE compra_id = '${editingDraftId}';
                    DECLARE @CompraId UNIQUEIDENTIFIER = '${editingDraftId}';
                 `;
             } else {
@@ -211,6 +219,15 @@ export function Ingresos() {
                 `;
             }
             
+            // Inserción de pagos
+            for (const pago of pagos) {
+                const impIdVal = compraImportacionId ? `'${compraImportacionId}'` : 'NULL';
+                q += `
+                   INSERT INTO Stock_Pagos (compra_id, importacion_id, monto, tipo_pago, motivo)
+                   VALUES (@CompraId, ${impIdVal}, ${pago.monto}, '${pago.tipo_pago.replace(/'/g, "''")}', ${pago.motivo ? `'${pago.motivo.replace(/'/g, "''")}'` : 'NULL'});
+                `;
+            }
+
             if (!editingDraftId && valGastos > 0) {
                 q += `
                    INSERT INTO Stock_Compras_Costos_Extra (compra_id, descripcion, monto) 
@@ -288,6 +305,11 @@ export function Ingresos() {
         setProvId(''); setReferencia(''); setTipoFacturaId(''); setRefError(false);
         setCarrito([]);
         setEditingDraftId(null);
+        setPagos([]);
+        setPagoMontoInput('');
+        setPagoTipoInput('Transferencia');
+        setPagoMotivoInput('');
+        setCompraImportacionId(null);
      } catch(e: any) {
         toast.error("Error crítico: " + e.message);
      } finally {
@@ -341,6 +363,11 @@ export function Ingresos() {
                      } else if (plantillas.length > 0) {
                          setSelectedPlantillaId(plantillas[0].id);
                      }
+                     setPagos([]);
+                     setPagoMontoInput('');
+                     setPagoTipoInput('Transferencia');
+                     setPagoMotivoInput('');
+                     setCompraImportacionId(null);
                      setViewMode('form');
                  }}
                  onEditDraft={async (compra) => {
@@ -350,6 +377,7 @@ export function Ingresos() {
                      setGastosExtras(compra.gastos_extras?.toString() || '');
                      setSelectedPlantillaId(compra.plantilla_progreso_id || 1);
                      setEditingDraftId(compra.id);
+                     setCompraImportacionId(compra.importacion_id || null);
                      
                      const res = await executeAWSQuery(`SELECT d.*, v.nombre_variante, p.nombre as producto_padre, p.unidad_base FROM Stock_Compras_Detalle d INNER JOIN Stock_Variantes v ON d.variante_id = v.id INNER JOIN Stock_Productos_Maestros p ON v.producto_maestro_id = p.id WHERE d.compra_id = '${compra.id}'`);
                      if(res) {
@@ -363,6 +391,13 @@ export function Ingresos() {
                              cantidad: d.cantidad,
                              precio_unitario: d.precio_unitario
                          })));
+                     }
+                     
+                     const pagosRes = await executeAWSQuery(`SELECT * FROM Stock_Pagos WHERE compra_id = '${compra.id}' ORDER BY id ASC`);
+                     if (pagosRes) {
+                         setPagos(pagosRes);
+                     } else {
+                         setPagos([]);
                      }
                      setViewMode('form');
                  }} 
@@ -473,6 +508,113 @@ export function Ingresos() {
                         </div>
                     </div>
                 </div>
+            </div>
+
+            {/* Pagos Realizados Section */}
+            <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm p-4 md:p-6 space-y-4">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                    <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center text-emerald-600 font-black shadow-sm">
+                            <DollarSign className="w-4 h-4" />
+                        </div>
+                        <div>
+                            <h3 className="text-sm font-black text-slate-800 leading-none">Pagos Realizados</h3>
+                            <p className="text-[10px] text-slate-500 font-medium">Registra los pagos adelantados o totales para esta compra</p>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Form to add a payment */}
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end bg-slate-50 dark:bg-slate-900/40 p-4 rounded-xl border border-slate-100">
+                    <div>
+                        <label className="text-[10px] font-bold uppercase text-slate-500 tracking-widest pl-1 block mb-1">Monto del Pago</label>
+                        <div className="relative">
+                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-bold">{monedaSimbolo}</span>
+                            <input 
+                                type="number" 
+                                placeholder="0.00" 
+                                className="w-full pl-8 pr-3 py-2 bg-white border border-slate-200 rounded-lg font-bold text-sm text-slate-800 focus:border-indigo-400 outline-none"
+                                value={pagoMontoInput}
+                                onChange={e => setPagoMontoInput(e.target.value)}
+                            />
+                        </div>
+                    </div>
+                    <div>
+                        <label className="text-[10px] font-bold uppercase text-slate-500 tracking-widest pl-1 block mb-1">Tipo de Pago</label>
+                        <select 
+                            className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg font-bold text-sm text-slate-800 focus:border-indigo-400 outline-none cursor-pointer"
+                            value={pagoTipoInput}
+                            onChange={e => setPagoTipoInput(e.target.value)}
+                        >
+                            <option value="Transferencia">Transferencia</option>
+                            <option value="Efectivo">Efectivo</option>
+                            <option value="Cheque">Cheque</option>
+                            <option value="Tarjeta">Tarjeta</option>
+                            <option value="Otro">Otro</option>
+                        </select>
+                    </div>
+                    <div className="md:col-span-2 flex gap-2 items-end">
+                        <div className="flex-1">
+                            <label className="text-[10px] font-bold uppercase text-slate-500 tracking-widest pl-1 block mb-1">Detalle / Motivo</label>
+                            <input 
+                                type="text" 
+                                placeholder="Ej. Seña del 50%, Pago total, etc." 
+                                className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg font-bold text-sm text-slate-800 focus:border-indigo-400 outline-none"
+                                value={pagoMotivoInput}
+                                onChange={e => setPagoMotivoInput(e.target.value)}
+                            />
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                const m = parseFloat(pagoMontoInput);
+                                if (isNaN(m) || m <= 0) return toast.error("El monto debe ser mayor a 0");
+                                setPagos([...pagos, { monto: m, tipo_pago: pagoTipoInput, motivo: pagoMotivoInput }]);
+                                setPagoMontoInput('');
+                                setPagoMotivoInput('');
+                            }}
+                            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg text-xs uppercase tracking-widest cursor-pointer h-[38px] transition-colors"
+                        >
+                            Agregar
+                        </button>
+                    </div>
+                </div>
+
+                {/* List of current payments */}
+                {pagos.length === 0 ? (
+                    <p className="text-xs text-slate-400 italic text-center py-2">No se han registrado pagos para esta compra aún.</p>
+                ) : (
+                    <div className="border border-slate-100 rounded-xl overflow-hidden">
+                        <table className="w-full text-left border-collapse text-xs">
+                            <thead>
+                                <tr className="bg-slate-50 text-slate-400 font-bold uppercase tracking-wider border-b border-slate-100">
+                                    <th className="p-3">Monto</th>
+                                    <th className="p-3">Tipo</th>
+                                    <th className="p-3">Motivo / Detalle</th>
+                                    <th className="p-3 text-right">Acción</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {pagos.map((p, idx) => (
+                                    <tr key={idx} className="border-b border-slate-100 last:border-none hover:bg-slate-50/50">
+                                        <td className="p-3 font-bold text-slate-800">{monedaSimbolo} {p.monto.toFixed(2)}</td>
+                                        <td className="p-3"><span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded-full font-bold text-[10px]">{p.tipo_pago}</span></td>
+                                        <td className="p-3 text-slate-500 font-medium">{p.motivo || '-'}</td>
+                                        <td className="p-3 text-right">
+                                            <button 
+                                                type="button" 
+                                                onClick={() => setPagos(pagos.filter((_, i) => i !== idx))}
+                                                className="text-rose-500 hover:text-rose-700 font-bold text-[11px] cursor-pointer"
+                                            >
+                                                Eliminar
+                                            </button>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
             </div>
 
             {/* Facturador Gigante Central */}

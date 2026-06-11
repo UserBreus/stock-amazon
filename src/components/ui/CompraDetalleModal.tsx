@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Modal } from './Modal';
 import { executeAWSQuery } from '../../lib/aws-client';
-import { Package, Truck, Anchor, CheckCircle2, Factory, Ship, MapPin, QrCode, Printer, Workflow, Loader2 } from 'lucide-react';
+import { Package, Truck, Anchor, CheckCircle2, Factory, Ship, MapPin, QrCode, Printer, Workflow, Loader2, CreditCard, Trash2, Plus } from 'lucide-react';
 import * as LucideIcons from 'lucide-react';
 import { cn } from '../../lib/utils';
 import toast from 'react-hot-toast';
@@ -23,6 +23,12 @@ export function CompraDetalleModal({ isOpen, compra, onClose, onUpdate, onEditDr
    const [selectedPlantillaId, setSelectedPlantillaId] = useState<number>(1);
    const [currentTemplateSteps, setCurrentTemplateSteps] = useState<any[]>([]);
    const [loadingTemplate, setLoadingTemplate] = useState(false);
+
+   // Pagos Realizados
+   const [pagos, setPagos] = useState<any[]>([]);
+   const [pagoMontoInput, setPagoMontoInput] = useState('');
+   const [pagoTipoInput, setPagoTipoInput] = useState('Transferencia');
+   const [pagoMotivoInput, setPagoMotivoInput] = useState('');
 
    useEffect(() => {
       if(isOpen && compra) {
@@ -81,50 +87,91 @@ export function CompraDetalleModal({ isOpen, compra, onClose, onUpdate, onEditDr
        }
    };
 
-   const fetchDetalles = async () => {
-      setIsLoading(true);
-      try {
-           const [res, costosRes, etqRes] = await Promise.all([
-               executeAWSQuery(`SELECT d.*, v.nombre_variante, p.nombre as producto_nombre, p.tipo_gestion FROM Stock_Compras_Detalle d INNER JOIN Stock_Variantes v ON d.variante_id = v.id INNER JOIN Stock_Productos_Maestros p ON v.producto_maestro_id = p.id WHERE d.compra_id = '${compra.id}'`),
-               executeAWSQuery(`IF OBJECT_ID('Stock_Compras_Costos_Extra', 'U') IS NOT NULL EXEC('SELECT * FROM Stock_Compras_Costos_Extra WHERE compra_id = ''${compra.id}'' ORDER BY fecha ASC')`).catch(() => []),
-               executeAWSQuery(`
-                   SELECT e.id as etiqueta_id, e.codigo_barras, e.variante_id, v.nombre_variante, p.nombre as producto_nombre, p.tipo_gestion, e.cantidad_inicial as cantidad, e.compra_id
-                   FROM Stock_Etiquetas e
-                   INNER JOIN Stock_Variantes v ON e.variante_id = v.id
-                   INNER JOIN Stock_Productos_Maestros p ON v.producto_maestro_id = p.id
-                   WHERE e.compra_id = '${compra.id}' AND e.estado = 'pendiente_recepcion'
-                   ORDER BY e.id ASC
-               `).catch(() => [])
-           ]);
-           if(res) {
-               setDetalles(res);
-               setEditedDetalles([...res]);
-           }
-           if(costosRes) setCostosExtra(costosRes);
-           if(etqRes) {
-               // Agrupar por variante_id: cada variante = 1 entrada con todos sus IDs reales
-               const grouped: Record<string, any> = {};
-               for (const e of etqRes) {
-                   const key = String(e.variante_id);
-                   if (!grouped[key]) {
-                       grouped[key] = {
-                           ...e,
-                           etiqueta_id: e.codigo_barras || e.etiqueta_id,
-                           etiqueta_ids: [e.codigo_barras || e.etiqueta_id],
-                           // Para granel: cantidad_inicial por bulto; para lote_individual: 1 unidad por etiqueta
-                           cantidad: e.tipo_gestion === 'lote_individual' ? 1 : e.cantidad,
-                           bultos_predefinidos: 1,
-                       };
-                   } else {
-                       grouped[key].etiqueta_ids.push(e.codigo_barras || e.etiqueta_id);
-                       grouped[key].bultos_predefinidos = grouped[key].etiqueta_ids.length;
-                   }
-               }
-               setEtiquetasPendientes(Object.values(grouped));
-           }
-       } catch(e) { console.error(e); }
-      setIsLoading(false);
-   };
+    const fetchDetalles = async () => {
+       setIsLoading(true);
+       try {
+            const [res, costosRes, etqRes, pagosRes] = await Promise.all([
+                executeAWSQuery(`SELECT d.*, v.nombre_variante, p.nombre as producto_nombre, p.tipo_gestion FROM Stock_Compras_Detalle d INNER JOIN Stock_Variantes v ON d.variante_id = v.id INNER JOIN Stock_Productos_Maestros p ON v.producto_maestro_id = p.id WHERE d.compra_id = '${compra.id}'`),
+                executeAWSQuery(`IF OBJECT_ID('Stock_Compras_Costos_Extra', 'U') IS NOT NULL EXEC('SELECT * FROM Stock_Compras_Costos_Extra WHERE compra_id = ''${compra.id}'' ORDER BY fecha ASC')`).catch(() => []),
+                executeAWSQuery(`
+                    SELECT e.id as etiqueta_id, e.codigo_barras, e.variante_id, v.nombre_variante, p.nombre as producto_nombre, p.tipo_gestion, e.cantidad_inicial as cantidad, e.compra_id
+                    FROM Stock_Etiquetas e
+                    INNER JOIN Stock_Variantes v ON e.variante_id = v.id
+                    INNER JOIN Stock_Productos_Maestros p ON v.producto_maestro_id = p.id
+                    WHERE e.compra_id = '${compra.id}' AND e.estado = 'pendiente_recepcion'
+                    ORDER BY e.id ASC
+                `).catch(() => []),
+                executeAWSQuery(`SELECT * FROM Stock_Pagos WHERE compra_id = '${compra.id}' ORDER BY fecha ASC`).catch(() => [])
+            ]);
+            if(res) {
+                setDetalles(res);
+                setEditedDetalles([...res]);
+            }
+            if(costosRes) setCostosExtra(costosRes);
+            if(pagosRes) setPagos(pagosRes);
+            if(etqRes) {
+                // Agrupar por variante_id: cada variante = 1 entrada con todos sus IDs reales
+                const grouped: Record<string, any> = {};
+                for (const e of etqRes) {
+                    const key = String(e.variante_id);
+                    if (!grouped[key]) {
+                        grouped[key] = {
+                            ...e,
+                            etiqueta_id: e.codigo_barras || e.etiqueta_id,
+                            etiqueta_ids: [e.codigo_barras || e.etiqueta_id],
+                            // Para granel: cantidad_inicial por bulto; para lote_individual: 1 unidad por etiqueta
+                            cantidad: e.tipo_gestion === 'lote_individual' ? 1 : e.cantidad,
+                            bultos_predefinidos: 1,
+                        };
+                    } else {
+                        grouped[key].etiqueta_ids.push(e.codigo_barras || e.etiqueta_id);
+                        grouped[key].bultos_predefinidos = grouped[key].etiqueta_ids.length;
+                    }
+                }
+                setEtiquetasPendientes(Object.values(grouped));
+            }
+        } catch(e) { console.error(e); }
+       setIsLoading(false);
+    };
+
+    const registrarPago = async () => {
+        if(!pagoMontoInput) return toast.error('Ingresa el monto del pago.');
+        const m = parseFloat(pagoMontoInput);
+        if(isNaN(m) || m <= 0) return toast.error('El monto debe ser un número mayor a cero.');
+        
+        setIsUpdating(true);
+        try {
+            const impIdVal = compra.importacion_id ? `'${compra.importacion_id}'` : 'NULL';
+            await executeAWSQuery(`
+                INSERT INTO Stock_Pagos (compra_id, importacion_id, monto, tipo_pago, motivo)
+                VALUES ('${compra.id}', ${impIdVal}, ${m}, '${pagoTipoInput.replace(/'/g, "''")}', ${pagoMotivoInput ? `'${pagoMotivoInput.replace(/'/g, "''")}'` : 'NULL'});
+            `);
+            toast.success('Pago registrado correctamente.');
+            setPagoMontoInput('');
+            setPagoMotivoInput('');
+            await fetchDetalles();
+            onUpdate();
+        } catch(e: any) {
+            toast.error('Error al registrar pago: ' + e.message);
+        } finally {
+            setIsUpdating(false);
+        }
+    };
+
+    const eliminarPago = async (pagoId: number) => {
+        if(!window.confirm('¿Seguro que deseas eliminar este pago?')) return;
+        setIsUpdating(true);
+        try {
+            await executeAWSQuery(`DELETE FROM Stock_Pagos WHERE id = ${pagoId}`);
+            toast.success('Pago eliminado correctamente.');
+            await fetchDetalles();
+            onUpdate();
+        } catch(e: any) {
+            toast.error('Error al eliminar pago: ' + e.message);
+        } finally {
+            setIsUpdating(false);
+        }
+    };
 
    const agregarCostoExtra = async () => {
        if(!nuevoCostoItem.desc || !nuevoCostoItem.monto) return toast.error('Completá la descripción y el monto.');
@@ -280,9 +327,13 @@ export function CompraDetalleModal({ isOpen, compra, onClose, onUpdate, onEditDr
        setIsUpdating(false);
    };
 
-   if(!compra) return null;
+    const totalPagado = pagos.reduce((acc, p) => acc + Number(p.monto), 0);
+    const totalCompra = Number(compra.total_compra || 0) + Number(compra.gastos_extras || 0);
+    const saldoPendiente = totalCompra - totalPagado;
 
-   const currentStepIndex = currentTemplateSteps.findIndex(s => s.clave === compra.progreso);
+    if(!compra) return null;
+
+    const currentStepIndex = currentTemplateSteps.findIndex(s => s.clave === compra.progreso);
 
    return (
        <>
@@ -488,21 +539,156 @@ export function CompraDetalleModal({ isOpen, compra, onClose, onUpdate, onEditDr
                            )}
                         </div>
 
-                       <div className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6">
-                           <h4 className="font-black text-slate-800 dark:text-white text-lg mb-4">Registro de Costos Adicionales (Aduana, Transporte...)</h4>
-                           <ul className="space-y-2 mb-6">
-                               {costosExtra.length === 0 && <p className="text-sm font-medium text-slate-400">Sin costos adicionales cargados.</p>}
-                               {costosExtra.map(c => (
-                                   <li key={c.id} className="flex justify-between items-center text-sm p-3 bg-white dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700">
-                                       <div className="flex flex-col">
-                                           <span className="font-bold text-slate-800 dark:text-slate-200">{c.descripcion}</span>
-                                           <span className="text-[10px] text-slate-400 font-medium">{new Date(c.fecha).toLocaleString()}</span>
-                                       </div>
-                                       <span className="font-black text-emerald-600">${c.monto}</span>
-                                   </li>
-                               ))}
-                           </ul>
-                       </div>
+                        <div className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6">
+                            <h4 className="font-black text-slate-800 dark:text-white text-lg mb-4">Registro de Costos Adicionales (Aduana, Transporte...)</h4>
+                            <ul className="space-y-2 mb-6">
+                                {costosExtra.length === 0 && <p className="text-sm font-medium text-slate-400">Sin costos adicionales cargados.</p>}
+                                {costosExtra.map(c => (
+                                    <li key={c.id} className="flex justify-between items-center text-sm p-3 bg-white dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700">
+                                        <div className="flex flex-col">
+                                            <span className="font-bold text-slate-800 dark:text-slate-200">{c.descripcion}</span>
+                                            <span className="text-[10px] text-slate-400 font-medium">{new Date(c.fecha).toLocaleString()}</span>
+                                        </div>
+                                        <span className="font-black text-emerald-600">${c.monto}</span>
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+
+                        {/* Pagos Realizados Section */}
+                        <div className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 space-y-6">
+                            <div className="flex justify-between items-center border-b border-slate-200 dark:border-slate-800 pb-3">
+                                <div>
+                                    <h4 className="font-black text-slate-800 dark:text-white text-lg flex items-center gap-2">
+                                        <CreditCard className="w-5 h-5 text-indigo-500" />
+                                        Pagos Realizados
+                                    </h4>
+                                    <p className="text-xs text-slate-400 font-medium mt-0.5">Control de abonos y saldos pendientes</p>
+                                </div>
+                            </div>
+
+                            {/* Resumen Financiero Rápido */}
+                            <div className="grid grid-cols-3 gap-4 bg-white dark:bg-slate-950 p-4 rounded-xl border border-slate-100 dark:border-slate-800 shadow-sm">
+                                <div className="text-center">
+                                    <p className="text-[10px] font-bold uppercase text-slate-400 tracking-wider">Total Compra</p>
+                                    <p className="text-base sm:text-lg font-black text-slate-700 dark:text-slate-300 mt-1">
+                                        {compra.moneda_simbolo || '$'}{totalCompra.toFixed(2)}
+                                    </p>
+                                </div>
+                                <div className="text-center border-x border-slate-100 dark:border-slate-800 px-2">
+                                    <p className="text-[10px] font-bold uppercase text-slate-400 tracking-wider">Total Pagado</p>
+                                    <p className="text-base sm:text-lg font-black text-emerald-600 mt-1">
+                                        {compra.moneda_simbolo || '$'}{totalPagado.toFixed(2)}
+                                    </p>
+                                </div>
+                                <div className="text-center">
+                                    <p className="text-[10px] font-bold uppercase text-slate-400 tracking-wider">Por Pagar</p>
+                                    <p className={cn("text-base sm:text-lg font-black mt-1", saldoPendiente <= 0 ? "text-emerald-600" : "text-amber-500")}>
+                                        {compra.moneda_simbolo || '$'}{saldoPendiente.toFixed(2)}
+                                    </p>
+                                </div>
+                            </div>
+
+                            {/* Formulario Rápido de Pago */}
+                            <div className="bg-white dark:bg-slate-950 p-4 rounded-xl border border-slate-100 dark:border-slate-800 space-y-3">
+                                <p className="font-bold text-xs text-slate-800 dark:text-slate-200">Registrar Nuevo Pago</p>
+                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                    <div>
+                                        <label className="text-[9px] font-bold uppercase text-slate-400 pl-1 block mb-1">Monto</label>
+                                        <input 
+                                            type="number"
+                                            step="0.01"
+                                            placeholder="Monto"
+                                            className="input-nexus w-full text-xs py-2 px-3"
+                                            value={pagoMontoInput}
+                                            onChange={e => setPagoMontoInput(e.target.value)}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="text-[9px] font-bold uppercase text-slate-400 pl-1 block mb-1">Tipo de Pago</label>
+                                        <select
+                                            className="input-nexus w-full text-xs py-2 px-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg outline-none cursor-pointer"
+                                            value={pagoTipoInput}
+                                            onChange={e => setPagoTipoInput(e.target.value)}
+                                        >
+                                            <option value="Transferencia">Transferencia</option>
+                                            <option value="Efectivo">Efectivo</option>
+                                            <option value="Cheque">Cheque</option>
+                                            <option value="Tarjeta">Tarjeta</option>
+                                            <option value="Otro">Otro</option>
+                                        </select>
+                                    </div>
+                                    <div className="flex flex-col">
+                                        <label className="text-[9px] font-bold uppercase text-slate-400 pl-1 block mb-1">Motivo/Detalle</label>
+                                        <div className="flex gap-2">
+                                            <input 
+                                                type="text"
+                                                placeholder="Ej. Seña del 50%"
+                                                className="input-nexus flex-1 text-xs py-2 px-3"
+                                                value={pagoMotivoInput}
+                                                onChange={e => setPagoMotivoInput(e.target.value)}
+                                            />
+                                            <button 
+                                                disabled={isUpdating}
+                                                onClick={registrarPago}
+                                                className="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition font-bold text-xs flex items-center justify-center gap-1 shadow-sm"
+                                            >
+                                                <Plus className="w-3.5 h-3.5" />
+                                                Cargar
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Listado de Pagos */}
+                            <div className="space-y-2">
+                                <p className="font-bold text-xs text-slate-800 dark:text-slate-200">Historial de Pagos</p>
+                                {pagos.length === 0 ? (
+                                    <p className="text-xs text-slate-400 italic py-2 text-center bg-white dark:bg-slate-950 border border-slate-100 dark:border-slate-800 rounded-xl">
+                                        No se han registrado pagos para esta compra aún.
+                                    </p>
+                                ) : (
+                                    <div className="overflow-hidden border border-slate-100 dark:border-slate-800 rounded-xl bg-white dark:bg-slate-950">
+                                        <table className="w-full text-left text-xs">
+                                            <thead className="bg-slate-50 dark:bg-slate-900 font-bold text-slate-400 uppercase tracking-widest text-[9px] border-b border-slate-100 dark:border-slate-800">
+                                                <tr>
+                                                    <th className="p-3">Fecha</th>
+                                                    <th className="p-3">Tipo</th>
+                                                    <th className="p-3">Detalle/Motivo</th>
+                                                    <th className="p-3 text-right">Monto</th>
+                                                    <th className="p-3 w-10 text-center">Acciones</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                                                {pagos.map(p => (
+                                                    <tr key={p.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30">
+                                                        <td className="p-3 text-slate-500 font-medium">{new Date(p.fecha).toLocaleDateString()}</td>
+                                                        <td className="p-3">
+                                                            <span className="px-2 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-full font-bold text-[9px] uppercase tracking-wide">
+                                                                {p.tipo_pago}
+                                                            </span>
+                                                        </td>
+                                                        <td className="p-3 font-medium text-slate-700 dark:text-slate-300">{p.motivo || '-'}</td>
+                                                        <td className="p-3 text-right font-black text-emerald-600">{compra.moneda_simbolo || '$'}{Number(p.monto).toFixed(2)}</td>
+                                                        <td className="p-3 text-center">
+                                                            <button 
+                                                                disabled={isUpdating}
+                                                                onClick={() => eliminarPago(p.id)}
+                                                                className="text-slate-300 hover:text-rose-500 transition-colors p-1"
+                                                                title="Eliminar Pago"
+                                                            >
+                                                                <Trash2 className="w-4 h-4" />
+                                                            </button>
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
                    </div>
 
                     <div className="space-y-6">
