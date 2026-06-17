@@ -64,7 +64,7 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
 
     // Proteccion: Si no es admin/gerente y está en isEditMode, apagarlo.
     useEffect(() => {
-        const canEdit = profile?.rol === 'admin' || profile?.rol === 'gerente_stock' || profile?.rol === 'administrativo_stock';
+        const canEdit = profile?.rol === 'admin' || profile?.rol === 'administrador' || profile?.rol === 'gerente_stock' || profile?.rol === 'administrativo_stock' || profile?.rol === 'encargado' || profile?.is_super_admin;
         if (isEditMode && !canEdit) {
             setIsEditMode(false);
             setEditingComponentId(null);

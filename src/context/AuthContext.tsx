@@ -65,6 +65,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const checkSession = async () => {
       const urlParams = new URLSearchParams(window.location.search);
       const embedId = urlParams.get('embedUserId');
+      const urlSucursalId = urlParams.get('sucursalId') || urlParams.get('sucursal_id');
+      const urlSucursalNombre = urlParams.get('sucursalNombre') || urlParams.get('sucursal_nombre');
       
       if (embedId) {
         try {
@@ -76,7 +78,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                const enrichedUser = { 
                    ...res[0], 
                    is_super_admin: res[0].rol === 'administrador' || res[0].is_super_admin || false, 
-                   permisos_obj: parsedPermisos || { apps: ['stock'] }
+                   permisos_obj: parsedPermisos || { apps: ['stock'] },
+                   sucursal_activa_id: urlSucursalId ? parseInt(urlSucursalId) : undefined,
+                   sucursal_activa_nombre: urlSucursalNombre || undefined
                };
                setUser(enrichedUser as any);
                localStorage.setItem('nexus_custom_user', JSON.stringify(enrichedUser));
@@ -93,16 +97,47 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         try {
           const parsed: UserProfile = JSON.parse(stored);
           
-          if (!parsed.is_super_admin) {
-              const p = parsed.permisos_obj;
-              if (p && (!p.apps || !p.apps.includes('stock'))) {
-                  localStorage.removeItem('nexus_custom_user');
-                  window.location.href = '/?error=Acceso Denegado a Stock';
-                  return;
-              }
+          // Refresh session from DB to get the latest permissions from the general portal
+          try {
+            const cleanId = parsed.id.replace(/'/g, '');
+            const res = await executeAWSQuery(`SELECT * FROM usuarios WHERE id = '${cleanId}'`);
+            if (res && res.length > 0) {
+               let parsedPermisos = {};
+               try { parsedPermisos = typeof res[0].permisos === 'string' ? JSON.parse(res[0].permisos) : res[0].permisos; } catch(e){}
+               const enrichedUser = { 
+                   ...res[0], 
+                   is_super_admin: res[0].rol === 'administrador' || res[0].is_super_admin || false, 
+                   permisos_obj: parsedPermisos || { apps: ['stock'] },
+                   sucursal_activa_id: urlSucursalId ? parseInt(urlSucursalId) : parsed.sucursal_activa_id,
+                   sucursal_activa_nombre: urlSucursalNombre || parsed.sucursal_activa_nombre
+               };
+               
+               if (!enrichedUser.is_super_admin) {
+                   const p = enrichedUser.permisos_obj;
+                   if (p && (!p.apps || !p.apps.includes('stock'))) {
+                       localStorage.removeItem('nexus_custom_user');
+                       window.location.href = '/?error=Acceso Denegado a Stock';
+                       return;
+                   }
+               }
+               
+               setUser(enrichedUser as any);
+               localStorage.setItem('nexus_custom_user', JSON.stringify(enrichedUser));
+            } else {
+               localStorage.removeItem('nexus_custom_user');
+            }
+          } catch (dbErr) {
+             console.error("Error refreshing session from DB, using cached session:", dbErr);
+             if (!parsed.is_super_admin) {
+                 const p = parsed.permisos_obj;
+                 if (p && (!p.apps || !p.apps.includes('stock'))) {
+                     localStorage.removeItem('nexus_custom_user');
+                     window.location.href = '/?error=Acceso Denegado a Stock';
+                     return;
+                 }
+             }
+             setUser(parsed);
           }
-          
-          setUser(parsed);
         } catch (e) {
           console.error("Error parsing stored user", e);
           localStorage.removeItem('nexus_custom_user');
@@ -118,7 +153,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                const enrichedUser = { 
                    ...res[0], 
                    is_super_admin: res[0].rol === 'administrador' || res[0].is_super_admin || false, 
-                   permisos_obj: parsedPermisos || { apps: ['stock'] }
+                   permisos_obj: parsedPermisos || { apps: ['stock'] },
+                   sucursal_activa_id: urlSucursalId ? parseInt(urlSucursalId) : undefined,
+                   sucursal_activa_nombre: urlSucursalNombre || undefined
                };
                setUser(enrichedUser as any);
                localStorage.setItem('nexus_custom_user', JSON.stringify(enrichedUser));
@@ -129,7 +166,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 nombre_completo: "Martin (Local Admin)",
                 rol: "administrador",
                 is_super_admin: true,
-                permisos_obj: { apps: ["stock", "ventas"] }
+                permisos_obj: { apps: ["stock", "ventas"] },
+                sucursal_activa_id: urlSucursalId ? parseInt(urlSucursalId) : undefined,
+                sucursal_activa_nombre: urlSucursalNombre || undefined
               };
               setUser(fallbackUser);
               localStorage.setItem('nexus_custom_user', JSON.stringify(fallbackUser));
@@ -142,7 +181,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               nombre_completo: "Martin (Local Admin)",
               rol: "administrador",
               is_super_admin: true,
-              permisos_obj: { apps: ["stock", "ventas"] }
+              permisos_obj: { apps: ["stock", "ventas"] },
+              sucursal_activa_id: urlSucursalId ? parseInt(urlSucursalId) : undefined,
+              sucursal_activa_nombre: urlSucursalNombre || undefined
             };
             setUser(fallbackUser);
             localStorage.setItem('nexus_custom_user', JSON.stringify(fallbackUser));
@@ -170,11 +211,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (user.is_super_admin) return "write";
       
       const p = user.permisos_obj;
-      if (!p) return "none";
+      if (!p) {
+          if (user.rol === 'administrador' || user.rol === 'admin') return "write";
+          if (user.rol === 'encargado' || user.rol === 'gerente_stock') return "write";
+          return "none";
+      }
       if (!p.apps?.includes('stock')) return "none";
 
       const tool = p.stock_tools?.[toolId] || p.stock_tools?.[toolId.replace('sidebar_', '')];
-      if (!tool || tool.access === 'none') return "none";
+      if (!tool) {
+          if (user.rol === 'administrador' || user.rol === 'admin') return "write";
+          if (user.rol === 'encargado' || user.rol === 'gerente_stock') return "write";
+          return "none";
+      }
+      if (tool.access === 'none') return "none";
 
       return tool.access;
   };
@@ -186,17 +236,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (user.is_super_admin) return "write";
 
       const p = user.permisos_obj;
-      if (!p) return "none";
+      if (!p) {
+          if (user.rol === 'administrador' || user.rol === 'admin') return "write";
+          if (user.rol === 'encargado' || user.rol === 'gerente_stock') return "write";
+          return "none";
+      }
       if (!p.apps?.includes('stock')) return "none";
 
       const tool = p.stock_tools?.[toolId] || p.stock_tools?.[toolId.replace('sidebar_', '')];
-      if (!tool || tool.access === 'none') return "none";
+      if (!tool) {
+          if (user.rol === 'administrador' || user.rol === 'admin') return "write";
+          if (user.rol === 'encargado' || user.rol === 'gerente_stock') return "write";
+          return "none";
+      }
+      if (tool.access === 'none') return "none";
 
       if (subToolId) {
           const subAccess = tool.sub?.[subToolId];
           if (subAccess === 'none') return "none";
           if (subAccess) return subAccess;
-          return "none"; // Si no está explícito en el JSON, asume 'none' igual que la UI del Portal
+          
+          if (user.rol === 'administrador' || user.rol === 'admin') return "write";
+          if (user.rol === 'encargado' || user.rol === 'gerente_stock') return "write";
+          return tool.access;
       }
 
       return tool.access;
@@ -207,7 +269,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (user.is_super_admin) return true;
       
       const acc = getToolAccess(moduleId);
-      return acc === "write" || acc === "read";
+      if (acc === "write" || acc === "read") return true;
+
+      // Fallback based on roles if no granular permissions exist in the portal JSON
+      if (allowedRoles && user.rol) {
+          const normalizedUserRol = user.rol.toLowerCase();
+          return allowedRoles.some(r => {
+              const normR = r.toLowerCase();
+              if (normR === 'admin' && normalizedUserRol === 'administrador') return true;
+              if (normR === 'gerente_stock' && normalizedUserRol === 'encargado') return true;
+              if (normR === 'operario_stock' && normalizedUserRol === 'operario') return true;
+              return normalizedUserRol.includes(normR) || normR.includes(normalizedUserRol);
+          });
+      }
+      
+      return false;
   };
 
   const logout = () => {
@@ -220,10 +296,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     user,
     profile: user,
     loading,
-    isGerente: user?.is_super_admin || Boolean(user?.rol && (user.rol.includes('gerente') || user.rol.includes('admin'))),
-    isAdminStock: user?.is_super_admin || Boolean(user?.rol && user.rol.includes('admin')),
-    isOperario: user?.rol === 'operario',
-    isOperarioStock: user?.rol === 'operario_stock' || user?.rol === 'atencion',
+    isGerente: user?.is_super_admin || Boolean(user?.rol && (user.rol.includes('gerente') || user.rol.includes('admin') || user.rol.includes('encargado') || user.rol === 'encargado')),
+    isAdminStock: user?.is_super_admin || Boolean(user?.rol && (user.rol.includes('admin') || user.rol.includes('administrador') || user.rol === 'administrador' || user.rol.includes('encargado') || user.rol === 'encargado')),
+    isOperario: user?.rol === 'operario' || user?.rol === 'operario_stock',
+    isOperarioStock: user?.rol === 'operario_stock' || user?.rol === 'atencion' || user?.rol === 'operario',
     darkMode,
     toggleDarkMode,
     login,
