@@ -309,6 +309,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const acc = getToolAccess(moduleId);
       if (acc === "write" || acc === "read") return true;
 
+      const p = user.permisos_obj;
+      // If there is an explicit permissions configuration (either array or object with the tool defined),
+      // do NOT fall back to roles. Respect the explicit "none" access.
+      if (p) {
+          if (Array.isArray(p)) {
+              // Array lists explicitly allowed modules. If it's not allowed, do not fall back.
+              return false;
+          }
+          const cleanId = moduleId.replace('sidebar_', '');
+          const toolConfig = p.stock_tools?.[moduleId] || p.stock_tools?.[cleanId];
+          if (toolConfig) {
+              // It was explicitly configured in the JSON (e.g., as "none"). Do not fall back.
+              return false;
+          }
+      }
+
       // Fallback based on roles if no granular permissions exist in the portal JSON
       if (allowedRoles && user.rol) {
           const normalizedUserRol = user.rol.toLowerCase();
