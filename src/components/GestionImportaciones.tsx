@@ -6,8 +6,11 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { cn, formatCurrency } from '../lib/utils';
 import { ImportacionesCreationModal } from './ui/ImportacionesCreationModal';
 import { ImportacionDetalleModal } from './ui/ImportacionDetalleModal';
+import { useAuth } from '../context/AuthContext';
 
 export function GestionImportaciones() {
+  const { hasSubAccess } = useAuth();
+  const canWrite = hasSubAccess('sidebar_compras', 'crear_compra') === 'write';
   const [importaciones, setImportaciones] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -113,9 +116,11 @@ export function GestionImportaciones() {
             <p className="text-sm font-bold text-slate-500">Administra expedientes logísticos globales.</p>
             </div>
         </div>
-        <button onClick={() => setIsCreateOpen(true)} className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-xl font-black flex items-center gap-2 shadow-lg shadow-indigo-500/30 transition-transform hover:scale-105 active:scale-95">
-            <Plus className="w-5 h-5"/> Crear Importación
-        </button>
+        {canWrite && (
+            <button onClick={() => setIsCreateOpen(true)} className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-xl font-black flex items-center gap-2 shadow-lg shadow-indigo-500/30 transition-transform hover:scale-105 active:scale-95">
+                <Plus className="w-5 h-5"/> Crear Importación
+            </button>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

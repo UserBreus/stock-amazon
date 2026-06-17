@@ -3,8 +3,11 @@ import { executeAWSQuery } from '../../lib/aws-client';
 import { Plus } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { CompraDetalleModal } from '../ui/CompraDetalleModal';
+import { useAuth } from '../../context/AuthContext';
 
 export function ComprasDashboard({ onCreateClick, onEditDraft }: { onCreateClick: () => void, onEditDraft: (compra: any) => void }) {
+   const { hasSubAccess } = useAuth();
+   const canWrite = hasSubAccess('sidebar_compras', 'crear_compra') === 'write';
    const [compras, setCompras] = useState<any[]>([]);
    const [showRecibidas, setShowRecibidas] = useState(false);
    const [isLoading, setIsLoading] = useState(true);
@@ -56,9 +59,11 @@ export function ComprasDashboard({ onCreateClick, onEditDraft }: { onCreateClick
                    <button onClick={() => setShowRecibidas(false)} className={cn("px-4 py-2 rounded-xl text-sm font-bold transition-all", !showRecibidas ? "bg-indigo-50 text-indigo-700" : "text-slate-500 hover:bg-slate-50")}>Activas</button>
                    <button onClick={() => setShowRecibidas(true)} className={cn("px-4 py-2 rounded-xl text-sm font-bold transition-all", showRecibidas ? "bg-emerald-50 text-emerald-700" : "text-slate-500 hover:bg-slate-50")}>Recibidas/Historial</button>
                </div>
-               <button onClick={onCreateClick} className="btn-primary flex items-center gap-2">
-                   <Plus className="w-4 h-4"/> Crear Compra
-               </button>
+                {canWrite && (
+                    <button onClick={onCreateClick} className="btn-primary flex items-center gap-2">
+                        <Plus className="w-4 h-4"/> Crear Compra
+                    </button>
+                )}
            </div>
            
            {isLoading ? (

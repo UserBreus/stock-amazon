@@ -7,8 +7,11 @@ import { cn } from '../../lib/utils';
 import toast from 'react-hot-toast';
 import { printLabel } from '../../lib/printLabel';
 import { PrintLabelsModal } from './PrintLabelsModal';
+import { useAuth } from '../../context/AuthContext';
 
 export function CompraDetalleModal({ isOpen, compra, onClose, onUpdate, onEditDraft }: any) {
+   const { hasSubAccess } = useAuth();
+   const canWrite = hasSubAccess('sidebar_compras', 'crear_compra') === 'write';
    const [detalles, setDetalles] = useState<any[]>([]);
    const [etiquetasPendientes, setEtiquetasPendientes] = useState<any[]>([]);
    const [costosExtra, setCostosExtra] = useState<any[]>([]);
@@ -382,7 +385,7 @@ export function CompraDetalleModal({ isOpen, compra, onClose, onUpdate, onEditDr
                        <p className="text-xs font-bold text-indigo-400 uppercase tracking-widest">Gastos / Fletes Extra: {compra.moneda_simbolo || '$'}{compra.gastos_extras || 0}</p>
                    </div>
                     <div className="flex gap-4 items-center">
-                       {compra.estado !== 'recibido' && (
+                       {compra.estado !== 'recibido' && canWrite && (
                             <div className="relative flex items-center">
                                 {compra.estado !== 'recibido' && !isEditing && (
                                     <button 
@@ -592,7 +595,7 @@ export function CompraDetalleModal({ isOpen, compra, onClose, onUpdate, onEditDr
                               <div className="flex items-center gap-1.5">
                                   <Workflow className="w-3.5 h-3.5 text-indigo-500" />
                                   <select
-                                      disabled={isUpdating || compra.importacion_id !== null}
+                                      disabled={isUpdating || compra.importacion_id !== null || !canWrite}
                                       value={selectedPlantillaId}
                                       onChange={e => handleReplaceTemplate(Number(e.target.value))}
                                       className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 text-[11px] font-bold text-slate-800 dark:text-white outline-none cursor-pointer shadow-sm"
@@ -621,7 +624,7 @@ export function CompraDetalleModal({ isOpen, compra, onClose, onUpdate, onEditDr
                                                    <span className={cn("font-bold", isCurrent ? "text-emerald-700 dark:text-emerald-400" : (isCompleted ? "text-slate-700 dark:text-slate-200" : "text-slate-400"))}>{step.etiqueta}</span>
                                                </div>
                                                
-                                               {compra.estado !== 'pre-compra' && !isCurrent && (
+                                               {compra.estado !== 'pre-compra' && !isCurrent && canWrite && (
                                                    <button 
                                                        disabled={isUpdating}
                                                        onClick={() => updateProgreso(step.clave)} 
@@ -641,36 +644,40 @@ export function CompraDetalleModal({ isOpen, compra, onClose, onUpdate, onEditDr
                             <div className="card-nexus p-6 border-amber-200 bg-amber-50">
                                 <h4 className="font-black text-amber-900 text-lg mb-2">Pre-Compra / Borrador</h4>
                                 <p className="text-sm font-medium text-amber-700 mb-4">Esta compra no ha sido confirmada formalmente. Puedes continuar editándola o confirmarla para iniciar el tracking logístico.</p>
-                                <div className="flex flex-col gap-2">
-                                    <button 
-                                       onClick={() => onEditDraft(compra.id)}
-                                       className="w-full py-3 bg-white text-amber-700 font-bold rounded-xl border border-amber-300 hover:bg-amber-100 transition-colors"
-                                    >
-                                       Continuar Editando
-                                    </button>
-                                    <button 
-                                       onClick={async () => {
-                                           setIsUpdating(true);
-                                           const stepRes = await executeAWSQuery(`
-                                               SELECT TOP 1 clave FROM Stock_Plantillas_Progreso_Pasos 
-                                               WHERE plantilla_id = ${compra.plantilla_progreso_id || 1} 
-                                               ORDER BY orden ASC
-                                           `);
-                                           let firstStepKey = 'realizada';
-                                           if (stepRes && stepRes.length > 0) {
-                                               firstStepKey = stepRes[0].clave;
-                                           }
-                                           await executeAWSQuery(`UPDATE Stock_Compras SET estado = 'pendiente', progreso = '${firstStepKey}' WHERE id = '${compra.id}'`);
-                                           toast.success("Compra confirmada!");
-                                           onUpdate();
-                                           setIsUpdating(false);
-                                       }}
-                                       disabled={isUpdating}
-                                       className="w-full py-3 bg-amber-600 text-white font-bold rounded-xl hover:bg-amber-700 transition-colors shadow-sm"
-                                    >
-                                       Confirmar Compra
-                                    </button>
-                                </div>
+                                {canWrite ? (
+                                    <div className="flex flex-col gap-2">
+                                        <button 
+                                           onClick={() => onEditDraft(compra.id)}
+                                           className="w-full py-3 bg-white text-amber-700 font-bold rounded-xl border border-amber-300 hover:bg-amber-100 transition-colors"
+                                        >
+                                           Continuar Editando
+                                        </button>
+                                        <button 
+                                           onClick={async () => {
+                                               setIsUpdating(true);
+                                               const stepRes = await executeAWSQuery(`
+                                                   SELECT TOP 1 clave FROM Stock_Plantillas_Progreso_Pasos 
+                                                   WHERE plantilla_id = ${compra.plantilla_progreso_id || 1} 
+                                                   ORDER BY orden ASC
+                                               `);
+                                               let firstStepKey = 'realizada';
+                                               if (stepRes && stepRes.length > 0) {
+                                                   firstStepKey = stepRes[0].clave;
+                                               }
+                                               await executeAWSQuery(`UPDATE Stock_Compras SET estado = 'pendiente', progreso = '${firstStepKey}' WHERE id = '${compra.id}'`);
+                                               toast.success("Compra confirmada!");
+                                               onUpdate();
+                                               setIsUpdating(false);
+                                           }}
+                                           disabled={isUpdating}
+                                           className="w-full py-3 bg-amber-600 text-white font-bold rounded-xl hover:bg-amber-700 transition-colors shadow-sm"
+                                        >
+                                           Confirmar Compra
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <p className="text-xs text-amber-600 font-bold">No tienes permisos para editar o confirmar esta compra.</p>
+                                )}
                             </div>
                         )}
                     </div>
@@ -709,138 +716,140 @@ export function CompraDetalleModal({ isOpen, compra, onClose, onUpdate, onEditDr
                 </div>
 
                 {/* Formulario Rápido de Pago */}
-                <div className="bg-slate-50 dark:bg-slate-900/30 p-4 rounded-xl border border-slate-100 dark:border-slate-800 space-y-3">
-                    <p className="font-bold text-xs text-slate-800 dark:text-slate-200">Registrar Nuevo Pago</p>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                        <div>
-                            <label className="text-[9px] font-bold uppercase text-slate-400 pl-1 block mb-1">Monto</label>
-                            <input 
-                                type="number"
-                                step="0.01"
-                                placeholder="Monto"
-                                className="input-nexus w-full text-xs py-2 px-3"
-                                value={pagoMontoInput}
-                                onChange={e => setPagoMontoInput(e.target.value)}
-                            />
-                        </div>
-                        <div className="relative">
-                            <label className="text-[9px] font-bold uppercase text-slate-400 pl-1 block mb-1">Motivo de Pago</label>
-                            {showNewMotiveInput ? (
-                                <div className="flex gap-1.5">
-                                    <input
-                                        type="text"
-                                        placeholder="Nombre de motivo..."
-                                        className="input-nexus flex-1 text-xs py-2 px-3 border-emerald-300 dark:border-emerald-800/80"
-                                        value={newMotiveName}
-                                        onChange={e => setNewMotiveName(e.target.value)}
-                                        autoFocus
-                                    />
-                                    <button
-                                        type="button"
-                                        onClick={async () => {
-                                            if (!newMotiveName.trim()) return toast.error("El nombre no puede estar vacío");
-                                            try {
-                                                await executeAWSQuery(`INSERT INTO Stock_Pagos_Motivos (nombre) VALUES ('${newMotiveName.trim().replace(/'/g, "''")}')`);
-                                                toast.success("Motivo guardado.");
-                                                const res = await executeAWSQuery("SELECT nombre FROM Stock_Pagos_Motivos ORDER BY nombre ASC");
-                                                if (res) {
-                                                    setMotivosList(res.map((r: any) => r.nombre));
-                                                    setPagoTipoInput(newMotiveName.trim());
-                                                }
-                                                setNewMotiveName('');
-                                                setShowNewMotiveInput(false);
-                                            } catch (e: any) {
-                                                toast.error("Error al guardar: " + e.message);
-                                            }
-                                        }}
-                                        className="px-2.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow-sm"
-                                    >
-                                        ✓
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => {
-                                            setShowNewMotiveInput(false);
-                                            setNewMotiveName('');
-                                        }}
-                                        className="px-2.5 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg text-xs font-bold border border-slate-200 dark:border-slate-750"
-                                    >
-                                        ✕
-                                    </button>
-                                </div>
-                            ) : (
-                                <div className="flex gap-1.5">
-                                    <div className="relative flex-1">
+                {canWrite && (
+                    <div className="bg-slate-50 dark:bg-slate-900/30 p-4 rounded-xl border border-slate-100 dark:border-slate-800 space-y-3">
+                        <p className="font-bold text-xs text-slate-800 dark:text-slate-200">Registrar Nuevo Pago</p>
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                            <div>
+                                <label className="text-[9px] font-bold uppercase text-slate-400 pl-1 block mb-1">Monto</label>
+                                <input 
+                                    type="number"
+                                    step="0.01"
+                                    placeholder="Monto"
+                                    className="input-nexus w-full text-xs py-2 px-3"
+                                    value={pagoMontoInput}
+                                    onChange={e => setPagoMontoInput(e.target.value)}
+                                />
+                            </div>
+                            <div className="relative">
+                                <label className="text-[9px] font-bold uppercase text-slate-400 pl-1 block mb-1">Motivo de Pago</label>
+                                {showNewMotiveInput ? (
+                                    <div className="flex gap-1.5">
                                         <input
                                             type="text"
-                                            placeholder="Seleccione o escriba..."
-                                            className="input-nexus w-full text-xs py-2 px-3 pr-8"
-                                            value={pagoTipoInput}
-                                            onChange={e => {
-                                                setPagoTipoInput(e.target.value);
-                                                setIsOpenDropdown(true);
-                                            }}
-                                            onFocus={() => setIsOpenDropdown(true)}
-                                            onBlur={() => {
-                                                setTimeout(() => setIsOpenDropdown(false), 200);
-                                            }}
+                                            placeholder="Nombre de motivo..."
+                                            className="input-nexus flex-1 text-xs py-2 px-3 border-emerald-300 dark:border-emerald-800/80"
+                                            value={newMotiveName}
+                                            onChange={e => setNewMotiveName(e.target.value)}
+                                            autoFocus
                                         />
-                                        {isOpenDropdown && (
-                                            <div className="absolute top-full left-0 right-0 mt-1 max-h-48 overflow-y-auto bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg shadow-xl z-55 divide-y divide-slate-100 dark:divide-slate-850">
-                                                {motivosList
-                                                    .filter(m => m.toLowerCase().includes(pagoTipoInput.toLowerCase()))
-                                                    .map(m => (
-                                                        <button
-                                                            key={m}
-                                                            type="button"
-                                                            className="w-full text-left px-3 py-2 text-xs hover:bg-indigo-50 dark:hover:bg-indigo-900/30 text-slate-800 dark:text-slate-200 font-medium"
-                                                            onMouseDown={() => {
-                                                                setPagoTipoInput(m);
-                                                            }}
-                                                        >
-                                                            {m}
-                                                        </button>
-                                                    ))
+                                        <button
+                                            type="button"
+                                            onClick={async () => {
+                                                if (!newMotiveName.trim()) return toast.error("El nombre no puede estar vacío");
+                                                try {
+                                                    await executeAWSQuery(`INSERT INTO Stock_Pagos_Motivos (nombre) VALUES ('${newMotiveName.trim().replace(/'/g, "''")}')`);
+                                                    toast.success("Motivo guardado.");
+                                                    const res = await executeAWSQuery("SELECT nombre FROM Stock_Pagos_Motivos ORDER BY nombre ASC");
+                                                    if (res) {
+                                                        setMotivosList(res.map((r: any) => r.nombre));
+                                                        setPagoTipoInput(newMotiveName.trim());
+                                                    }
+                                                    setNewMotiveName('');
+                                                    setShowNewMotiveInput(false);
+                                                } catch (e: any) {
+                                                    toast.error("Error al guardar: " + e.message);
                                                 }
-                                                {motivosList.filter(m => m.toLowerCase().includes(pagoTipoInput.toLowerCase())).length === 0 && (
-                                                    <p className="p-2 text-center text-[10px] text-slate-400 italic">No hay coincidencias</p>
-                                                )}
-                                            </div>
-                                        )}
+                                            }}
+                                            className="px-2.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow-sm"
+                                        >
+                                            ✓
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setShowNewMotiveInput(false);
+                                                setNewMotiveName('');
+                                            }}
+                                            className="px-2.5 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg text-xs font-bold border border-slate-200 dark:border-slate-750"
+                                        >
+                                            ✕
+                                        </button>
                                     </div>
-                                    <button
-                                        type="button"
-                                        onClick={() => setShowNewMotiveInput(true)}
-                                        className="px-2.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 transition font-black text-xs"
-                                        title="Crear nuevo motivo"
+                                ) : (
+                                    <div className="flex gap-1.5">
+                                        <div className="relative flex-1">
+                                            <input
+                                                type="text"
+                                                placeholder="Seleccione o escriba..."
+                                                className="input-nexus w-full text-xs py-2 px-3 pr-8"
+                                                value={pagoTipoInput}
+                                                onChange={e => {
+                                                    setPagoTipoInput(e.target.value);
+                                                    setIsOpenDropdown(true);
+                                                }}
+                                                onFocus={() => setIsOpenDropdown(true)}
+                                                onBlur={() => {
+                                                    setTimeout(() => setIsOpenDropdown(false), 200);
+                                                }}
+                                            />
+                                            {isOpenDropdown && (
+                                                <div className="absolute top-full left-0 right-0 mt-1 max-h-48 overflow-y-auto bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg shadow-xl z-55 divide-y divide-slate-100 dark:divide-slate-850">
+                                                    {motivosList
+                                                        .filter(m => m.toLowerCase().includes(pagoTipoInput.toLowerCase()))
+                                                        .map(m => (
+                                                            <button
+                                                                key={m}
+                                                                type="button"
+                                                                className="w-full text-left px-3 py-2 text-xs hover:bg-indigo-50 dark:hover:bg-indigo-900/30 text-slate-800 dark:text-slate-200 font-medium"
+                                                                onMouseDown={() => {
+                                                                    setPagoTipoInput(m);
+                                                                }}
+                                                            >
+                                                                {m}
+                                                            </button>
+                                                        ))
+                                                    }
+                                                    {motivosList.filter(m => m.toLowerCase().includes(pagoTipoInput.toLowerCase())).length === 0 && (
+                                                        <p className="p-2 text-center text-[10px] text-slate-400 italic">No hay coincidencias</p>
+                                                    )}
+                                                </div>
+                                            )}
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowNewMotiveInput(true)}
+                                            className="px-2.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 transition font-black text-xs"
+                                            title="Crear nuevo motivo"
+                                        >
+                                            +
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+                            <div className="flex flex-col">
+                                <label className="text-[9px] font-bold uppercase text-slate-400 pl-1 block mb-1">Detalle / Explicación</label>
+                                <div className="flex gap-2">
+                                    <input 
+                                        type="text"
+                                        placeholder="Ej. Seña del 50%"
+                                        className="input-nexus flex-1 text-xs py-2 px-3"
+                                        value={pagoMotivoInput}
+                                        onChange={e => setPagoMotivoInput(e.target.value)}
+                                    />
+                                    <button 
+                                        disabled={isUpdating}
+                                        onClick={registrarPago}
+                                        className="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition font-bold text-xs flex items-center justify-center gap-1 shadow-sm"
                                     >
-                                        +
+                                        <Plus className="w-3.5 h-3.5" />
+                                        Cargar
                                     </button>
                                 </div>
-                            )}
-                        </div>
-                        <div className="flex flex-col">
-                            <label className="text-[9px] font-bold uppercase text-slate-400 pl-1 block mb-1">Detalle / Explicación</label>
-                            <div className="flex gap-2">
-                                <input 
-                                    type="text"
-                                    placeholder="Ej. Seña del 50%"
-                                    className="input-nexus flex-1 text-xs py-2 px-3"
-                                    value={pagoMotivoInput}
-                                    onChange={e => setPagoMotivoInput(e.target.value)}
-                                />
-                                <button 
-                                    disabled={isUpdating}
-                                    onClick={registrarPago}
-                                    className="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition font-bold text-xs flex items-center justify-center gap-1 shadow-sm"
-                                >
-                                    <Plus className="w-3.5 h-3.5" />
-                                    Cargar
-                                </button>
                             </div>
                         </div>
                     </div>
-                </div>
+                )}
 
                 {/* Listado de Pagos */}
                 <div className="space-y-2">
@@ -873,14 +882,16 @@ export function CompraDetalleModal({ isOpen, compra, onClose, onUpdate, onEditDr
                                             <td className="p-3 font-medium text-slate-700 dark:text-slate-300">{p.motivo || '-'}</td>
                                             <td className="p-3 text-right font-black text-emerald-600">{compra.moneda_simbolo || '$'}{Number(p.monto).toFixed(2)}</td>
                                             <td className="p-3 text-center">
-                                                <button 
-                                                    disabled={isUpdating}
-                                                    onClick={() => eliminarPago(p.id)}
-                                                    className="text-slate-300 hover:text-rose-500 transition-colors p-1"
-                                                    title="Eliminar Pago"
-                                                >
-                                                    <Trash2 className="w-4 h-4" />
-                                                </button>
+                                                {canWrite && (
+                                                    <button 
+                                                        disabled={isUpdating}
+                                                        onClick={() => eliminarPago(p.id)}
+                                                        className="text-slate-300 hover:text-rose-500 transition-colors p-1"
+                                                        title="Eliminar Pago"
+                                                    >
+                                                        <Trash2 className="w-4 h-4" />
+                                                    </button>
+                                                )}
                                             </td>
                                         </tr>
                                     ))}
