@@ -6,8 +6,8 @@ export async function executeAWSQuery(query: string): Promise<any[]> {
         const isLocalhost = typeof window !== 'undefined' && 
             (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
             
-        // Use development database on localhost, production database elsewhere
-        const targetDb = isLocalhost ? 'Ventas_Dev' : 'Ventas';
+        // Always use Ventas_Dev database
+        const targetDb = 'Ventas_Dev';
         const finalQuery = `USE ${targetDb}; ${query}`;
         
         const response = await fetch(AWS_URL, {
