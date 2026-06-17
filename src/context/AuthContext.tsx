@@ -102,35 +102,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             const cleanId = parsed.id.replace(/'/g, '');
             const res = await executeAWSQuery(`SELECT * FROM usuarios WHERE id = '${cleanId}'`);
             if (res && res.length > 0) {
-               let parsedPermisos = {};
-               try { parsedPermisos = typeof res[0].permisos === 'string' ? JSON.parse(res[0].permisos) : res[0].permisos; } catch(e){}
-               const enrichedUser = { 
-                   ...res[0], 
-                   is_super_admin: res[0].rol === 'administrador' || res[0].is_super_admin || false, 
-                   permisos_obj: parsedPermisos || { apps: ['stock'] },
-                   sucursal_activa_id: urlSucursalId ? parseInt(urlSucursalId) : parsed.sucursal_activa_id,
-                   sucursal_activa_nombre: urlSucursalNombre || parsed.sucursal_activa_nombre
-               };
-               
-               if (!enrichedUser.is_super_admin) {
-                   const p = enrichedUser.permisos_obj;
-                   if (p && (!p.apps || !p.apps.includes('stock'))) {
-                       localStorage.removeItem('nexus_custom_user');
-                       window.location.href = '/?error=Acceso Denegado a Stock';
-                       return;
-                   }
-               }
-               
-               setUser(enrichedUser as any);
-               localStorage.setItem('nexus_custom_user', JSON.stringify(enrichedUser));
-            } else {
-               localStorage.removeItem('nexus_custom_user');
-            }
+                let parsedPermisos = null;
+                try { parsedPermisos = typeof res[0].permisos === 'string' ? JSON.parse(res[0].permisos) : res[0].permisos; } catch(e){}
+                const enrichedUser = { 
+                    ...res[0], 
+                    is_super_admin: res[0].rol === 'administrador' || res[0].is_super_admin || false, 
+                    permisos_obj: parsedPermisos || { apps: ['stock'] },
+                    sucursal_activa_id: urlSucursalId ? parseInt(urlSucursalId) : parsed.sucursal_activa_id,
+                    sucursal_activa_nombre: urlSucursalNombre || parsed.sucursal_activa_nombre
+                };
+                
+                if (!enrichedUser.is_super_admin) {
+                    const p = enrichedUser.permisos_obj;
+                    const hasStockAccess = Array.isArray(p)
+                        ? p.some((x: string) => x.startsWith('sidebar_') || x === 'stock')
+                        : Boolean(p?.apps?.includes('stock'));
+                    
+                    if (p && !hasStockAccess) {
+                        localStorage.removeItem('nexus_custom_user');
+                        window.location.href = '/?error=Acceso Denegado a Stock';
+                        return;
+                    }
+                }
+                
+                setUser(enrichedUser as any);
+                localStorage.setItem('nexus_custom_user', JSON.stringify(enrichedUser));
+             } else {
+                localStorage.removeItem('nexus_custom_user');
+             }
           } catch (dbErr) {
              console.error("Error refreshing session from DB, using cached session:", dbErr);
              if (!parsed.is_super_admin) {
                  const p = parsed.permisos_obj;
-                 if (p && (!p.apps || !p.apps.includes('stock'))) {
+                 const hasStockAccess = Array.isArray(p)
+                     ? p.some((x: string) => x.startsWith('sidebar_') || x === 'stock')
+                     : Boolean(p?.apps?.includes('stock'));
+                     
+                 if (p && !hasStockAccess) {
                      localStorage.removeItem('nexus_custom_user');
                      window.location.href = '/?error=Acceso Denegado a Stock';
                      return;
@@ -216,6 +224,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (user.rol === 'encargado' || user.rol === 'gerente_stock') return "write";
           return "none";
       }
+
+      if (Array.isArray(p)) {
+          const cleanToolId = toolId.replace('sidebar_', '');
+          const hasIt = p.includes(toolId) || p.includes(cleanToolId);
+          return hasIt ? "write" : "none";
+      }
+
       if (!p.apps?.includes('stock')) return "none";
 
       const tool = p.stock_tools?.[toolId] || p.stock_tools?.[toolId.replace('sidebar_', '')];
@@ -224,7 +239,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (user.rol === 'encargado' || user.rol === 'gerente_stock') return "write";
           return "none";
       }
-      if (tool.access === 'none') return "none";
+      
+      if (tool.access === 'none') {
+          // If parent access is denied, but the user has at least one active sub-permission, grant access to the main module
+          const subVals = Object.values(tool.sub || {});
+          if (subVals.some(v => v === 'write')) return "write";
+          if (subVals.some(v => v === 'read')) return "read";
+          return "none";
+      }
 
       return tool.access;
   };
@@ -241,6 +263,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (user.rol === 'encargado' || user.rol === 'gerente_stock') return "write";
           return "none";
       }
+
+      if (Array.isArray(p)) {
+          const cleanToolId = toolId.replace('sidebar_', '');
+          const hasIt = p.includes(toolId) || p.includes(cleanToolId);
+          return hasIt ? "write" : "none";
+      }
+
       if (!p.apps?.includes('stock')) return "none";
 
       const tool = p.stock_tools?.[toolId] || p.stock_tools?.[toolId.replace('sidebar_', '')];
@@ -249,16 +278,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (user.rol === 'encargado' || user.rol === 'gerente_stock') return "write";
           return "none";
       }
-      if (tool.access === 'none') return "none";
 
       if (subToolId) {
           const subAccess = tool.sub?.[subToolId];
           if (subAccess === 'none') return "none";
           if (subAccess) return subAccess;
           
+          // If parent is blocked, do not inherit
+          if (tool.access === 'none') return "none";
+
           if (user.rol === 'administrador' || user.rol === 'admin') return "write";
           if (user.rol === 'encargado' || user.rol === 'gerente_stock') return "write";
           return tool.access;
+      }
+
+      if (tool.access === 'none') {
+          const subVals = Object.values(tool.sub || {});
+          if (subVals.some(v => v === 'write')) return "write";
+          if (subVals.some(v => v === 'read')) return "read";
+          return "none";
       }
 
       return tool.access;

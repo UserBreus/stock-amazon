@@ -31,6 +31,7 @@ const PREDEFINED_STEPS = [
     { label: 'En Tránsito', key: 'en_transito', icon: 'Truck', desc: 'Flete en ruta terrestre' }
 ];
 import { useUIConfig, DynamicUIIcon } from '../context/UIContext';
+import { useAuth } from '../context/AuthContext';
 
 import { executeAWSQuery } from '../lib/aws-client';
 import { cn, getVisualName } from '../lib/utils';
@@ -47,6 +48,7 @@ import { GestionCostosCero } from '../components/gestion/GestionCostosCero';
 export function ConfiguracionMaestros() {
   const [activeTab, setActiveTab] = useState<'hub'|'categorias'|'titulos_base'|'diccionario'|'modelos'|'proveedores'|'rendimientos'|'iconos'|'almacenes'|'monedas'|'usuarios'|'historicos'|'tipos_facturas'|'alertas_stock'|'costos_cero'|'plantillas_progreso'>('hub');
   const { isEditMode, setEditingComponentId, uiConfigs, updateConfigLocal } = useUIConfig();
+  const { hasSubAccess } = useAuth();
   
   // Categorias
   const [catName, setCatName] = useState('');
@@ -888,6 +890,7 @@ export function ConfiguracionMaestros() {
           </div>
 
   <motion.div initial={{opacity:0, y:20}} animate={{opacity:1, y:0}} className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 xl:grid-cols-6 gap-4 max-w-[1400px] mx-auto py-4 px-4">
+      {hasSubAccess('sidebar_sistema', 'gestion_productos') !== 'none' && (
       <button 
            draggable={isEditMode}
            onDragStart={(e) => handleDragStart(e, 'btn_sys_maestros')}
@@ -908,6 +911,9 @@ export function ConfiguracionMaestros() {
                <p className="text-slate-400 font-medium text-[10px] leading-tight text-center line-clamp-2 max-w-[120px]">{uiConfigs['btn_sys_maestros']?.sub_label || 'Matrices principales.'}</p>
             </div>
       </button>
+      )}
+
+      {hasSubAccess('sidebar_sistema', 'gestion_productos') !== 'none' && (
       <button 
            draggable={isEditMode}
            onDragStart={(e) => handleDragStart(e, 'btn_sys_variantes')}
@@ -928,6 +934,9 @@ export function ConfiguracionMaestros() {
                <p className="text-slate-400 font-medium text-[10px] leading-tight text-center line-clamp-2 max-w-[120px]">{uiConfigs['btn_sys_variantes']?.sub_label || 'Generador de matrices.'}</p>
             </div>
       </button>
+      )}
+
+      {hasSubAccess('sidebar_sistema', 'gestion_productos') !== 'none' && (
       <button 
            draggable={isEditMode}
            onDragStart={(e) => handleDragStart(e, 'btn_sys_rasgos')}
@@ -948,6 +957,9 @@ export function ConfiguracionMaestros() {
                <p className="text-slate-400 font-medium text-[10px] leading-tight text-center line-clamp-2 max-w-[120px]">{uiConfigs['btn_sys_rasgos']?.sub_label || 'Diccionario Variantes.'}</p>
             </div>
       </button>
+      )}
+
+      {hasSubAccess('sidebar_sistema', 'gestion_productos') !== 'none' && (
       <button 
            draggable={isEditMode}
            onDragStart={(e) => handleDragStart(e, 'btn_sys_familias')}
@@ -968,6 +980,9 @@ export function ConfiguracionMaestros() {
                <p className="text-slate-400 font-medium text-[10px] leading-tight text-center line-clamp-2 max-w-[120px]">{uiConfigs['btn_sys_familias']?.sub_label || 'Categorías globales.'}</p>
             </div>
       </button>
+      )}
+
+      {hasSubAccess('sidebar_sistema', 'gestion_productos') !== 'none' && (
       <button 
            draggable={isEditMode}
            onDragStart={(e) => handleDragStart(e, 'btn_sys_proveedores')}
@@ -988,6 +1003,9 @@ export function ConfiguracionMaestros() {
                <p className="text-slate-400 font-medium text-[10px] leading-tight text-center line-clamp-2 max-w-[120px]">{uiConfigs['btn_sys_proveedores']?.sub_label || 'Directorio importadores.'}</p>
             </div>
       </button>
+      )}
+
+      {hasSubAccess('sidebar_sistema', 'gestion_productos') !== 'none' && (
       <button 
            draggable={isEditMode}
            onDragStart={(e) => handleDragStart(e, 'btn_sys_almacenes')}
@@ -1008,6 +1026,9 @@ export function ConfiguracionMaestros() {
                <p className="text-slate-400 font-medium text-[10px] leading-tight text-center line-clamp-2 max-w-[120px]">{uiConfigs['btn_sys_almacenes']?.sub_label || 'Depositos de stock.'}</p>
             </div>
       </button>
+      )}
+
+      {hasSubAccess('sidebar_sistema', 'gestion_productos') !== 'none' && (
       <button 
            draggable={isEditMode}
            onDragStart={(e) => handleDragStart(e, 'btn_sys_monedas')}
@@ -1028,6 +1049,9 @@ export function ConfiguracionMaestros() {
                <p className="text-slate-400 font-medium text-[10px] leading-tight text-center line-clamp-2 max-w-[120px]">{uiConfigs['btn_sys_monedas']?.sub_label || 'Divisas en compras.'}</p>
             </div>
       </button>
+      )}
+
+      {hasSubAccess('sidebar_sistema', 'gestion_productos') !== 'none' && (
       <button 
            draggable={isEditMode}
            onDragStart={(e) => handleDragStart(e, 'btn_sys_tipos_facturas')}
@@ -1048,6 +1072,9 @@ export function ConfiguracionMaestros() {
                <p className="text-slate-400 font-medium text-[10px] leading-tight text-center line-clamp-2 max-w-[120px]">{uiConfigs['btn_sys_tipos_facturas']?.sub_label || 'Tipos de facturas.'}</p>
             </div>
       </button>
+      )}
+
+      {hasSubAccess('sidebar_sistema', 'gestion_usuarios') !== 'none' && (
       <button 
            draggable={isEditMode}
            onDragStart={(e) => handleDragStart(e, 'btn_sys_usuarios')}
@@ -1068,7 +1095,10 @@ export function ConfiguracionMaestros() {
                <p className="text-slate-400 font-medium text-[10px] leading-tight text-center line-clamp-2 max-w-[120px]">{uiConfigs['btn_sys_usuarios']?.sub_label || 'Gestión y Permisos.'}</p>
             </div>
       </button>
-        <button 
+      )}
+
+        {hasSubAccess('sidebar_sistema', 'gestion_productos') !== 'none' && (
+      <button 
              draggable={isEditMode}
              onDragStart={(e) => handleDragStart(e, 'btn_sys_historicos')}
              onDragOver={handleDragOver}
@@ -1088,8 +1118,11 @@ export function ConfiguracionMaestros() {
                  <p className="text-slate-400 font-medium text-[10px] leading-tight text-center line-clamp-2 max-w-[120px]">{uiConfigs['btn_sys_historicos']?.sub_label || 'Egresos manuales.'}</p>
               </div>
         </button>
+      )}
 
-        <button 
+
+        {hasSubAccess('sidebar_sistema', 'gestion_alertas') !== 'none' && (
+      <button 
              draggable={isEditMode}
              onDragStart={(e) => handleDragStart(e, 'btn_sys_alertas_stock')}
              onDragOver={handleDragOver}
@@ -1109,8 +1142,11 @@ export function ConfiguracionMaestros() {
                  <p className="text-slate-400 font-medium text-[10px] leading-tight text-center line-clamp-2 max-w-[120px]">{uiConfigs['btn_sys_alertas_stock']?.sub_label || 'Límites críticos.'}</p>
               </div>
         </button>
+      )}
 
-        <button 
+
+        {hasSubAccess('sidebar_sistema', 'gestion_productos') !== 'none' && (
+      <button 
              draggable={isEditMode}
              onDragStart={(e) => handleDragStart(e, 'btn_sys_costos_cero')}
              onDragOver={handleDragOver}
@@ -1130,8 +1166,11 @@ export function ConfiguracionMaestros() {
                  <p className="text-slate-400 font-medium text-[10px] leading-tight text-center line-clamp-2 max-w-[120px]">{uiConfigs['btn_sys_costos_cero']?.sub_label || 'Asignar costos.'}</p>
               </div>
         </button>
+      )}
 
-        <button 
+
+        {hasSubAccess('sidebar_sistema', 'gestion_productos') !== 'none' && (
+      <button 
              draggable={isEditMode}
              onDragStart={(e) => handleDragStart(e, 'btn_sys_plantillas_progreso')}
              onDragOver={handleDragOver}
@@ -1151,6 +1190,8 @@ export function ConfiguracionMaestros() {
                  <p className="text-slate-400 font-medium text-[10px] leading-tight text-center line-clamp-2 max-w-[120px]">{uiConfigs['btn_sys_plantillas_progreso']?.sub_label || 'Flujos de progreso.'}</p>
               </div>
         </button>
+      )}
+
 
       </motion.div>
 

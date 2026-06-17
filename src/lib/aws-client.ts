@@ -2,15 +2,20 @@ const AWS_URL = '/api/sql';
 
 export async function executeAWSQuery(query: string): Promise<any[]> {
     try {
-        // Enforce the use of the duplicated development database
-        const devQuery = `USE Ventas_Dev; ${query}`;
+        // Check if we are running in local development
+        const isLocalhost = typeof window !== 'undefined' && 
+            (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+            
+        // Use development database on localhost, production database elsewhere
+        const targetDb = isLocalhost ? 'Ventas_Dev' : 'Ventas';
+        const finalQuery = `USE ${targetDb}; ${query}`;
         
         const response = await fetch(AWS_URL, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ query: devQuery })
+            body: JSON.stringify({ query: finalQuery })
         });
         const json = await response.json();
         if (json.error) {
