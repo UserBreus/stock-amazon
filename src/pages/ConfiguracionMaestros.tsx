@@ -410,9 +410,19 @@ export function ConfiguracionMaestros() {
       
       // Auto-sequence generator to prevent naming collisions
       const matching = productos.filter(p => p.sku && p.sku.startsWith(baseSKU));
-      const counter = (matching.length + 1).toString();
-      
-      setPmSKU(`${baseSKU}-${counter}`);
+      let maxNum = 0;
+      matching.forEach(p => {
+        const suffix = p.sku.substring(baseSKU.length + 1);
+        const num = parseInt(suffix, 10);
+        if (!isNaN(num) && num > maxNum) {
+          maxNum = num;
+        }
+      });
+      let nextNum = maxNum + 1;
+      while (productos.some(p => p.sku === `${baseSKU}-${nextNum}`)) {
+        nextNum++;
+      }
+      setPmSKU(`${baseSKU}-${nextNum}`);
     } else {
       setPmSKU('');
     }
