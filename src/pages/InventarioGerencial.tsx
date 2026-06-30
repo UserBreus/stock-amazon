@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Plus, Scan, AlertCircle, ArchiveRestore, Printer, Search, CreditCard, Activity, 
-  Box, ArrowUpRight, ChevronDown, ChevronRight, Layers, Receipt, Network, X, 
+  Box, ArrowUpRight, ChevronDown, ChevronRight, Layers, Receipt, Network, X, Trash2, 
   Package, ShoppingCart, ListChecks, Tags, Camera, ArrowDownToLine, 
   ArrowRightLeft, ArrowUpFromLine, LayoutDashboard, History, MapPin, Send, ClipboardList, CheckCircle, PackageCheck, ScanBarcode, ArrowLeft, User, Scale 
 } from 'lucide-react';
@@ -165,6 +165,35 @@ export function InventarioGerencial() {
           `);
           setSolicitudes(res || []);
       } catch (err: any) { toast.error("Carga de solicitudes fallida: " + err.message) }
+  };
+
+  const handleCancelarSolicitud = async (solicitudId: number) => {
+     const motivo = window.prompt("Por favor, especifique el motivo de la cancelación de esta orden:");
+     if (motivo === null) return;
+     if (!motivo.trim()) {
+        toast.error("Debes ingresar un motivo para cancelar la orden.");
+        return;
+     }
+     if (!window.confirm("¿Estás seguro de que deseas cancelar esta orden?")) {
+        return;
+     }
+     try {
+         const q = `
+            USE Ventas_Dev;
+            UPDATE wms_solicitudes
+            SET estado = 'CANCELADO',
+                motivo_cancelacion = '${motivo.replace(/'/g, "''")}',
+                cancelado_por = '${user?.nombre_completo || user?.usuario || user?.id || 'Administración'}',
+                fecha_cancelacion = GETDATE()
+            WHERE id = ${solicitudId};
+         `;
+         await executeAWSQuery(q);
+         toast.success("¡Orden cancelada con éxito!");
+         fetchGlobalSolicitudes();
+         setSelectedModalSol(null);
+     } catch (e: any) {
+         toast.error("Fallo al cancelar orden: " + e.message);
+     }
   };
 
   const fetchGlobalHistorial = async () => {
@@ -948,9 +977,14 @@ export function InventarioGerencial() {
                              </div>
                              <p className="font-bold text-slate-400 text-xs mb-6">Fecha Pedido: {new Date(sol.fecha_creacion).toLocaleString()}</p>
                              
-                             <button onClick={() => handleOpenSolicitud(sol)} className="bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 font-black py-4 rounded-xl flex items-center justify-center gap-2 w-full hover:scale-[1.02] transition">
-                                EVALUAR Y ASIGNAR STOCK
-                             </button>
+                                                           <div className="flex gap-3">
+                                 <button onClick={() => handleCancelarSolicitud(sol.id)} className="bg-rose-50 dark:bg-rose-950/20 text-rose-600 dark:text-rose-400 border border-rose-100 dark:border-rose-900/50 hover:bg-rose-100 dark:hover:bg-rose-900/40 p-4 rounded-xl transition flex items-center justify-center shadow-sm" title="Cancelar Orden">
+                                     <Trash2 className="w-5 h-5" />
+                                 </button>
+                                 <button onClick={() => handleOpenSolicitud(sol)} className="flex-1 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 font-black py-4 rounded-xl flex items-center justify-center gap-2 hover:scale-[1.02] transition">
+                                    EVALUAR Y ASIGNAR STOCK
+                                 </button>
+                              </div>
                          </div>
                      ))}
                  </div>
@@ -1034,9 +1068,14 @@ export function InventarioGerencial() {
                  )}
                </div>
 
-               <button disabled={enviandoSolicitud === selectedModalSol.id || !solicitudOrigenSel[selectedModalSol.id]?.length || solAcc === 'read'} title={solAcc === 'read' ? 'No tienes permiso de escritura' : ''} onClick={() => handleEnviarSolicitud(selectedModalSol)} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-black py-4 rounded-xl shadow-lg transition-all disabled:opacity-50 mt-4">
-                  {enviandoSolicitud === selectedModalSol.id ? 'CREANDO REMITO...' : 'ENTREGAR Y GENERAR REMITO'}
-               </button>
+                               <div className="flex gap-3 mt-4">
+                   <button onClick={() => handleCancelarSolicitud(selectedModalSol.id)} className="bg-rose-600 hover:bg-rose-500 text-white font-black py-4 px-6 rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 hover:-translate-y-0.5 transition-transform">
+                       <Trash2 className="w-5 h-5"/> CANCELAR ORDEN
+                   </button>
+                   <button disabled={enviandoSolicitud === selectedModalSol.id || !solicitudOrigenSel[selectedModalSol.id]?.length || solAcc === 'read'} title={solAcc === 'read' ? 'No tienes permiso de escritura' : ''} onClick={() => handleEnviarSolicitud(selectedModalSol)} className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-black py-4 rounded-xl shadow-lg transition-all disabled:opacity-50">
+                      {enviandoSolicitud === selectedModalSol.id ? 'CREANDO REMITO...' : 'ENTREGAR Y GENERAR REMITO'}
+                   </button>
+                </div>
             </div>
          )}
       </Modal>

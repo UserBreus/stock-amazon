@@ -345,6 +345,34 @@ export function InventarioOperativo() {
      }
   };
 
+  const handleCancelarSolicitud = async (solicitudId: number) => {
+     const motivo = window.prompt("Por favor, especifique el motivo de la cancelación de esta orden:");
+     if (motivo === null) return;
+     if (!motivo.trim()) {
+        toast.error("Debes ingresar un motivo para cancelar la orden.");
+        return;
+     }
+     if (!window.confirm("¿Estás seguro de que deseas cancelar esta orden?")) {
+        return;
+     }
+     try {
+         const q = `
+            USE Ventas_Dev;
+            UPDATE wms_solicitudes
+            SET estado = 'CANCELADO',
+                motivo_cancelacion = '${motivo.replace(/'/g, "''")}',
+                cancelado_por = '${user?.nombre_completo || user?.usuario || user?.id || 'Operario'}',
+                fecha_cancelacion = GETDATE()
+            WHERE id = ${solicitudId};
+         `;
+         await executeAWSQuery(q);
+         toast.success("¡Orden cancelada con éxito!");
+         fetchDataRelacional();
+     } catch (e: any) {
+         toast.error("Fallo al cancelar orden: " + e.message);
+     }
+  };
+
   if(loading) return <div className="p-10 text-center font-bold text-slate-500 animate-pulse">Autenticando Sector...</div>;
 
   const currentSectorObj = depositos.find(d => d.id.toString() === sectorSeleccionado);
@@ -962,11 +990,19 @@ export function InventarioOperativo() {
                           <p className="text-xs text-slate-500">{new Date(sol.fecha_creacion).toLocaleDateString('es-AR', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' })}</p>
                         </div>
                       </div>
-                      <span className={cn("px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-widest",
-                        sol.estado === 'PENDIENTE' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' :
-                        sol.estado === 'APROBADA'  ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' :
-                        'bg-slate-100 text-slate-600 dark:bg-slate-800'
-                      )}>{sol.estado}</span>
+                      <div className="flex items-center gap-2">
+                        {sol.estado === 'PENDIENTE' && (
+                          <button onClick={(e) => { e.stopPropagation(); handleCancelarSolicitud(sol.id); }} className="px-3 py-1.5 rounded-xl font-bold text-xs bg-rose-50 dark:bg-rose-950/20 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-900/40 border border-rose-100 dark:border-rose-900/50 transition-all flex items-center gap-1">
+                            <Trash2 className="w-3.5 h-3.5" /> Cancelar
+                          </button>
+                        )}
+                        <span className={cn("px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-widest",
+                          sol.estado === 'PENDIENTE' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' :
+                          sol.estado === 'APROBADA'  ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' :
+                          sol.estado === 'CANCELADO' ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400' :
+                          'bg-slate-100 text-slate-600 dark:bg-slate-800'
+                        )}>{sol.estado}</span>
+                      </div>
                     </div>
                   ))
                 )}
