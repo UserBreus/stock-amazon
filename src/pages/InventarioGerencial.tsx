@@ -237,7 +237,7 @@ export function InventarioGerencial() {
         LEFT JOIN Stock_Categorias c ON pm.categoria_id = c.id
         LEFT JOIN Stock_Depositos d_origen ON m.deposito_origen_id = d_origen.id
         LEFT JOIN usuarios u ON CAST(m.usuario_id AS VARCHAR(255)) = CAST(u.id AS VARCHAR(255))
-        WHERE m.tipo_movimiento IN ('baja_consumo', 'egreso_final', 'egreso_auto')
+        WHERE m.tipo_movimiento IN ('baja_consumo', 'egreso_final', 'egreso_auto', 'egreso_venta_web')
         ORDER BY m.fecha DESC
       `);
       setGlobalEgresos(res || []);
