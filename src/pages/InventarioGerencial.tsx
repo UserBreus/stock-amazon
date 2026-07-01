@@ -49,6 +49,9 @@ export function InventarioGerencial() {
   const [historialSearch, setHistorialSearch] = useState('');
   const [historialDate, setHistorialDate] = useState('');
   const [historialLoaded, setHistorialLoaded] = useState(false);
+  const [globalEgresos, setGlobalEgresos] = useState<any[]>([]);
+  const [egresosLoaded, setEgresosLoaded] = useState(false);
+  const [historialSubTab, setHistorialSubTab] = useState<'remitos' | 'egresos'>('remitos');
   const filterRef = useRef<string | null>(null);
 
   // Solicitudes & Historial Global states restored
@@ -212,12 +215,41 @@ export function InventarioGerencial() {
     } catch (error: any) { toast.error("Historial WMS: " + error.message) }
   };
 
-  useEffect(() => {
-    fetchGlobalSolicitudes();
-  }, []);
+  const fetchGlobalEgresos = async () => {
+    try {
+      const res = await executeAWSQuery(`
+        SELECT TOP 200 
+            m.id, 
+            m.fecha, 
+            m.tipo_movimiento, 
+            m.cantidad_afectada, 
+            m.usuario_id,
+            e.codigo_barras, 
+            v.nombre_variante, 
+            pm.nombre as producto_nombre, 
+            c.nombre as categoria_nombre, 
+            d_origen.nombre as origen_nombre, 
+            CAST(u.nombre_completo AS VARCHAR(255)) as usuario_nombre
+        FROM Stock_Movimientos m
+        INNER JOIN Stock_Etiquetas e ON m.etiqueta_id = e.id
+        INNER JOIN Stock_Variantes v ON e.variante_id = v.id
+        INNER JOIN Stock_Productos_Maestros pm ON v.producto_maestro_id = pm.id
+        LEFT JOIN Stock_Categorias c ON pm.categoria_id = c.id
+        LEFT JOIN Stock_Depositos d_origen ON m.deposito_origen_id = d_origen.id
+        LEFT JOIN usuarios u ON CAST(m.usuario_id AS VARCHAR(255)) = CAST(u.id AS VARCHAR(255))
+        WHERE m.tipo_movimiento IN ('baja_consumo', 'egreso_final', 'egreso_auto')
+        ORDER BY m.fecha DESC
+      `);
+      setGlobalEgresos(res || []);
+      setEgresosLoaded(true);
+    } catch (error: any) { toast.error("Historial Egresos: " + error.message) }
+  };
 
   useEffect(() => {
-    if (activeTab === 'historial' && !historialLoaded) fetchGlobalHistorial();
+    if (activeTab === 'historial') {
+      if (!historialLoaded) fetchGlobalHistorial();
+      if (!egresosLoaded) fetchGlobalEgresos();
+    }
   }, [activeTab]);
 
   const handleOpenSolicitud = async (sol: any) => {
@@ -1149,65 +1181,158 @@ export function InventarioGerencial() {
         </Modal>
       )}
 
-      {/* HISTORIAL GLOBAL */}
+{/* HISTORIAL GLOBAL */}
       {activeTab === 'historial' && (
-         <div className="space-y-6 animate-in slide-in-from-bottom-4 duration-500">
-            <div className="flex justify-between items-center mb-6">
-                <h3 className="font-black text-2xl flex items-center gap-3 text-slate-800 dark:text-white">
-                    <div className="p-3 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-500 rounded-xl">
-                       <History className="w-8 h-8" />
-                    </div>
-                    Trazabilidad y Emisiones (Historial WMS)
-                </h3>
-                <button onClick={fetchGlobalHistorial} className="font-bold border border-slate-200 dark:border-slate-800 px-4 py-2 rounded-xl text-indigo-600 dark:text-indigo-400 bg-white dark:bg-slate-900 shadow-sm hover:bg-slate-50 dark:hover:bg-slate-800 transition">Sincronizar</button>
-            </div>
-            <div className="flex flex-col md:flex-row gap-4 mb-8">
-                <div className="flex-1 relative">
-                   <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 dark:text-slate-500" />
-                   <input type="text" placeholder="Buscar por código de remito, almacén de origen o destino..." value={historialSearch} onChange={e=>setHistorialSearch(e.target.value)} className="w-full pl-12 pr-4 py-4 bg-white dark:bg-slate-900 border-2 border-slate-100 dark:border-slate-800 rounded-2xl font-bold focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all shadow-sm text-slate-800 dark:text-white" />
-                </div>
-                <div className="w-full md:w-64 relative">
-                   <input type="date" value={historialDate} onChange={e=>setHistorialDate(e.target.value)} className="w-full px-4 py-4 bg-white dark:bg-slate-900 border-2 border-slate-100 dark:border-slate-800 rounded-2xl font-bold focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all shadow-sm text-slate-800 dark:text-white" />
-                </div>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-                {globalHistorial.filter(r => (!historialDate || r.fecha_creacion.startsWith(historialDate)) && (!historialSearch || r.numeracion?.toLowerCase().includes(historialSearch.toLowerCase()) || r.origen_nombre?.toLowerCase().includes(historialSearch.toLowerCase()) || r.destino_nombre?.toLowerCase().includes(historialSearch.toLowerCase()))).map((rem:any) => (
-                       <div key={rem.id} onClick={() => { handleVerHistorialDetalles(rem); setIsViewingFullscreenPDF(true); }} className="p-6 bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-3xl flex flex-col justify-between gap-6 hover:border-indigo-300 dark:hover:border-indigo-500/50 hover:shadow-xl hover:shadow-indigo-500/5 transition-all cursor-pointer group">
-                           <div className="flex items-start gap-5">
-                               <div className="w-14 h-14 bg-slate-50 dark:bg-slate-800 text-slate-400 dark:text-slate-500 rounded-2xl flex items-center justify-center shrink-0 group-hover:bg-indigo-50 group-hover:text-indigo-600 transition-colors">
-                                   <PackageCheck className="w-6 h-6" />
-                               </div>
-                               <div>
-                                   <div className="flex items-center gap-2 mb-2">
-                                       <span className="bg-slate-900 text-white text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded-md shadow-sm">{rem.numeracion}</span>
-                                       <span className="text-[10px] font-bold text-slate-500 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded-md">{new Date(rem.fecha_creacion).toLocaleDateString()}</span>
-                                   </div>
-                                   <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1 flex items-center gap-1"><ArrowUpRight className="w-3 h-3 text-rose-400"/> Salida: {rem.origen_nombre}</p>
-                                     {rem.estado === 'EGRESO' ? (
-                                         <p className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1"><ArrowRightLeft className="w-3 h-3 text-slate-400"/> Retiro Libre (Egreso)</p>
-                                     ) : (
-                                         <p className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1"><ArrowRightLeft className="w-3 h-3 text-indigo-400"/> Destino: {rem.destino_nombre}</p>
-                                     )}
-                               </div>
-                           </div>
-                           <div className="flex justify-between items-center pt-4 border-t border-slate-100 dark:border-slate-800">
-                               <div>
-                                   <p className="text-xs font-black text-slate-500 uppercase tracking-widest">{rem.total_unidades || 0} Unidades Físicas</p>
-                                   <p className="text-[10px] uppercase font-bold text-slate-400 tracking-widest mt-0.5">Resp: {rem.usuario_emisor || rem.creado_por || 'Sistema'}</p>
-                               </div>
-                               <span className="text-[10px] bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 border border-emerald-100 dark:border-emerald-800 px-2.5 py-1 rounded-full font-black uppercase tracking-widest">{rem.estado}</span>
-                           </div>
-                       </div>
-                ))}
-            </div>
-         </div>
+          <div className="space-y-6 animate-in slide-in-from-bottom-4 duration-500">
+             <div className="flex justify-between items-center mb-6">
+                 <h3 className="font-black text-2xl flex items-center gap-3 text-slate-800 dark:text-white">
+                     <div className="p-3 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-500 rounded-xl">
+                        <History className="w-8 h-8" />
+                     </div>
+                     Trazabilidad y Emisiones (Historial WMS)
+                 </h3>
+                 <button onClick={() => { fetchGlobalHistorial(); fetchGlobalEgresos(); }} className="font-bold border border-slate-200 dark:border-slate-800 px-4 py-2 rounded-xl text-indigo-600 dark:text-indigo-400 bg-white dark:bg-slate-900 shadow-sm hover:bg-slate-50 dark:hover:bg-slate-800 transition">Sincronizar</button>
+             </div>
+
+             <div className="flex bg-slate-100 dark:bg-slate-950 p-1.5 rounded-xl border border-slate-200 dark:border-slate-800 max-w-md mb-6">
+                <button 
+                   onClick={() => setHistorialSubTab('remitos')} 
+                   className={cn(
+                     "flex-1 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all", 
+                     historialSubTab === 'remitos' 
+                       ? "bg-white dark:bg-slate-800 text-blue-900 dark:text-white shadow-sm ring-1 ring-slate-200/50" 
+                       : "text-slate-500 hover:text-slate-700"
+                   )}
+                >
+                   Traslados (Remitos)
+                </button>
+                <button 
+                   onClick={() => setHistorialSubTab('egresos')} 
+                   className={cn(
+                     "flex-1 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all", 
+                     historialSubTab === 'egresos' 
+                       ? "bg-white dark:bg-slate-800 text-blue-900 dark:text-white shadow-sm ring-1 ring-slate-200/50" 
+                       : "text-slate-500 hover:text-slate-700"
+                   )}
+                >
+                   Egresos / Bajas de Stock
+                </button>
+             </div>
+
+             <div className="flex flex-col md:flex-row gap-4 mb-8">
+                 <div className="flex-1 relative">
+                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 dark:text-slate-500" />
+                    <input 
+                       type="text" 
+                       placeholder={historialSubTab === 'remitos' ? "Buscar por código de remito, almacén de origen o destino..." : "Buscar por artículo, lote, almacén o responsable..."} 
+                       value={historialSearch} 
+                       onChange={e=>setHistorialSearch(e.target.value)} 
+                       className="w-full pl-12 pr-4 py-4 bg-white dark:bg-slate-900 border-2 border-slate-100 dark:border-slate-800 rounded-2xl font-bold focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all shadow-sm text-slate-800 dark:text-white" 
+                    />
+                 </div>
+                 <div className="w-full md:w-64 relative">
+                    <input type="date" value={historialDate} onChange={e=>setHistorialDate(e.target.value)} className="w-full px-4 py-4 bg-white dark:bg-slate-900 border-2 border-slate-100 dark:border-slate-800 rounded-2xl font-bold focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all shadow-sm text-slate-800 dark:text-white" />
+                 </div>
+             </div>
+
+             {historialSubTab === 'remitos' && (
+                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 animate-in fade-in duration-300">
+                     {globalHistorial.filter(r => (!historialDate || r.fecha_creacion.startsWith(historialDate)) && (!historialSearch || r.numeracion?.toLowerCase().includes(historialSearch.toLowerCase()) || r.origen_nombre?.toLowerCase().includes(historialSearch.toLowerCase()) || r.destino_nombre?.toLowerCase().includes(historialSearch.toLowerCase()))).map((rem:any) => (
+                            <div key={rem.id} onClick={() => { handleVerHistorialDetalles(rem); setIsViewingFullscreenPDF(true); }} className="p-6 bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-3xl flex flex-col justify-between gap-6 hover:border-indigo-300 dark:hover:border-indigo-500/50 hover:shadow-xl hover:shadow-indigo-500/5 transition-all cursor-pointer group">
+                                <div className="flex items-start gap-5">
+                                    <div className="w-14 h-14 bg-slate-50 dark:bg-slate-800 text-slate-400 dark:text-slate-500 rounded-2xl flex items-center justify-center shrink-0 group-hover:bg-indigo-50 group-hover:text-indigo-600 transition-colors">
+                                        <PackageCheck className="w-6 h-6" />
+                                    </div>
+                                    <div>
+                                        <div className="flex items-center gap-2 mb-2">
+                                            <span className="bg-slate-900 text-white text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded-md shadow-sm">{rem.numeracion}</span>
+                                            <span className="text-[10px] font-bold text-slate-500 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded-md">{new Date(rem.fecha_creacion).toLocaleDateString()}</span>
+                                        </div>
+                                        <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1 flex items-center gap-1"><ArrowUpRight className="w-3 h-3 text-rose-400"/> Salida: {rem.origen_nombre}</p>
+                                          {rem.estado === 'EGRESO' ? (
+                                              <p className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1"><ArrowRightLeft className="w-3 h-3 text-slate-400"/> Retiro Libre (Egreso)</p>
+                                          ) : (
+                                              <p className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1"><ArrowRightLeft className="w-3 h-3 text-indigo-400"/> Destino: {rem.destino_nombre}</p>
+                                          )}
+                                    </div>
+                                </div>
+                                <div className="flex justify-between items-center pt-4 border-t border-slate-100 dark:border-slate-800">
+                                    <div>
+                                        <p className="text-xs font-black text-slate-500 uppercase tracking-widest">{rem.total_unidades || 0} Unidades Físicas</p>
+                                        <p className="text-[10px] uppercase font-bold text-slate-400 tracking-widest mt-0.5">Resp: {rem.usuario_emisor || rem.creado_por || 'Sistema'}</p>
+                                    </div>
+                                    <span className="text-[10px] bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 border border-emerald-100 dark:border-emerald-800 px-2.5 py-1 rounded-full font-black uppercase tracking-widest">{rem.estado}</span>
+                                </div>
+                            </div>
+                     ))}
+                     {globalHistorial.filter(r => (!historialDate || r.fecha_creacion.startsWith(historialDate)) && (!historialSearch || r.numeracion?.toLowerCase().includes(historialSearch.toLowerCase()) || r.origen_nombre?.toLowerCase().includes(historialSearch.toLowerCase()) || r.destino_nombre?.toLowerCase().includes(historialSearch.toLowerCase()))).length === 0 && (
+                         <div className="col-span-full py-20 text-center">
+                             <History className="w-16 h-16 text-slate-300 dark:text-slate-700 mx-auto mb-4" />
+                             <p className="font-bold text-slate-500 text-lg">No se encontraron remitos con los filtros seleccionados.</p>
+                         </div>
+                     )}
+                 </div>
+             )}
+
+             {historialSubTab === 'egresos' && (
+                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 animate-in fade-in duration-300">
+                     {globalEgresos.filter(r => (!historialDate || r.fecha.startsWith(historialDate)) && (!historialSearch || r.producto_nombre?.toLowerCase().includes(historialSearch.toLowerCase()) || r.nombre_variante?.toLowerCase().includes(historialSearch.toLowerCase()) || r.usuario_id?.toLowerCase().includes(historialSearch.toLowerCase()) || r.usuario_nombre?.toLowerCase().includes(historialSearch.toLowerCase()) || r.codigo_barras?.toLowerCase().includes(historialSearch.toLowerCase()))).map((egr: any) => {
+                         const isApi = !egr.usuario_nombre && egr.usuario_id && (egr.usuario_id.includes('-') || egr.usuario_id.length > 20);
+                         const sourceLabel = isApi ? "API Externa" : "Sistema WMS";
+                         const sourceColor = isApi 
+                           ? "bg-purple-50 text-purple-700 border-purple-100 dark:bg-purple-950/20 dark:text-purple-400 dark:border-purple-900/30" 
+                           : "bg-blue-50 text-blue-700 border-blue-100 dark:bg-blue-950/20 dark:text-blue-400 dark:border-blue-900/30";
+                         const displayUser = egr.usuario_nombre || egr.usuario_id || "Sistema";
+
+                         return (
+                             <div key={egr.id} className="p-6 bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-3xl flex flex-col justify-between gap-6 hover:shadow-xl hover:border-slate-200 dark:hover:border-slate-700 transition-all select-none">
+                                 <div className="flex items-start gap-5">
+                                     <div className="w-14 h-14 bg-rose-50 dark:bg-rose-950/20 text-rose-500 rounded-2xl flex items-center justify-center shrink-0">
+                                         <ArrowUpRight className="w-6 h-6" />
+                                     </div>
+                                     <div className="flex-1 min-w-0">
+                                         <div className="flex items-center gap-2 mb-2 flex-wrap">
+                                             <span className={cn("px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-widest border", sourceColor)}>{sourceLabel}</span>
+                                             <span className="text-[10px] font-bold text-slate-500 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded-md">
+                                                {new Date(egr.fecha).toLocaleDateString()} {new Date(egr.fecha).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                                             </span>
+                                         </div>
+                                         <h4 className="font-black text-slate-800 dark:text-white text-base leading-tight truncate" title={getVisualName(egr.categoria_nombre, egr.producto_nombre, egr.nombre_variante)}>
+                                             {getVisualName(egr.categoria_nombre, egr.producto_nombre, egr.nombre_variante)}
+                                         </h4>
+                                         <p className="text-[10px] font-mono text-slate-400 mt-1 uppercase tracking-wider">Lote: {egr.codigo_barras}</p>
+                                         <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-2 flex items-center gap-1">
+                                             <Box className="w-3.5 h-3.5 text-slate-400"/> Almacén: {egr.origen_nombre || 'N/A'}
+                                         </p>
+                                     </div>
+                                 </div>
+                                 <div className="flex justify-between items-center pt-4 border-t border-slate-100 dark:border-slate-800">
+                                     <div className="flex-1 min-w-0 mr-3">
+                                         <p className="text-[10px] uppercase font-bold text-slate-400 tracking-widest">Responsable</p>
+                                         <p className="text-xs font-black text-slate-700 dark:text-slate-300 mt-0.5 truncate" title={displayUser}>{displayUser}</p>
+                                     </div>
+                                     <div className="text-right shrink-0">
+                                         <p className="text-[10px] uppercase font-bold text-slate-400 tracking-widest">Cantidad</p>
+                                         <span className="text-lg font-black text-rose-500 tracking-tighter">
+                                             -{egr.cantidad_afectada}
+                                         </span>
+                                     </div>
+                                 </div>
+                             </div>
+                         );
+                     })}
+                     {globalEgresos.filter(r => (!historialDate || r.fecha.startsWith(historialDate)) && (!historialSearch || r.producto_nombre?.toLowerCase().includes(historialSearch.toLowerCase()) || r.nombre_variante?.toLowerCase().includes(historialSearch.toLowerCase()) || r.usuario_id?.toLowerCase().includes(historialSearch.toLowerCase()) || r.usuario_nombre?.toLowerCase().includes(historialSearch.toLowerCase()) || r.codigo_barras?.toLowerCase().includes(historialSearch.toLowerCase()))).length === 0 && (
+                         <div className="col-span-full py-20 text-center">
+                             <History className="w-16 h-16 text-slate-300 dark:text-slate-700 mx-auto mb-4" />
+                             <p className="font-bold text-slate-500 text-lg">No se encontraron egresos o bajas con los filtros seleccionados.</p>
+                         </div>
+                     )}
+                 </div>
+             )}
+          </div>
       )}
 
-
-
-
-
-      {/* FULLSCREEN PDF VISOR HISTORIAL */}
+            {/* FULLSCREEN PDF VISOR HISTORIAL */}
       {isViewingFullscreenPDF && selectedHistorialRemito && (
         <div id="print-root" className="fixed inset-0 z-[100] bg-slate-800/90 backdrop-blur-sm overflow-y-auto p-4 flex flex-col items-center">
             <div className="hide-on-print fixed top-6 right-6 flex gap-4 z-[110]">
