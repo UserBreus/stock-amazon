@@ -476,6 +476,7 @@ export function InventarioGerencial() {
       setTiposProducto(catRes || []);
       setComprasPendientes(compRes || []);
       fetchGlobalHistorial();
+      fetchGlobalSolicitudes();
     } catch (error) {
       console.error(error);
     } finally {
