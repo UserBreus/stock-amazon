@@ -216,7 +216,7 @@ async function discountVariantStock(variantId, quantity, depotId = null) {
   const remitoCode = 'WEB-' + Date.now().toString().slice(-6) + Math.floor(Math.random()*100).toString();
   queries.push(`
     INSERT INTO wms_remitos_internos (numeracion, deposito_origen_id, deposito_destino_id, creado_por, estado) 
-    VALUES ('${remitoCode}', ${targetDepotId}, ${targetDepotId}, 'web_system', 'EGRESO_WEB');
+    VALUES ('${remitoCode}', ${targetDepotId}, ${targetDepotId}, 'venta', 'EGRESO_WEB');
     DECLARE @RemId INT = SCOPE_IDENTITY();
   `);
   
@@ -234,7 +234,7 @@ async function discountVariantStock(variantId, quantity, depotId = null) {
     
     queries.push(`
       INSERT INTO Stock_Movimientos (etiqueta_id, tipo_movimiento, cantidad_afectada, deposito_origen_id, remito_id, usuario_id)
-      VALUES (${label.id}, 'egreso_venta_web', ${drawQty}, ${targetDepotId}, @RemId, 'web_system');
+      VALUES (${label.id}, 'egreso_venta_web', ${drawQty}, ${targetDepotId}, @RemId, 'venta');
       INSERT INTO wms_remitos_internos_items (remito_id, variante_id, cantidad_enviada, etiqueta_generada_id, estado)
       VALUES (@RemId, ${variantId}, ${drawQty}, ${label.id}, 'ENTREGADO');
     `);
