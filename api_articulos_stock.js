@@ -184,16 +184,7 @@ async function executeWmsQuery(queryText, forceReal = false) {
 
 // core stock discount function
 async function discountVariantStock(variantId, quantity, depotId = null) {
-  let targetDepotId = depotId;
-  
-  if (!targetDepotId) {
-    const defaultDepot = await executeWmsQuery("SELECT id FROM Stock_Depositos WHERE LOWER(nombre) LIKE '%central%';");
-    if (defaultDepot && defaultDepot.length > 0) {
-      targetDepotId = defaultDepot[0].id;
-    } else {
-      targetDepotId = 1;
-    }
-  }
+  let targetDepotId = depotId || 5; // Default to Ventas (ID 5)
   
   const activeLabels = await executeWmsQuery(
     `SELECT id, cantidad_actual, codigo_barras 
@@ -205,63 +196,81 @@ async function discountVariantStock(variantId, quantity, depotId = null) {
   
   const totalAvailable = activeLabels.reduce((sum, label) => sum + Number(label.cantidad_actual), 0);
   
-  if (totalAvailable < quantity) {
-    throw new Error(`insufficient_stock: Stock insuficiente en el depósito ${targetDepotId}. Solicitado: ${quantity}, Disponible: ${totalAvailable}`);
-  }
+  const qtyToDraw = Math.min(totalAvailable, Number(quantity));
+  const shortage = Number(quantity) - qtyToDraw;
   
-  let remainingToDraw = Number(quantity);
+  let remainingToDraw = qtyToDraw;
   const queries = [];
   const processedLabels = [];
+  let remitoCode = null;
+  let solCode = null;
   
-  const remitoCode = 'WEB-' + Date.now().toString().slice(-6) + Math.floor(Math.random()*100).toString();
-  queries.push(`
-    INSERT INTO wms_remitos_internos (numeracion, deposito_origen_id, deposito_destino_id, creado_por, estado) 
-    VALUES ('${remitoCode}', ${targetDepotId}, ${targetDepotId}, 'venta', 'EGRESO_WEB');
-    DECLARE @RemId INT = SCOPE_IDENTITY();
-  `);
-  
-  for (const label of activeLabels) {
-    if (remainingToDraw <= 0) break;
-    
-    const currentQty = Number(label.cantidad_actual);
-    const drawQty = Math.min(currentQty, remainingToDraw);
-    
-    processedLabels.push({
-      id: label.id,
-      codigo_barras: label.codigo_barras,
-      cantidad_descontada: drawQty
-    });
-    
+  if (qtyToDraw > 0) {
+    remitoCode = 'WEB-' + Date.now().toString().slice(-6) + Math.floor(Math.random()*100).toString();
     queries.push(`
-      INSERT INTO Stock_Movimientos (etiqueta_id, tipo_movimiento, cantidad_afectada, deposito_origen_id, remito_id, usuario_id)
-      VALUES (${label.id}, 'egreso_venta_web', ${drawQty}, ${targetDepotId}, @RemId, 'venta');
-      INSERT INTO wms_remitos_internos_items (remito_id, variante_id, cantidad_enviada, etiqueta_generada_id, estado)
-      VALUES (@RemId, ${variantId}, ${drawQty}, ${label.id}, 'ENTREGADO');
+      INSERT INTO wms_remitos_internos (numeracion, deposito_origen_id, deposito_destino_id, creado_por, estado) 
+      VALUES ('${remitoCode}', ${targetDepotId}, ${targetDepotId}, 'venta', 'EGRESO_WEB');
+      DECLARE @RemId INT = SCOPE_IDENTITY();
     `);
     
-    remainingToDraw -= drawQty;
+    for (const label of activeLabels) {
+      if (remainingToDraw <= 0) break;
+      
+      const currentQty = Number(label.cantidad_actual);
+      const drawQty = Math.min(currentQty, remainingToDraw);
+      
+      processedLabels.push({
+        id: label.id,
+        codigo_barras: label.codigo_barras,
+        cantidad_descontada: drawQty
+      });
+      
+      queries.push(`
+        INSERT INTO Stock_Movimientos (etiqueta_id, tipo_movimiento, cantidad_afectada, deposito_origen_id, remito_id, usuario_id)
+        VALUES (${label.id}, 'egreso_venta_web', ${drawQty}, ${targetDepotId}, @RemId, 'venta');
+        INSERT INTO wms_remitos_internos_items (remito_id, variante_id, cantidad_enviada, etiqueta_generada_id, estado)
+        VALUES (@RemId, ${variantId}, ${drawQty}, ${label.id}, 'ENTREGADO');
+      `);
+      
+      remainingToDraw -= drawQty;
+    }
   }
   
-  const transactionSQL = `
-    BEGIN TRY 
-      BEGIN TRANSACTION; 
-      ${queries.join('\n')} 
-      COMMIT TRANSACTION; 
-    END TRY 
-    BEGIN CATCH 
-      ROLLBACK TRANSACTION; 
-      THROW; 
-    END CATCH
-  `;
+  if (shortage > 0) {
+    solCode = 'SOL-' + Date.now().toString().slice(-6) + Math.floor(Math.random()*100).toString();
+    queries.push(`
+      INSERT INTO wms_solicitudes (numeracion, deposito_solicitante_id, creado_por, fecha_creacion, estado)
+      VALUES ('${solCode}', ${targetDepotId}, 'venta', GETDATE(), 'PENDIENTE');
+      DECLARE @SolId INT = SCOPE_IDENTITY();
+      
+      INSERT INTO wms_solicitudes_items (solicitud_id, variante_id, cantidad_solicitada, cantidad_despachada)
+      VALUES (@SolId, ${variantId}, ${shortage}, 0);
+    `);
+  }
   
-  await executeWmsQuery(transactionSQL, true);
+  if (queries.length > 0) {
+    const transactionSQL = `
+      BEGIN TRY 
+        BEGIN TRANSACTION; 
+        ${queries.join('\n')} 
+        COMMIT TRANSACTION; 
+      END TRY 
+      BEGIN CATCH 
+        IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION; 
+        THROW; 
+      END CATCH
+    `;
+    await executeWmsQuery(transactionSQL, true);
+  }
   
   return {
     success: true,
     remito_codigo: remitoCode,
+    solicitud_codigo: solCode,
     deposito_id: targetDepotId,
     variante_id: variantId,
-    cantidad_descontada: quantity,
+    cantidad_descontada: qtyToDraw,
+    cantidad_solicitada: shortage,
     detalles: processedLabels
   };
 }
@@ -317,6 +326,96 @@ app.post('/api/articulos/descontar', async (req, res) => {
         message: err.message.replace('insufficient_stock:', '').trim()
       });
     }
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/remitos/recibir', async (req, res) => {
+  const { remito_id, numeracion } = req.body;
+  
+  if (!remito_id && !numeracion) {
+    return res.status(400).json({ error: 'missing_parameters', message: 'Debe proveer remito_id o numeracion.' });
+  }
+  
+  try {
+    // 1. Obtener el remito
+    let getRemitoSql = '';
+    if (remito_id) {
+      getRemitoSql = `SELECT id, deposito_destino_id, estado, numeracion FROM wms_remitos_internos WHERE id = ${Number(remito_id)}`;
+    } else {
+      getRemitoSql = `SELECT id, deposito_destino_id, estado, numeracion FROM wms_remitos_internos WHERE numeracion = '${numeracion.replace(/'/g, "''")}'`;
+    }
+    
+    const remitoData = await executeWmsQuery(getRemitoSql);
+    if (!remitoData || remitoData.length === 0) {
+      return res.status(404).json({ error: 'remito_not_found', message: 'No se encontró el remito especificado.' });
+    }
+    
+    const remito = remitoData[0];
+    if (remito.estado !== 'EN_TRANSITO' && remito.estado !== 'PENDIENTE') {
+      return res.status(400).json({ 
+        error: 'invalid_remito_state', 
+        message: `El remito ya se encuentra en estado ${remito.estado} y no puede ser recibido.` 
+      });
+    }
+    
+    // 2. Obtener items del remito
+    const items = await executeWmsQuery(`
+      SELECT id, etiqueta_generada_id, cantidad_enviada 
+      FROM wms_remitos_internos_items 
+      WHERE remito_id = ${remito.id}
+    `);
+    
+    if (!items || items.length === 0) {
+      return res.status(400).json({ error: 'empty_remito', message: 'El remito no tiene items asociados.' });
+    }
+    
+    const queries = [];
+    for (const item of items) {
+      if (item.etiqueta_generada_id) {
+        queries.push(`
+          UPDATE Stock_Etiquetas 
+          SET estado = 'activo', cantidad_actual = cantidad_inicial
+          WHERE id = ${item.etiqueta_generada_id};
+          
+          INSERT INTO Stock_Movimientos (etiqueta_id, tipo_movimiento, cantidad_afectada, deposito_destino_id, remito_id, usuario_id)
+          VALUES (${item.etiqueta_generada_id}, 'recepcion_confirmada', ${item.cantidad_enviada}, ${remito.deposito_destino_id}, ${remito.id}, 'venta');
+          
+          UPDATE wms_remitos_internos_items 
+          SET estado = 'RECIBIDO_OK', cantidad_recibida = ${item.cantidad_enviada} 
+          WHERE id = ${item.id};
+        `);
+      }
+    }
+    
+    queries.push(`
+      UPDATE wms_remitos_internos 
+      SET estado = 'RECIBIDO' 
+      WHERE id = ${remito.id};
+    `);
+    
+    const transactionSQL = `
+      BEGIN TRY
+        BEGIN TRANSACTION;
+        ${queries.join('\n')}
+        COMMIT TRANSACTION;
+      END TRY
+      BEGIN CATCH
+        IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+        THROW;
+      END CATCH
+    `;
+    
+    await executeWmsQuery(transactionSQL, true);
+    
+    res.json({
+      success: true,
+      message: `El remito ${remito.numeracion} ha sido recibido y activado en stock.`,
+      remito_id: remito.id,
+      numeracion: remito.numeracion
+    });
+  } catch (err) {
+    console.error('Error receiving remito:', err);
     res.status(500).json({ error: err.message });
   }
 });
