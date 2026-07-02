@@ -157,9 +157,17 @@ export function InventarioOperativo() {
      try {
          const remaining = bajaEtiqueta.cantidad_actual - bajaCantidad;
          let q = `
-            UPDATE Stock_Etiquetas SET cantidad_actual = ${remaining} WHERE id = ${bajaEtiqueta.id};
-            INSERT INTO Stock_Movimientos (etiqueta_id, tipo_movimiento, cantidad_afectada, deposito_origen_id, usuario_id)
-            VALUES ('${bajaEtiqueta.id}', 'baja_consumo', ${bajaCantidad}, ${sectorSeleccionado}, '${user?.id || 'Operario'}');
+            BEGIN TRY
+               BEGIN TRANSACTION;
+               UPDATE Stock_Etiquetas SET cantidad_actual = ${remaining} WHERE id = ${bajaEtiqueta.id};
+               INSERT INTO Stock_Movimientos (etiqueta_id, tipo_movimiento, cantidad_afectada, deposito_origen_id, usuario_id)
+               VALUES ('${bajaEtiqueta.id}', 'baja_consumo', ${bajaCantidad}, ${sectorSeleccionado}, '${user?.id || 'Operario'}');
+               COMMIT TRANSACTION;
+            END TRY
+            BEGIN CATCH
+               IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+               THROW;
+            END CATCH
          `;
          await executeAWSQuery(q);
          toast.success("Baja procesada correctamente");

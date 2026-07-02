@@ -596,12 +596,32 @@ export function InventarioGerencial() {
          const eq = egresoEtiquetas.find(e => e.id.toString() === id);
          // lote_individual: marcar la etiqueta completa como consumida (no descuento parcial)
          if (eq?.tipo_gestion === 'lote_individual') {
-            await executeAWSQuery(`UPDATE Stock_Etiquetas SET cantidad_actual = 0, estado = 'consumido' WHERE id = ${id}`);
-            await executeAWSQuery(`INSERT INTO Stock_Movimientos (etiqueta_id, tipo_movimiento, cantidad_afectada, usuario_id) VALUES (${id}, 'egreso_lote_individual', 1, '${user?.id || 1}')`);
+             await executeAWSQuery(`
+                BEGIN TRY
+                   BEGIN TRANSACTION;
+                   UPDATE Stock_Etiquetas SET cantidad_actual = 0, estado = 'consumido' WHERE id = ${id};
+                   INSERT INTO Stock_Movimientos (etiqueta_id, tipo_movimiento, cantidad_afectada, usuario_id) VALUES (${id}, 'egreso_lote_individual', 1, '${user?.id || 1}');
+                   COMMIT TRANSACTION;
+                END TRY
+                BEGIN CATCH
+                   IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+                   THROW;
+                END CATCH
+             `);
          } else {
             const n = eq.cantidad_actual - am;
-            await executeAWSQuery(`UPDATE Stock_Etiquetas SET cantidad_actual = ${n}, estado = '${n===0?'agotado':'activo'}' WHERE id = ${id}`);
-            await executeAWSQuery(`INSERT INTO Stock_Movimientos (etiqueta_id, tipo_movimiento, cantidad_afectada, usuario_id) VALUES (${id}, 'egreso_auto', ${am}, '${user?.id || 1}')`);
+            await executeAWSQuery(`
+                BEGIN TRY
+                   BEGIN TRANSACTION;
+                   UPDATE Stock_Etiquetas SET cantidad_actual = ${n}, estado = '${n===0?'agotado':'activo'}' WHERE id = ${id};
+                   INSERT INTO Stock_Movimientos (etiqueta_id, tipo_movimiento, cantidad_afectada, usuario_id) VALUES (${id}, 'egreso_auto', ${am}, '${user?.id || 1}');
+                   COMMIT TRANSACTION;
+                END TRY
+                BEGIN CATCH
+                   IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+                   THROW;
+                END CATCH
+             `);
          }
       }
       setIsEgresoModalOpen(false);
