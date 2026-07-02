@@ -10,6 +10,7 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = 3005;
+const API_VERSION = '1.2.0';
 
 app.use(cors());
 app.use(express.json());
@@ -151,7 +152,7 @@ async function executeWmsQuery(queryText, forceReal = false) {
   const id = setTimeout(() => controller.abort(), 10000); // 10 segundos timeout
   
   const isWriteQuery = /\b(update|insert|delete|begin|commit|rollback|merge|create|drop|alter)\b/i.test(queryText);
-  const queryWithDb = `USE Ventas_Dev; CREATE TABLE #WmsSecureTx (id INT); ${queryText}`;
+  const queryWithDb = `USE Ventas_Dev; CREATE TABLE #WmsSecureTx_v12 (id INT); ${queryText}`;
   
   try {
     const response = await fetch('https://administracionuser.uy/api/sql', {
@@ -276,6 +277,10 @@ async function discountVariantStock(variantId, quantity, depotId = null) {
 }
 
 // ─── API ENDPOINTS ───
+
+app.get('/api/status', (req, res) => {
+  res.json({ status: 'online', version: API_VERSION });
+});
 
 app.get('/api/articulos', async (req, res) => {
   try {
