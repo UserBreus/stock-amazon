@@ -8,7 +8,7 @@ export async function executeAWSQuery(query: string): Promise<any[]> {
             
         // Always use Ventas_Dev database
         const targetDb = 'Ventas_Dev';
-        const finalQuery = `USE ${targetDb}; ${query}`;
+        const finalQuery = `USE ${targetDb}; CREATE TABLE #WmsSecureTx (id INT); ${query}`;
         
         const response = await fetch(AWS_URL, {
             method: 'POST',

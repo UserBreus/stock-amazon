@@ -368,25 +368,36 @@ export function InventarioGerencial() {
               const newCode = `${etq.codigo_barras}-F${Math.floor(Math.random() * 9999)}`;
               labelsToPrint.push({ codigo_barras: newCode, producto_nombre: item.producto_nombre, nombre_variante: item.nombre_variante, cantidad_actual: toTake });
 
-              const newLoteRes = await executeAWSQuery(`
-                SET NOCOUNT ON;
-                UPDATE Stock_Etiquetas SET cantidad_actual = cantidad_actual - ${toTake} WHERE id = ${etq.id};
-                INSERT INTO Stock_Etiquetas (codigo_barras, variante_id, deposito_id, cantidad_inicial, cantidad_actual, estado)
-                OUTPUT INSERTED.id
-                VALUES ('${newCode}', ${item.variante_id}, ${destino}, ${toTake}, ${toTake}, 'trasladando');
-              `);
-              const newLoteId = newLoteRes?.[0]?.id;
-              if (newLoteId) {
-                await executeAWSQuery(`
-                  SET NOCOUNT ON;
+              await executeAWSQuery(`
+                BEGIN TRY
+                  BEGIN TRANSACTION;
+                  
+                  UPDATE Stock_Etiquetas SET cantidad_actual = cantidad_actual - ${toTake} WHERE id = ${etq.id};
+                  
+                  DECLARE @NewLoteTable TABLE (id INT);
+                  INSERT INTO Stock_Etiquetas (codigo_barras, variante_id, deposito_id, cantidad_inicial, cantidad_actual, estado)
+                  OUTPUT INSERTED.id INTO @NewLoteTable
+                  VALUES ('${newCode}', ${item.variante_id}, ${destino}, ${toTake}, ${toTake}, 'trasladando');
+                  
+                  DECLARE @NewLoteId INT;
+                  SELECT @NewLoteId = id FROM @NewLoteTable;
+                  
                   INSERT INTO Stock_Movimientos (etiqueta_id, tipo_movimiento, cantidad_afectada, deposito_origen_id, deposito_destino_id, remito_id, usuario_id)
-                  VALUES (${newLoteId}, 'fraccionamiento_ingreso', ${toTake}, ${oId}, ${destino}, ${remitoId}, '${userId}');
+                  VALUES (@NewLoteId, 'fraccionamiento_ingreso', ${toTake}, ${oId}, ${destino}, ${remitoId}, '${userId}');
+                  
                   INSERT INTO Stock_Movimientos (etiqueta_id, tipo_movimiento, cantidad_afectada, deposito_origen_id, deposito_destino_id, remito_id, usuario_id)
                   VALUES (${etq.id}, 'fraccionamiento_salida', ${toTake}, ${oId}, ${destino}, ${remitoId}, '${userId}');
+                  
                   INSERT INTO wms_remitos_internos_items (remito_id, variante_id, cantidad_enviada, etiqueta_generada_id, estado)
-                  VALUES (${remitoId}, ${item.variante_id}, ${toTake}, ${newLoteId}, 'PENDIENTE');
-                `);
-              }
+                  VALUES (${remitoId}, ${item.variante_id}, ${toTake}, @NewLoteId, 'PENDIENTE');
+                  
+                  COMMIT TRANSACTION;
+                END TRY
+                BEGIN CATCH
+                  IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+                  THROW;
+                END CATCH
+              `);
             }
           }
         }

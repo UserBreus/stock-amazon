@@ -151,7 +151,7 @@ async function executeWmsQuery(queryText, forceReal = false) {
   const id = setTimeout(() => controller.abort(), 10000); // 10 segundos timeout
   
   const isWriteQuery = /\b(update|insert|delete|begin|commit|rollback|merge|create|drop|alter)\b/i.test(queryText);
-  const queryWithDb = `USE Ventas_Dev; ${queryText}`;
+  const queryWithDb = `USE Ventas_Dev; CREATE TABLE #WmsSecureTx (id INT); ${queryText}`;
   
   try {
     const response = await fetch('https://administracionuser.uy/api/sql', {
