@@ -1,14 +1,18 @@
 /**
  * WMS STOCK API - VERSION 5
  * 
- * UBICACIÓN DE DESPLIEGUE RECOMENDADA:
- * Este archivo debe colocarse en el directorio de backend del servidor de producción:
- * Ruta local: /SISTEMA USER/backend/ (donde reside el archivo db.js)
+ * SERVIDOR INDEPENDIENTE Y PORTABLE:
+ * Este archivo es un servidor de API autónomo. Se puede colocar y ejecutar en
+ * cualquier computadora o servidor del mundo (incluyendo entornos locales,
+ * remotos o servidores en la nube como AWS, DigitalOcean, Vercel, etc.)
+ * sin depender de ningún otro archivo o base de datos local (como db.js).
  * 
- * CÓMO EJECUTAR:
- * 1. Instalar dependencias en el servidor: npm install express cors
- * 2. Iniciar el servicio con Node: node api_articulos_stock_v5.js
- * 3. En producción, se recomienda configurar un proxy inverso en IIS/Nginx para mapear /api/articulos y /api/remitos a http://localhost:3005
+ * CÓMO EJECUTAR DESDE CUALQUIER LUGAR:
+ * 1. Copia este archivo a cualquier carpeta.
+ * 2. Ejecuta: npm install express cors
+ * 3. Ejecuta: node api_articulos_stock_v5.js
+ * 
+ * El servidor levantará de forma inmediata escuchando en el puerto 3005.
  */
 
 import express from 'express';
