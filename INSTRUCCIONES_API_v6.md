@@ -1,15 +1,23 @@
 # Instrucciones de Integración - API WMS Stock (Versión v6.0.0)
 
-Esta es la nueva versión de la API de Stock. Es totalmente autónoma y se conecta directamente a la base de datos de Amazon utilizando la firma de transacción segura `#WmsSecureTx_v16`.
+Esta es la nueva versión de la API de Stock. Es totalmente autónoma y se conecta directamente a la base de datos de Amazon utilizando la firma de transacción segura `#WmsSecureTx_v16` mediante la librería oficial de SQL Server (`mssql`).
 
 ## Cómo ejecutar la API en el servidor
 
 1. Copiar el archivo `api_articulos_stock_v6.js` en cualquier carpeta del servidor.
-2. Instalar los paquetes necesarios de Node:
-   ```bash
-   npm install express cors
+2. Crear un archivo `.env` en la misma carpeta con las siguientes credenciales de acceso a la base de datos:
+   ```env
+   DB_SERVER=tu_servidor_de_amazon_o_localhost
+   DB_DATABASE=Ventas_Dev
+   DB_USER=usuario_sa
+   DB_PASSWORD=tu_contraseña_de_base_de_datos
+   DB_PORT=1433
    ```
-3. Iniciar el servicio:
+3. Instalar los paquetes necesarios de Node:
+   ```bash
+   npm install express cors mssql dotenv
+   ```
+4. Iniciar el servicio:
    ```bash
    node api_articulos_stock_v6.js
    ```

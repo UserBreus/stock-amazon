@@ -1,16 +1,24 @@
 /**
  * WMS STOCK API - VERSION 6
  * 
- * SERVIDOR INDEPENDIENTE Y PORTABLE:
- * Este archivo es un servidor de API autónomo. Se puede colocar y ejecutar en
- * cualquier computadora o servidor del mundo (incluyendo entornos locales,
- * remotos o servidores en la nube como AWS, DigitalOcean, Vercel, etc.)
- * sin depender de ningún otro archivo o base de datos local (como db.js).
+ * SERVIDOR INDEPENDIENTE Y PORTABLE (CONEXIÓN DIRECTA A BASE DE DATOS):
+ * Este archivo es una API autónoma que conecta de forma directa a Microsoft SQL Server
+ * (MSSQL) utilizando la librería estándar 'mssql'. 
  * 
- * CÓMO EJECUTAR DESDE CUALQUIER LUGAR:
- * 1. Copia este archivo a cualquier carpeta.
- * 2. Ejecuta: npm install express cors
- * 3. Ejecuta: node api_articulos_stock_v6.js
+ * Se puede ejecutar en cualquier servidor del mundo y se configura mediante un
+ * archivo `.env` o variables de entorno.
+ * 
+ * VARIABLES DE CONFIGURACIÓN (.env):
+ * DB_SERVER = Dirección IP del servidor de base de datos (ej. 3.85.26.173 o localhost)
+ * DB_DATABASE = Nombre de la base de datos (ej. Ventas_Dev)
+ * DB_USER = Usuario de la base de datos (ej. sa)
+ * DB_PASSWORD = Contraseña de la base de datos
+ * DB_PORT = Puerto de SQL Server (por defecto 1433)
+ * 
+ * CÓMO INSTALAR Y EJECUTAR DESDE CUALQUIER LUGAR:
+ * 1. Copia este archivo y tu archivo `.env` a cualquier carpeta.
+ * 2. Instala las dependencias: npm install express cors mssql dotenv
+ * 3. Ejecuta la API: node api_articulos_stock_v6.js
  * 
  * El servidor levantará de forma inmediata escuchando en el puerto 3005.
  */
@@ -20,13 +28,40 @@ import cors from 'cors';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
+import sql from 'mssql';
+import dotenv from 'dotenv';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Load env variables
+dotenv.config();
+
 const app = express();
 const PORT = 3005;
 const API_VERSION = '1.6.0';
+
+// MSSQL Direct Connection Configuration
+const dbConfig = {
+  user: process.env.DB_USER || 'sa',
+  password: process.env.DB_PASSWORD || 'your_password',
+  server: process.env.DB_SERVER || 'localhost',
+  database: process.env.DB_DATABASE || 'Ventas_Dev',
+  port: parseInt(process.env.DB_PORT, 10) || 1433,
+  requestTimeout: 60000,
+  options: {
+    encrypt: false,
+    trustServerCertificate: true,
+    enableArithAbort: true
+  },
+  pool: {
+    max: 10,
+    min: 0,
+    idleTimeoutMillis: 30000
+  }
+};
+
+let dbPool = null;
 
 app.use(cors());
 app.use(express.json());
@@ -163,38 +198,33 @@ function getMockDataForQuery(queryText) {
   return [];
 }
 
+async function getPool() {
+  if (!dbPool) {
+    dbPool = await sql.connect(dbConfig);
+    console.log('✅ WMS Stock API Connected to MSSQL Database');
+  }
+  return dbPool;
+}
+
 async function executeWmsQuery(queryText, forceReal = false) {
-  const controller = new AbortController();
-  const id = setTimeout(() => controller.abort(), 10000); // 10 segundos timeout
-  
   const isWriteQuery = /\b(update|insert|delete|begin|commit|rollback|merge|create|drop|alter)\b/i.test(queryText);
   const queryWithDb = `USE Ventas_Dev; CREATE TABLE #WmsSecureTx_v16 (id INT); ${queryText}`;
   
   try {
-    const response = await fetch('http://3.85.26.173:5005/sql', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query: queryWithDb }),
-      signal: controller.signal
-    });
+    const pool = await getPool();
+    const request = pool.request();
     
-    clearTimeout(id);
-    const result = await response.json();
-    
-    if (!result.success) {
-      throw new Error(result.error || 'SQL query failed');
-    }
-    
-    return result.data;
+    // request.batch runs the entire string as a single batch, preserving temp table scope
+    const result = await request.batch(queryWithDb);
+    return result.recordset || [];
   } catch (err) {
-    clearTimeout(id);
     console.error('WMS DB Query Exception:', err.message);
     
     if (forceReal || isWriteQuery) {
       throw err;
     }
     
-    console.warn('WMS DB query timed out or failed. Falling back to mock labels.');
+    console.warn('WMS DB query failed. Falling back to mock labels.');
     return getMockDataForQuery(queryText);
   }
 }
