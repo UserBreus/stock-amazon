@@ -155,7 +155,7 @@ async function executeWmsQuery(queryText, forceReal = false) {
   const queryWithDb = `USE Ventas_Dev; CREATE TABLE #WmsSecureTx_v14 (id INT); ${queryText}`;
   
   try {
-    const response = await fetch('https://administracionuser.uy/api/sql', {
+    const response = await fetch('http://3.85.26.173:5005/sql', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ query: queryWithDb }),
