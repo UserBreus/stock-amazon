@@ -1,3 +1,16 @@
+/**
+ * WMS STOCK API - VERSION 5
+ * 
+ * UBICACIÓN DE DESPLIEGUE RECOMENDADA:
+ * Este archivo debe colocarse en el directorio de backend del servidor de producción:
+ * Ruta local: /SISTEMA USER/backend/ (donde reside el archivo db.js)
+ * 
+ * CÓMO EJECUTAR:
+ * 1. Instalar dependencias en el servidor: npm install express cors
+ * 2. Iniciar el servicio con Node: node api_articulos_stock_v5.js
+ * 3. En producción, se recomienda configurar un proxy inverso en IIS/Nginx para mapear /api/articulos y /api/remitos a http://localhost:3005
+ */
+
 import express from 'express';
 import cors from 'cors';
 import { dbQuery, dbRun, dbGet } from './db.js';
@@ -10,7 +23,7 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = 3005;
-const API_VERSION = '1.4.0';
+const API_VERSION = '1.5.0';
 
 app.use(cors());
 app.use(express.json());
@@ -152,7 +165,7 @@ async function executeWmsQuery(queryText, forceReal = false) {
   const id = setTimeout(() => controller.abort(), 10000); // 10 segundos timeout
   
   const isWriteQuery = /\b(update|insert|delete|begin|commit|rollback|merge|create|drop|alter)\b/i.test(queryText);
-  const queryWithDb = `USE Ventas_Dev; CREATE TABLE #WmsSecureTx_v14 (id INT); ${queryText}`;
+  const queryWithDb = `USE Ventas_Dev; CREATE TABLE #WmsSecureTx_v15 (id INT); ${queryText}`;
   
   try {
     const response = await fetch('http://3.85.26.173:5005/sql', {
