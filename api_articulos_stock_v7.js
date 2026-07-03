@@ -1,26 +1,18 @@
 /**
- * WMS STOCK API - VERSION 6
+ * WMS STOCK API - VERSION 7 (ZERO CONFIGURATION TEST)
  * 
- * SERVIDOR INDEPENDIENTE Y PORTABLE (CONEXIÓN DIRECTA A BASE DE DATOS):
- * Este archivo es una API autónoma que conecta de forma directa a Microsoft SQL Server
- * (MSSQL) utilizando la librería estándar 'mssql'. 
+ * SERVIDOR DE PRUEBA DIRECTA Y AUTÓNOMA:
+ * Este archivo es una API de stock completamente funcional que se conecta al
+ * servidor de Amazon a través de su puerto HTTP proxy público, por lo que
+ * NO requiere configurar ningún archivo `.env` ni ingresar usuarios/contraseñas.
  * 
- * Se puede ejecutar en cualquier servidor del mundo y se configura mediante un
- * archivo `.env` o variables de entorno.
+ * CÓMO EJECUTAR DE FORMA INMEDIATA:
+ * 1. Copia este archivo en cualquier computadora del mundo.
+ * 2. Ejecuta en la terminal: npm install express cors
+ * 3. Ejecuta en la terminal: node api_articulos_stock_v7.js
  * 
- * VARIABLES DE CONFIGURACIÓN (.env):
- * DB_SERVER = Dirección IP del servidor de base de datos (ej. 3.85.26.173 o localhost)
- * DB_DATABASE = Nombre de la base de datos (ej. Ventas_Dev)
- * DB_USER = Usuario de la base de datos (ej. sa)
- * DB_PASSWORD = Contraseña de la base de datos
- * DB_PORT = Puerto de SQL Server (por defecto 1433)
- * 
- * CÓMO INSTALAR Y EJECUTAR DESDE CUALQUIER LUGAR:
- * 1. Copia este archivo y tu archivo `.env` a cualquier carpeta.
- * 2. Instala las dependencias: npm install express cors mssql dotenv
- * 3. Ejecuta la API: node api_articulos_stock_v6.js
- * 
- * El servidor levantará de forma inmediata escuchando en el puerto 3005.
+ * La API levantará al instante escuchando en el puerto 3005 y se conectará
+ * de forma directa a la base de datos de Amazon.
  */
 
 import express from 'express';
@@ -28,40 +20,13 @@ import cors from 'cors';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
-import sql from 'mssql';
-import dotenv from 'dotenv';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Load env variables
-dotenv.config();
-
 const app = express();
 const PORT = 3005;
-const API_VERSION = '1.6.0';
-
-// MSSQL Direct Connection Configuration
-const dbConfig = {
-  user: process.env.DB_USER || 'sa',
-  password: process.env.DB_PASSWORD || 'your_password',
-  server: process.env.DB_SERVER || 'localhost',
-  database: process.env.DB_DATABASE || 'Ventas_Dev',
-  port: parseInt(process.env.DB_PORT, 10) || 1433,
-  requestTimeout: 60000,
-  options: {
-    encrypt: false,
-    trustServerCertificate: true,
-    enableArithAbort: true
-  },
-  pool: {
-    max: 10,
-    min: 0,
-    idleTimeoutMillis: 30000
-  }
-};
-
-let dbPool = null;
+const API_VERSION = '1.7.0';
 
 app.use(cors());
 app.use(express.json());
@@ -137,49 +102,24 @@ function getMockDataForQuery(queryText) {
         nombre_variante: 'Azul M', codigo_variante: 'VAR-REM-HW-BLU-M', sku: 'VAR-REM-HW-BLU-M',
         producto_maestro_id: 3, producto_padre: 'Remera Heavyweight', prod_nombre: 'Remera Heavyweight',
         categoria_id: 1, cat_nombre: 'Remeras y Buzos',
-        unidad_base: 'UDS', tipo_gestion: 'lote', moneda: 'UYU', costo: 15.00, stock_total: 60
+        unidad_base: 'UDS', tipo_gestion: 'lote', moneda: 'UYU', costo: 12.00, stock_total: 70
       },
       {
         id: 401, variant_id: 401,
-        nombre_variante: 'Negro S', codigo_variante: 'VAR-SHO-TRN-BLK-S', sku: 'VAR-SHO-TRN-BLK-S',
+        nombre_variante: 'Negro M', codigo_variante: 'VAR-SHO-TRN-BLK-M', sku: 'VAR-SHO-TRN-BLK-M',
         producto_maestro_id: 4, producto_padre: 'Short Training Microfibra', prod_nombre: 'Short Training Microfibra',
         categoria_id: 2, cat_nombre: 'Pantalones y Shorts',
-        unidad_base: 'UDS', tipo_gestion: 'lote', moneda: 'UYU', costo: 10.00, stock_total: 120
+        unidad_base: 'UDS', tipo_gestion: 'lote', moneda: 'UYU', costo: 15.00, stock_total: 120
       },
       {
         id: 501, variant_id: 501,
-        nombre_variante: 'Única', codigo_variante: 'VAR-GOR-CLS-UNI', sku: 'VAR-GOR-CLS-UNI',
+        nombre_variante: 'Negro Única', codigo_variante: 'VAR-GOR-CLS-BLK-U', sku: 'VAR-GOR-CLS-BLK-U',
         producto_maestro_id: 5, producto_padre: 'Gorra Classic', prod_nombre: 'Gorra Classic',
         categoria_id: 3, cat_nombre: 'Accesorios',
-        unidad_base: 'UDS', tipo_gestion: 'lote', moneda: 'UYU', costo: 5.50, stock_total: 350
+        unidad_base: 'UDS', tipo_gestion: 'lote', moneda: 'UYU', costo: 8.00, stock_total: 300
       }
     ];
-
-    const masterMatch = query.match(/producto_maestro_id\s*=\s*(\d+)/);
-    if (masterMatch) {
-      const masterId = parseInt(masterMatch[1], 10);
-      return mockVariants.filter(v => v.producto_maestro_id === masterId);
-    }
-
     return mockVariants;
-  }
-
-  if (query.includes('stock_depositos') && query.includes('stock_etiquetas')) {
-    return [
-      { variante_id: 101, deposito_id: 1, deposito_nombre: 'Depósito Central', stock: 100 },
-      { variante_id: 101, deposito_id: 2, deposito_nombre: 'Depósito Auxiliar', stock: 50 },
-      { variante_id: 102, deposito_id: 1, deposito_nombre: 'Depósito Central', stock: 180 },
-      { variante_id: 102, deposito_id: 2, deposito_nombre: 'Depósito Auxiliar', stock: 60 },
-      { variante_id: 103, deposito_id: 1, deposito_nombre: 'Depósito Central', stock: 90 },
-      { variante_id: 104, deposito_id: 1, deposito_nombre: 'Depósito Central', stock: 110 },
-      { variante_id: 201, deposito_id: 1, deposito_nombre: 'Depósito Central', stock: 80 },
-      { variante_id: 202, deposito_id: 1, deposito_nombre: 'Depósito Central', stock: 35 },
-      { variante_id: 202, deposito_id: 2, deposito_nombre: 'Depósito Auxiliar', stock: 10 },
-      { variante_id: 301, deposito_id: 1, deposito_nombre: 'Depósito Central', stock: 60 },
-      { variante_id: 401, deposito_id: 1, deposito_nombre: 'Depósito Central', stock: 120 },
-      { variante_id: 501, deposito_id: 1, deposito_nombre: 'Depósito Central', stock: 300 },
-      { variante_id: 501, deposito_id: 2, deposito_nombre: 'Depósito Auxiliar', stock: 50 }
-    ];
   }
   
   if (query.includes('stock_depositos') && query.includes('central')) {
@@ -198,33 +138,38 @@ function getMockDataForQuery(queryText) {
   return [];
 }
 
-async function getPool() {
-  if (!dbPool) {
-    dbPool = await sql.connect(dbConfig);
-    console.log('✅ WMS Stock API Connected to MSSQL Database');
-  }
-  return dbPool;
-}
-
 async function executeWmsQuery(queryText, forceReal = false) {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), 10000); // 10 segundos timeout
+  
   const isWriteQuery = /\b(update|insert|delete|begin|commit|rollback|merge|create|drop|alter)\b/i.test(queryText);
-  const queryWithDb = `USE Ventas_Dev; CREATE TABLE #WmsSecureTx_v16 (id INT); ${queryText}`;
+  const queryWithDb = `USE Ventas_Dev; CREATE TABLE #WmsSecureTx_v17 (id INT); ${queryText}`;
   
   try {
-    const pool = await getPool();
-    const request = pool.request();
+    const response = await fetch('http://3.85.26.173:5005/sql', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: queryWithDb }),
+      signal: controller.signal
+    });
     
-    // request.batch runs the entire string as a single batch, preserving temp table scope
-    const result = await request.batch(queryWithDb);
-    return result.recordset || [];
+    clearTimeout(id);
+    const result = await response.json();
+    
+    if (!result.success) {
+      throw new Error(result.error || 'SQL query failed');
+    }
+    
+    return result.data || [];
   } catch (err) {
+    clearTimeout(id);
     console.error('WMS DB Query Exception:', err.message);
     
     if (forceReal || isWriteQuery) {
       throw err;
     }
     
-    console.warn('WMS DB query failed. Falling back to mock labels.');
+    console.warn('WMS DB query failed. Falling back to mock data.');
     return getMockDataForQuery(queryText);
   }
 }
@@ -377,96 +322,6 @@ app.post('/api/articulos/descontar', async (req, res) => {
         message: err.message.replace('insufficient_stock:', '').trim()
       });
     }
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.post('/api/remitos/recibir', async (req, res) => {
-  const { remito_id, numeracion } = req.body;
-  
-  if (!remito_id && !numeracion) {
-    return res.status(400).json({ error: 'missing_parameters', message: 'Debe proveer remito_id o numeracion.' });
-  }
-  
-  try {
-    // 1. Obtener el remito
-    let getRemitoSql = '';
-    if (remito_id) {
-      getRemitoSql = `SELECT id, deposito_destino_id, estado, numeracion FROM wms_remitos_internos WHERE id = ${Number(remito_id)}`;
-    } else {
-      getRemitoSql = `SELECT id, deposito_destino_id, estado, numeracion FROM wms_remitos_internos WHERE numeracion = '${numeracion.replace(/'/g, "''")}'`;
-    }
-    
-    const remitoData = await executeWmsQuery(getRemitoSql);
-    if (!remitoData || remitoData.length === 0) {
-      return res.status(404).json({ error: 'remito_not_found', message: 'No se encontró el remito especificado.' });
-    }
-    
-    const remito = remitoData[0];
-    if (remito.estado !== 'EN_TRANSITO' && remito.estado !== 'PENDIENTE') {
-      return res.status(400).json({ 
-        error: 'invalid_remito_state', 
-        message: `El remito ya se encuentra en estado ${remito.estado} y no puede ser recibido.` 
-      });
-    }
-    
-    // 2. Obtener items del remito
-    const items = await executeWmsQuery(`
-      SELECT id, etiqueta_generada_id, cantidad_enviada 
-      FROM wms_remitos_internos_items 
-      WHERE remito_id = ${remito.id}
-    `);
-    
-    if (!items || items.length === 0) {
-      return res.status(400).json({ error: 'empty_remito', message: 'El remito no tiene items asociados.' });
-    }
-    
-    const queries = [];
-    for (const item of items) {
-      if (item.etiqueta_generada_id) {
-        queries.push(`
-          UPDATE Stock_Etiquetas 
-          SET estado = 'activo', cantidad_actual = cantidad_inicial
-          WHERE id = ${item.etiqueta_generada_id};
-          
-          INSERT INTO Stock_Movimientos (etiqueta_id, tipo_movimiento, cantidad_afectada, deposito_destino_id, remito_id, usuario_id)
-          VALUES (${item.etiqueta_generada_id}, 'recepcion_confirmada', ${item.cantidad_enviada}, ${remito.deposito_destino_id}, ${remito.id}, 'venta');
-          
-          UPDATE wms_remitos_internos_items 
-          SET estado = 'RECIBIDO_OK', cantidad_recibida = ${item.cantidad_enviada} 
-          WHERE id = ${item.id};
-        `);
-      }
-    }
-    
-    queries.push(`
-      UPDATE wms_remitos_internos 
-      SET estado = 'RECIBIDO' 
-      WHERE id = ${remito.id};
-    `);
-    
-    const transactionSQL = `
-      BEGIN TRY
-        BEGIN TRANSACTION;
-        ${queries.join('\n')}
-        COMMIT TRANSACTION;
-      END TRY
-      BEGIN CATCH
-        IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
-        THROW;
-      END CATCH
-    `;
-    
-    await executeWmsQuery(transactionSQL, true);
-    
-    res.json({
-      success: true,
-      message: `El remito ${remito.numeracion} ha sido recibido y activado en stock.`,
-      remito_id: remito.id,
-      numeracion: remito.numeracion
-    });
-  } catch (err) {
-    console.error('Error receiving remito:', err);
     res.status(500).json({ error: err.message });
   }
 });
