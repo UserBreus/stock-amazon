@@ -13,7 +13,6 @@
 
 import express from 'express';
 import cors from 'cors';
-import { dbQuery, dbRun, dbGet } from './db.js';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
@@ -491,117 +490,6 @@ app.get('/api/inventory/masters/:id/variants', async (req, res) => {
        ORDER BY nombre_variante;`
     );
     res.json(data);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.get('/api/products', async (req, res) => {
-  try {
-    const products = await dbQuery('SELECT * FROM products ORDER BY name');
-    res.json(products);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.get('/api/products/:id', async (req, res) => {
-  const { id } = req.params;
-  try {
-    const product = await dbGet('SELECT * FROM products WHERE id = ?', [id]);
-    if (!product) {
-      return res.status(404).json({ error: 'Product not found' });
-    }
-    res.json(product);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.get('/api/orders', async (req, res) => {
-  try {
-    const orders = await dbQuery('SELECT * FROM orders ORDER BY id DESC');
-    const formatted = orders.map(o => ({
-      ...o,
-      items: JSON.parse(o.items)
-    }));
-    res.json(formatted);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.post('/api/orders', async (req, res) => {
-  const { client_id, work_name, order_number, total, items } = req.body;
-  if (!items || !Array.isArray(items) || items.length === 0) {
-    return res.status(400).json({ error: 'Items array is required' });
-  }
-  
-  try {
-    const now = new Date().toISOString();
-    
-    const result = await dbRun(
-      `INSERT INTO orders (date, total, status, items, client_id, work_name, order_number, production_stage)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [now, total || 0, 'Confirmado', JSON.stringify(items), client_id || null, work_name || null, order_number || null, 'Diseño']
-    );
-    
-    const discountResults = [];
-    for (const item of items) {
-      if (item.variant_id) {
-        const discount = await discountVariantStock(item.variant_id, item.quantity);
-        discountResults.push(discount);
-      }
-    }
-    
-    res.status(201).json({
-      id: result.id,
-      date: now,
-      total,
-      status: 'Confirmado',
-      items,
-      client_id,
-      work_name,
-      order_number,
-      production_stage: 'Diseño',
-      stock_discounts: discountResults
-    });
-  } catch (err) {
-    console.error('Error creating order:', err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.get('/api/clients', async (req, res) => {
-  try {
-    const clients = await dbQuery('SELECT * FROM clients ORDER BY name');
-    const formatted = clients.map(c => ({
-      ...c,
-      tags: c.tags ? JSON.parse(c.tags) : []
-    }));
-    res.json(formatted);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.get('/api/clients/:id', async (req, res) => {
-  const { id } = req.params;
-  try {
-    const client = await dbGet('SELECT * FROM clients WHERE id = ?', [id]);
-    if (!client) {
-      return res.status(404).json({ error: 'Client not found' });
-    }
-    const orders = await dbQuery('SELECT * FROM orders WHERE client_id = ? ORDER BY id DESC', [id]);
-    const formattedOrders = orders.map(o => ({
-      ...o,
-      items: JSON.parse(o.items)
-    }));
-    res.json({
-      ...client,
-      tags: client.tags ? JSON.parse(client.tags) : [],
-      orders: formattedOrders
-    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
