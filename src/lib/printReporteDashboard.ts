@@ -374,11 +374,12 @@ export function printReporteDashboard(data: ReporteDashboardData): void {
   </div>
 
   <script>
-    window.onload = function() {
+    function doPrint() {
       window.print();
-      window.onafterprint = function() { window.close(); };
-    };
-  <\/script>
+      setTimeout(function() { window.close(); }, 500);
+    }
+    setTimeout(doPrint, 150);
+  </script>
 </body>
 </html>`;
 

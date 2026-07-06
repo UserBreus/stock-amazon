@@ -157,11 +157,12 @@ export function printRemitoHTML(pages: string[]): void {
 <body>
   ${pages.join('\n')}
   <script>
-    window.onload = function() {
+    function doPrint() {
       window.print();
-      window.onafterprint = function() { window.close(); };
-    };
-  <\/script>
+      setTimeout(function() { window.close(); }, 500);
+    }
+    setTimeout(doPrint, 150);
+  </script>
 </body>
 </html>`;
 

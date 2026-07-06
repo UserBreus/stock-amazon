@@ -69,7 +69,15 @@ export const printLabels = async (items: LabelItem[], config: PrintConfig = { si
     const pageCss = isGrid 
       ? `@page { margin: 5mm; }` 
       : `@page { size: ${cw}mm ${ch}mm; margin: 0; }
-         body { margin: 0; padding: 0; }`;
+         html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; }`;
+
+    const baseFontSize = isGrid 
+      ? '10px' 
+      : config.size === '4x4' 
+        ? '8pt' 
+        : config.size === '10x15' 
+          ? '14pt' 
+          : `${Math.max(8, Math.min(18, ch * 0.1))}pt`;
 
     printWindow.document.write(`
       <html>
@@ -85,7 +93,7 @@ export const printLabels = async (items: LabelItem[], config: PrintConfig = { si
               color: #000;
             }
             .labels-container {
-              ${isGrid ? "display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px;" : "display: block;"}
+              ${isGrid ? "display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px;" : "display: block; width: 100%; height: 100%;"}
             }
             .label-card {
               display: flex;
@@ -93,8 +101,11 @@ export const printLabels = async (items: LabelItem[], config: PrintConfig = { si
               align-items: center;
               justify-content: center;
               text-align: center;
-              font-size: ${isGrid ? '10px' : '4vh'};
-              ${isGrid ? "padding: 6px 4px; border: 1px dashed #bbb; border-radius: 6px; page-break-inside: avoid; position: relative;" : `width: 100vw; height: 100vh; page-break-after: always; padding: 2vh; overflow: hidden; justify-content: center;`}
+              font-size: ${baseFontSize};
+              ${isGrid 
+                ? "padding: 6px 4px; border: 1px dashed #bbb; border-radius: 6px; page-break-inside: avoid; position: relative;" 
+                : "width: 100%; height: 100%; page-break-after: always; page-break-inside: avoid; padding: 10px; overflow: hidden; position: relative;"
+              }
             }
             .label-card.lote-individual { border: ${isGrid ? "2px solid #f59e0b" : "none"}; }
             .label-card.granel { border: ${isGrid ? "1px solid #3b82f6" : "none"}; }
@@ -112,7 +123,8 @@ export const printLabels = async (items: LabelItem[], config: PrintConfig = { si
             .granel .tipo-badge { background: #eff6ff; color: #1e40af; border: 1px solid #3b82f6; }
             
             .qr-image {
-              height: ${isGrid ? '80px' : '35vh'};
+              height: ${isGrid ? '80px' : '35%'};
+              max-height: ${isGrid ? '80px' : '35%'};
               max-width: 100%;
               object-fit: contain;
               image-rendering: pixelated;
@@ -160,26 +172,28 @@ export const printLabels = async (items: LabelItem[], config: PrintConfig = { si
             ${labelsHtml}
           </div>
           <script>
-            window.onload = () => {
-              // Auto-shrink algorithm to ensure content fits within the label bounds
+            function initPrint() {
               document.querySelectorAll('.label-card').forEach(card => {
                  let f = 100;
-                 let imgH = ${isGrid ? 80 : 35};
-                 while (card.scrollHeight > card.clientHeight && f > 40) {
-                    f -= 5;
-                    imgH -= 2;
-                    card.style.fontSize = f + '%';
-                    const img = card.querySelector('.qr-image');
-                    if (img) img.style.height = imgH + '${isGrid ? 'px' : 'vh'}';
+                 let imgH = 35;
+                 if (card.clientHeight > 0) {
+                     while (card.scrollHeight > card.clientHeight && f > 40) {
+                        f -= 5;
+                        imgH -= 1.5;
+                        card.style.fontSize = f + '%';
+                        const img = card.querySelector('.qr-image');
+                        if (img) img.style.height = imgH + '%';
+                     }
                  }
               });
               
-              // Pequeño delay para permitir el renderizado de fuentes/ajustes
               setTimeout(() => {
                   window.print();
-                  setTimeout(() => { window.close(); }, 400);
-              }, 100);
-            };
+                  setTimeout(() => { window.close(); }, 500);
+              }, 150);
+            }
+            
+            setTimeout(initPrint, 150);
           </script>
         </body>
       </html>
