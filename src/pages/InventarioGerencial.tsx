@@ -4,7 +4,7 @@ import {
   Plus, Scan, AlertCircle, ArchiveRestore, Printer, Search, CreditCard, Activity, 
   Box, ArrowUpRight, ChevronDown, ChevronRight, Layers, Receipt, Network, X, Trash2, 
   Package, ShoppingCart, ListChecks, Tags, Camera, ArrowDownToLine, 
-  ArrowRightLeft, ArrowUpFromLine, LayoutDashboard, History, MapPin, Send, ClipboardList, CheckCircle, PackageCheck, ScanBarcode, ArrowLeft, User, Scale 
+  ArrowRightLeft, ArrowUpFromLine, LayoutDashboard, History, MapPin, Send, ClipboardList, CheckCircle, PackageCheck, ScanBarcode, ArrowLeft, User, Scale, Folder
 } from 'lucide-react';
 import { executeAWSQuery } from '../lib/aws-client';
 import { printRemito } from '../lib/printRemito';
@@ -78,7 +78,11 @@ export function InventarioGerencial() {
   const [newLabel, setNewLabel] = useState({ variante_id: '', cantidad_por_etiqueta: 1, numero_etiquetas: 1, deposito_id: '' });
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
   const [printModalEntries, setPrintModalEntries] = useState<PrintLabelEntry[]>([]);
-  const [isSelectVariantModalOpen, setIsSelectVariantModalOpen] = useState(false);
+  const [labelModalView, setLabelModalView] = useState<'form' | 'search'>('form');
+  const [selectedLabelVariants, setSelectedLabelVariants] = useState<string[]>([]);
+  const [labelSearchQuery, setLabelSearchQuery] = useState('');
+  const [labelSelectedCategoryId, setLabelSelectedCategoryId] = useState<string | null>(null);
+  const [labelSelectedMaestroId, setLabelSelectedMaestroId] = useState<string | null>(null);
   const [drillDownProductos, setDrillDownProductos] = useState<any[]>([]);
 
   // Hub States
@@ -561,52 +565,61 @@ export function InventarioGerencial() {
 
   const handleGenerateLabels = async (e: React.FormEvent) => {
     e.preventDefault();
-    if(!newLabel.variante_id || !newLabel.deposito_id) return toast.error("Complete todos los campos.");
+    if(selectedLabelVariants.length === 0) return toast.error("Debe agregar al menos un artículo.");
+    if(!newLabel.deposito_id) return toast.error("Seleccione un almacén de destino.");
     try {
+      const idsEscaped = selectedLabelVariants.map(id => `'${id.toString().replace(/'/g, "''")}'`).join(',');
       const vResult = await executeAWSQuery(`
         SELECT v.*, pm.nombre as producto_nombre, pm.tipo_gestion 
         FROM Stock_Variantes v 
         JOIN Stock_Productos_Maestros pm ON v.producto_maestro_id = pm.id 
-        WHERE v.id = ${newLabel.variante_id}
+        WHERE v.id IN (${idsEscaped})
       `);
-      const vObj = vResult?.[0];
-      if(!vObj) return toast.error("Variante no existe");
+      if(!vResult || vResult.length === 0) return toast.error("Variantes seleccionadas no existen");
 
-      const prefix = vObj.codigo_variante || 'SKU';
-      const values = Array.from({ length: newLabel.numero_etiquetas }).map((_, i) => 
-        `('${prefix}-${Date.now().toString().slice(-4)}-${i+1}', ${vObj.id}, ${newLabel.deposito_id}, ${newLabel.cantidad_por_etiqueta}, ${newLabel.cantidad_por_etiqueta}, 'activo')`
-      ).join(',');
+      const allPrintEntries: PrintLabelEntry[] = [];
 
-      const inserted = await executeAWSQuery(`
-        INSERT INTO Stock_Etiquetas (codigo_barras, variante_id, deposito_id, cantidad_inicial, cantidad_actual, estado) 
-        OUTPUT INSERTED.id, INSERTED.codigo_barras 
-        VALUES ${values}
-      `);
-      
-      if (inserted && inserted.length > 0) {
-        const movValues = inserted.map((row:any) => 
-          `(${row.id}, 'ingreso', ${newLabel.cantidad_por_etiqueta}, '${user?.id || 1}')`
+      for (const vObj of vResult) {
+        const prefix = vObj.codigo_variante || 'SKU';
+        const values = Array.from({ length: newLabel.numero_etiquetas }).map((_, i) => 
+          `('${prefix}-${Date.now().toString().slice(-4)}-${i+1}-${vObj.id}', ${vObj.id}, ${newLabel.deposito_id}, ${newLabel.cantidad_por_etiqueta}, ${newLabel.cantidad_por_etiqueta}, 'activo')`
         ).join(',');
-        await executeAWSQuery(`INSERT INTO Stock_Movimientos (etiqueta_id, tipo_movimiento, cantidad, usuario_id) VALUES ${movValues}`);
 
-        // Preparar entradas para el modal de impresión
-        const barcodes = inserted.map((row: any) => row.codigo_barras);
-        const printEntry: PrintLabelEntry = {
-            variante_id: vObj.id,
-            producto_nombre: vObj.producto_nombre,
-            nombre_variante: vObj.nombre_variante,
-            sku: vObj.codigo_variante || vObj.sku,
-            cantidad: newLabel.cantidad_por_etiqueta,
-            tipo_gestion: vObj.tipo_gestion || 'granel',
-            etiqueta_ids: barcodes,
-            bultos_predefinidos: barcodes.length
-        };
-        setPrintModalEntries([printEntry]);
+        const inserted = await executeAWSQuery(`
+          INSERT INTO Stock_Etiquetas (codigo_barras, variante_id, deposito_id, cantidad_inicial, cantidad_actual, estado) 
+          OUTPUT INSERTED.id, INSERTED.codigo_barras 
+          VALUES ${values}
+        `);
+        
+        if (inserted && inserted.length > 0) {
+          const movValues = inserted.map((row:any) => 
+            `(${row.id}, 'ingreso', ${newLabel.cantidad_por_etiqueta}, '${user?.id || 1}')`
+          ).join(',');
+          await executeAWSQuery(`INSERT INTO Stock_Movimientos (etiqueta_id, tipo_movimiento, cantidad, usuario_id) VALUES ${movValues}`);
+
+          const barcodes = inserted.map((row: any) => row.codigo_barras);
+          allPrintEntries.push({
+              variante_id: vObj.id,
+              producto_nombre: vObj.producto_nombre,
+              nombre_variante: vObj.nombre_variante,
+              sku: vObj.codigo_variante || vObj.sku,
+              cantidad: newLabel.cantidad_por_etiqueta,
+              tipo_gestion: vObj.tipo_gestion || 'granel',
+              etiqueta_ids: barcodes,
+              bultos_predefinidos: barcodes.length
+          });
+        }
+      }
+
+      if (allPrintEntries.length > 0) {
+        setPrintModalEntries(allPrintEntries);
         setIsPrintModalOpen(true);
       }
       setIsLabelModalOpen(false);
+      setSelectedLabelVariants([]);
+      setLabelModalView('form');
       fetchData();
-      toast.success(`${newLabel.numero_etiquetas} etiqueta(s) generadas con éxito.`);
+      toast.success("Etiquetas generadas con éxito.");
     } catch(err: any) {
       console.error(err);
       toast.error("Error al generar las etiquetas: " + err.message);
@@ -1512,46 +1525,257 @@ export function InventarioGerencial() {
       {/* MODALES CLAVE */}
       
       {/* MODAL ETIQUETAS */}
-      <Modal isOpen={isLabelModalOpen} onClose={() => setIsLabelModalOpen(false)} title="Generador de Rótulos / Cajas Físicas">
-         <form onSubmit={handleGenerateLabels} className="space-y-6">
-            <div className="space-y-2">
-               <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Variante a Imprimir</label>
-               <button
-                  type="button"
-                  onClick={() => setIsSelectVariantModalOpen(true)}
-                  className="w-full text-left p-3.5 bg-slate-50 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 font-bold text-sm text-slate-700 dark:text-slate-300 hover:border-indigo-500 transition-colors flex justify-between items-center"
-               >
-                  <span>
-                     {newLabel.variante_id 
-                        ? (() => {
-                            const p = drillDownProductos.find((x: any) => x.id.toString() === newLabel.variante_id.toString());
-                            return p ? p.nombre : "Artículo Seleccionado";
-                          })()
-                        : "Hacé clic para buscar un artículo..."
-                     }
-                  </span>
-                  <span className="text-xs bg-indigo-50 text-indigo-600 px-2 py-1 rounded font-bold">Buscar</span>
-               </button>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                 <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Volumen por Unidad/Caja</label>
-                 <input type="number" min="0.01" step="0.01" required value={newLabel.cantidad_por_etiqueta} onChange={e => setNewLabel({...newLabel, cantidad_por_etiqueta: Number(e.target.value)})} className="input-nexus w-full bg-transparent" />
-              </div>
-              <div className="space-y-2">
-                 <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Número de Códigos a Generar</label>
-                 <input type="number" min="1" required value={newLabel.numero_etiquetas} onChange={e => setNewLabel({...newLabel, numero_etiquetas: Number(e.target.value)})} className="input-nexus w-full font-black text-indigo-600 bg-transparent" />
-              </div>
-            </div>
-            <div className="space-y-2">
-                 <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Asignar a Almacén Local</label>
-                 <select required value={newLabel.deposito_id} onChange={e => setNewLabel({...newLabel, deposito_id: e.target.value})} className="input-nexus w-full bg-slate-50 dark:bg-slate-900 border-none ring-1 ring-slate-200">
-                    <option value="" disabled>Seleccione almacén de destino...</option>
-                    {depositos.map(d => <option key={d.id} value={d.id}>{d.nombre}</option>)}
-                 </select>
-            </div>
-            <button type="submit" disabled={etiqAcc === 'read'} title={etiqAcc === 'read' ? 'No tienes permiso de escritura' : ''} className="w-full btn-primary py-4 uppercase tracking-widest font-black shadow-lg shadow-indigo-500/20 disabled:opacity-50">Imprimir Lotes y Agregar a Base de Datos</button>
-         </form>
+      <Modal isOpen={isLabelModalOpen} onClose={() => setIsLabelModalOpen(false)} title="Generador de Rótulos / Cajas Físicas" maxWidth="max-w-4xl">
+         {labelModalView === 'form' ? (
+             <form onSubmit={handleGenerateLabels} className="space-y-6">
+                <div className="space-y-2">
+                   <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Artículos a Imprimir</label>
+                   
+                   {/* List of selected variants */}
+                   <div className="space-y-2 max-h-[200px] overflow-y-auto custom-scrollbar pr-2">
+                      {selectedLabelVariants.length === 0 ? (
+                         <div className="text-center p-6 border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-2xl text-slate-400 dark:text-slate-500 font-medium text-xs">
+                            No hay ningún artículo seleccionado.
+                         </div>
+                      ) : (
+                         selectedLabelVariants.map(variantId => {
+                            const p = drillDownProductos.find((x: any) => x.id.toString() === variantId.toString());
+                            return (
+                               <div key={variantId} className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl">
+                                  <div className="flex flex-col">
+                                     <span className="font-bold text-sm text-slate-800 dark:text-slate-200">{p ? p.nombre : "Artículo"}</span>
+                                     <span className="text-[10px] font-mono text-slate-400 uppercase mt-0.5">{p?.sku || "Sin SKU"}</span>
+                                  </div>
+                                  <button
+                                     type="button"
+                                     onClick={() => setSelectedLabelVariants(prev => prev.filter(id => id !== variantId))}
+                                     className="p-2 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/20 rounded-lg transition-colors"
+                                     title="Eliminar artículo de la lista"
+                                  >
+                                     <Trash2 className="w-4 h-4" />
+                                  </button>
+                               </div>
+                            );
+                         })
+                      )}
+                   </div>
+
+                   <button
+                      type="button"
+                      onClick={() => {
+                          setLabelModalView('search');
+                          setLabelSearchQuery('');
+                          setLabelSelectedCategoryId(null);
+                          setLabelSelectedMaestroId(null);
+                      }}
+                      className="w-full text-center p-3 border-2 border-dashed border-indigo-200 dark:border-indigo-900/50 hover:border-indigo-500 rounded-xl font-bold text-xs text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50/10 transition-colors flex items-center justify-center gap-1.5"
+                   >
+                      <Plus className="w-4 h-4" /> Agregar Artículos
+                   </button>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                     <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Volumen por Unidad/Caja</label>
+                     <input type="number" min="0.01" step="0.01" required value={newLabel.cantidad_por_etiqueta} onChange={e => setNewLabel({...newLabel, cantidad_por_etiqueta: Number(e.target.value)})} className="input-nexus w-full bg-transparent" />
+                  </div>
+                  <div className="space-y-2">
+                     <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Número de Códigos a Generar</label>
+                     <input type="number" min="1" required value={newLabel.numero_etiquetas} onChange={e => setNewLabel({...newLabel, numero_etiquetas: Number(e.target.value)})} className="input-nexus w-full font-black text-indigo-600 bg-transparent" />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                     <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Asignar a Almacén Local</label>
+                     <select required value={newLabel.deposito_id} onChange={e => setNewLabel({...newLabel, deposito_id: e.target.value})} className="input-nexus w-full bg-slate-50 dark:bg-slate-900 border-none ring-1 ring-slate-200">
+                        <option value="" disabled>Seleccione almacén de destino...</option>
+                        {depositos.map(d => <option key={d.id} value={d.id}>{d.nombre}</option>)}
+                     </select>
+                </div>
+                <button type="submit" disabled={etiqAcc === 'read' || selectedLabelVariants.length === 0} title={etiqAcc === 'read' ? 'No tienes permiso de escritura' : ''} className="w-full btn-primary py-4 uppercase tracking-widest font-black shadow-lg shadow-indigo-500/20 disabled:opacity-50">Imprimir Lotes y Agregar a Base de Datos</button>
+             </form>
+         ) : (
+             <div className="space-y-6 animate-in fade-in-20 duration-150">
+                <div className="flex justify-between items-center pb-2 border-b border-slate-100 dark:border-slate-800">
+                   <button
+                      type="button"
+                      onClick={() => setLabelModalView('form')}
+                      className="px-4 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 font-black rounded-xl transition text-xs flex items-center gap-1.5 uppercase tracking-wider"
+                   >
+                      <ArrowLeft className="w-4 h-4" /> Volver al Formulario
+                   </button>
+                   <span className="text-xs font-black uppercase text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/40 px-3 py-1 rounded-full">
+                      {selectedLabelVariants.length} seleccionados
+                   </span>
+                </div>
+
+                {/* Inline Search/DrillDown selector */}
+                <div className="space-y-4">
+                   <div className="relative">
+                      <Search className="absolute left-4 top-3.5 w-4 h-4 text-slate-400" />
+                      <input
+                         type="text"
+                         value={labelSearchQuery}
+                         onChange={e => setLabelSearchQuery(e.target.value)}
+                         placeholder="Buscar por nombre, variante, marca o SKU..."
+                         className="w-full bg-slate-50 dark:bg-slate-900 border-none ring-1 ring-slate-200 dark:ring-slate-800 rounded-xl pl-11 pr-4 py-3 text-sm font-semibold focus:ring-indigo-500 focus:outline-none"
+                      />
+                   </div>
+
+                   {/* Main drilldown area */}
+                   <div className="border border-slate-150 dark:border-slate-800 rounded-2xl overflow-hidden bg-slate-50/20 dark:bg-slate-900/10 min-h-[300px] max-h-[450px] overflow-y-auto custom-scrollbar">
+                      {/* Search Result view */}
+                      {labelSearchQuery.trim().length > 0 ? (
+                         (() => {
+                            const q = labelSearchQuery.toLowerCase();
+                            const matches = drillDownProductos.filter(p => 
+                               p.nombre.toLowerCase().includes(q) || 
+                               p.sku?.toLowerCase().includes(q)
+                            );
+                            if (matches.length === 0) {
+                               return <div className="p-8 text-center text-xs font-medium text-slate-400 dark:text-slate-500">No se encontraron artículos.</div>;
+                            }
+                            return (
+                               <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                                  {matches.map(p => {
+                                     const isSelected = selectedLabelVariants.includes(p.id.toString());
+                                     return (
+                                        <div
+                                           key={p.id}
+                                           onClick={() => {
+                                              setSelectedLabelVariants(prev => 
+                                                 isSelected ? prev.filter(id => id !== p.id.toString()) : [...prev, p.id.toString()]
+                                              );
+                                           }}
+                                           className="p-3.5 flex items-center justify-between cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
+                                        >
+                                           <div className="flex flex-col">
+                                              <span className="font-bold text-sm text-slate-800 dark:text-slate-200">{p.nombre}</span>
+                                              <span className="text-[10px] font-mono text-slate-400 uppercase mt-0.5">{p.sku || "Sin SKU"}</span>
+                                           </div>
+                                           <div className={cn("w-5 h-5 rounded-md border flex items-center justify-center transition-all", isSelected ? "bg-indigo-600 border-indigo-600 text-white" : "border-slate-300 dark:border-slate-700")}>
+                                              {isSelected && <CheckCircle className="w-3.5 h-3.5" />}
+                                           </div>
+                                        </div>
+                                     );
+                                  })}
+                               </div>
+                            );
+                         })()
+                      ) : (
+                         /* Category Hierarchy View */
+                         (() => {
+                            if (!labelSelectedCategoryId) {
+                               // Vista Raíz: Categorías
+                               return (
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-4">
+                                     {tiposProducto.map(c => {
+                                        const prodCount = new Set(drillDownProductos.filter((p: any) => p.categoria_id?.toString() === c.id.toString()).map((p: any) => p.producto_maestro_id || p.id)).size;
+                                        return (
+                                           <div
+                                              key={c.id}
+                                              onClick={() => setLabelSelectedCategoryId(c.id.toString())}
+                                              className="p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl hover:border-indigo-500 cursor-pointer transition flex items-center justify-between group shadow-sm"
+                                           >
+                                              <div className="flex items-center gap-3">
+                                                 <Folder className="w-5 h-5 text-indigo-500" />
+                                                 <div>
+                                                    <p className="font-bold text-sm text-slate-850 dark:text-slate-100">{c.nombre}</p>
+                                                    <p className="text-[10px] text-slate-400 font-medium">{prodCount} artículos maestros</p>
+                                                 </div>
+                                              </div>
+                                              <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-slate-500 transition-colors" />
+                                           </div>
+                                        );
+                                     })}
+                                  </div>
+                               );
+                            }
+
+                            if (!labelSelectedMaestroId) {
+                               // Vista Nivel 1: Productos Maestros
+                               const prodsInCat = drillDownProductos.filter((p: any) => p.categoria_id?.toString() === labelSelectedCategoryId);
+                               const uniqueMaestros = Array.from(new Set(prodsInCat.map((p: any) => p.producto_maestro_id)));
+                               const catName = tiposProducto.find(c => c.id.toString() === labelSelectedCategoryId)?.nombre || "Familia";
+
+                               return (
+                                  <div className="space-y-3">
+                                     <div className="bg-slate-100 dark:bg-slate-800 px-4 py-2 flex items-center gap-1 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                                        <button onClick={() => setLabelSelectedCategoryId(null)} className="hover:text-indigo-600">Categorías</button>
+                                        <ChevronRight className="w-3 h-3" />
+                                        <span className="text-slate-850 dark:text-slate-200">{catName}</span>
+                                     </div>
+                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-4">
+                                        {uniqueMaestros.map(maestroId => {
+                                           const firstMatch = prodsInCat.find((p: any) => p.producto_maestro_id === maestroId);
+                                           if (!firstMatch) return null;
+                                           const variantsCount = prodsInCat.filter((p: any) => p.producto_maestro_id === maestroId).length;
+                                           return (
+                                              <div
+                                                 key={maestroId}
+                                                 onClick={() => setLabelSelectedMaestroId(maestroId.toString())}
+                                                 className="p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl hover:border-indigo-500 cursor-pointer transition flex items-center justify-between group shadow-sm"
+                                              >
+                                                 <div className="flex items-center gap-3">
+                                                    <Box className="w-5 h-5 text-emerald-500" />
+                                                    <div>
+                                                       <p className="font-bold text-sm text-slate-850 dark:text-slate-100">{firstMatch.producto_nombre}</p>
+                                                       <p className="text-[10px] text-slate-400 font-medium">{variantsCount} variantes</p>
+                                                    </div>
+                                                 </div>
+                                                 <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-slate-500 transition-colors" />
+                                              </div>
+                                           );
+                                        })}
+                                     </div>
+                                  </div>
+                               );
+                            }
+
+                            // Vista Nivel 2: Variantes
+                            const variants = drillDownProductos.filter((p: any) => p.producto_maestro_id?.toString() === labelSelectedMaestroId);
+                            const catName = tiposProducto.find(c => c.id.toString() === labelSelectedCategoryId)?.nombre || "Familia";
+                            const maestroName = variants[0]?.producto_nombre || "Artículo Maestro";
+
+                            return (
+                               <div className="space-y-0.5">
+                                  <div className="bg-slate-100 dark:bg-slate-800 px-4 py-2 flex items-center gap-1.5 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                                     <button onClick={() => { setLabelSelectedCategoryId(null); setLabelSelectedMaestroId(null); }} className="hover:text-indigo-600">Categorías</button>
+                                     <ChevronRight className="w-3 h-3" />
+                                     <button onClick={() => setLabelSelectedMaestroId(null)} className="hover:text-indigo-600 max-w-[120px] truncate">{catName}</button>
+                                     <ChevronRight className="w-3 h-3" />
+                                     <span className="text-slate-850 dark:text-slate-200 truncate">{maestroName}</span>
+                                  </div>
+                                  <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                                     {variants.map(v => {
+                                        const isSelected = selectedLabelVariants.includes(v.id.toString());
+                                        return (
+                                           <div
+                                              key={v.id}
+                                              onClick={() => {
+                                                 setSelectedLabelVariants(prev => 
+                                                    isSelected ? prev.filter(id => id !== v.id.toString()) : [...prev, v.id.toString()]
+                                                 );
+                                              }}
+                                              className="p-3.5 flex items-center justify-between cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
+                                           >
+                                              <div className="flex flex-col">
+                                                 <span className="font-bold text-sm text-slate-850 dark:text-slate-200">{v.nombre_variante || "Variante Única"}</span>
+                                                 <span className="text-[10px] font-mono text-slate-400 uppercase mt-0.5">{v.sku || "Sin SKU"}</span>
+                                              </div>
+                                              <div className={cn("w-5 h-5 rounded-md border flex items-center justify-center transition-all", isSelected ? "bg-indigo-600 border-indigo-600 text-white" : "border-slate-300 dark:border-slate-700")}>
+                                                 {isSelected && <CheckCircle className="w-3.5 h-3.5" />}
+                                              </div>
+                                           </div>
+                                        );
+                                     })}
+                                  </div>
+                               </div>
+                            );
+                         })()
+                      )}
+                   </div>
+                </div>
+             </div>
+         )}
       </Modal>
 
       {/* MODAL DE EXPLORACION DE CAJAS (Lotes) */}
@@ -1803,20 +2027,6 @@ export function InventarioGerencial() {
         onClose={() => setIsPrintModalOpen(false)}
         detalles={printModalEntries}
       />
-
-      {/* SELECT VARIANT DRILLDOWN MODAL */}
-      <CategoryDrillDownModal
-        isOpen={isSelectVariantModalOpen}
-        onClose={() => setIsSelectVariantModalOpen(false)}
-        title="Buscar Variante para Etiqueta"
-        categorias={tiposProducto}
-        productos={drillDownProductos}
-        onSelect={(id) => {
-            setNewLabel(prev => ({ ...prev, variante_id: id }));
-            setIsSelectVariantModalOpen(false);
-        }}
-      />
-
     </div>
   );
 }
