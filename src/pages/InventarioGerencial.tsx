@@ -79,11 +79,12 @@ export function InventarioGerencial() {
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
   const [printModalEntries, setPrintModalEntries] = useState<PrintLabelEntry[]>([]);
   const [labelModalView, setLabelModalView] = useState<'form' | 'search'>('form');
-  const [selectedLabelVariants, setSelectedLabelVariants] = useState<string[]>([]);
+  const [selectedLabelBarcodes, setSelectedLabelBarcodes] = useState<string[]>([]);
   const [labelSearchQuery, setLabelSearchQuery] = useState('');
   const [labelSelectedCategoryId, setLabelSelectedCategoryId] = useState<string | null>(null);
   const [labelSelectedMaestroId, setLabelSelectedMaestroId] = useState<string | null>(null);
-  const [drillDownProductos, setDrillDownProductos] = useState<any[]>([]);
+  const [labelSelectedVariantId, setLabelSelectedVariantId] = useState<string | null>(null);
+  const [activeStockLabels, setActiveStockLabels] = useState<any[]>([]);
 
   // Hub States
   const [manualCart, setManualCart] = useState<any[]>([]);
@@ -483,18 +484,22 @@ export function InventarioGerencial() {
                v.id, v.nombre_variante, v.codigo_variante, v.costo, v.moneda
            ORDER BY pm.nombre ASC
       `;
-      const [stockRes, capRes, depRes, catRes, compRes, prodsRes] = await Promise.all([
+      const [stockRes, capRes, depRes, catRes, compRes, labelsRes] = await Promise.all([
         executeAWSQuery(advancedQuery),
         executeAWSQuery("SELECT * FROM Vista_Capital_Activo"),
         executeAWSQuery("SELECT * FROM Stock_Depositos"),
         executeAWSQuery("SELECT * FROM Stock_Categorias ORDER BY nombre"),
         executeAWSQuery("SELECT c.*, p.nombre as proveedor_nombre FROM Stock_Compras c LEFT JOIN Stock_Proveedores p ON c.proveedor_id = p.id WHERE c.estado = 'pendiente' ORDER BY c.fecha_creacion DESC"),
         executeAWSQuery(`
-           SELECT v.id as variante_id, v.nombre_variante, p.nombre as producto_nombre, p.categoria_id, c.nombre as cat_nombre,
-                  p.unidad_base, p.tipo_gestion, p.id as producto_maestro_id, v.codigo_variante as sku
-           FROM Stock_Variantes v 
-           INNER JOIN Stock_Productos_Maestros p ON v.producto_maestro_id = p.id
-           LEFT JOIN Stock_Categorias c ON p.categoria_id = c.id
+           SELECT e.id as label_id, e.codigo_barras, e.cantidad_actual, e.deposito_id, d.nombre as deposito_nombre,
+                  v.id as variante_id, v.nombre_variante, pm.nombre as producto_nombre, pm.categoria_id, c.nombre as cat_nombre,
+                  v.codigo_variante as sku, pm.tipo_gestion, pm.unidad_base, pm.id as producto_maestro_id
+           FROM Stock_Etiquetas e
+           INNER JOIN Stock_Variantes v ON e.variante_id = v.id
+           INNER JOIN Stock_Productos_Maestros pm ON v.producto_maestro_id = pm.id
+           LEFT JOIN Stock_Categorias c ON pm.categoria_id = c.id
+           LEFT JOIN Stock_Depositos d ON e.deposito_id = d.id
+           WHERE e.estado = 'activo' AND e.cantidad_actual > 0
         `)
       ]);
       
@@ -504,18 +509,23 @@ export function InventarioGerencial() {
       setTiposProducto(catRes || []);
       setComprasPendientes(compRes || []);
 
-      if (prodsRes) {
-          setDrillDownProductos(prodsRes.map((p: any) => ({
-              id: p.variante_id,
-              nombre: getVisualName(p.cat_nombre, p.producto_nombre, p.nombre_variante),
-              producto_maestro_id: p.producto_maestro_id,
-              producto_nombre: p.producto_nombre,
+      if (labelsRes) {
+          setActiveStockLabels(labelsRes.map((p: any) => ({
+              label_id: p.label_id,
+              codigo_barras: p.codigo_barras,
+              cantidad_actual: p.cantidad_actual,
+              deposito_id: p.deposito_id,
+              deposito_nombre: p.deposito_nombre,
+              variante_id: p.variante_id,
               nombre_variante: p.nombre_variante,
+              producto_nombre: p.producto_nombre,
               categoria_id: p.categoria_id,
               cat_nombre: p.cat_nombre,
-              unidad_base: p.unidad_base || 'ud',
+              sku: p.sku,
               tipo_gestion: p.tipo_gestion || 'granel',
-              sku: p.sku
+              unidad_base: p.unidad_base || 'ud',
+              producto_maestro_id: p.producto_maestro_id,
+              nombre: `${getVisualName(p.cat_nombre, p.producto_nombre, p.nombre_variante)} (Barra: ${p.codigo_barras})`
           })));
       }
       fetchGlobalHistorial();
@@ -565,64 +575,34 @@ export function InventarioGerencial() {
 
   const handleGenerateLabels = async (e: React.FormEvent) => {
     e.preventDefault();
-    if(selectedLabelVariants.length === 0) return toast.error("Debe agregar al menos un artículo.");
-    if(!newLabel.deposito_id) return toast.error("Seleccione un almacén de destino.");
+    if(selectedLabelBarcodes.length === 0) return toast.error("Debe agregar al menos un artículo.");
     try {
-      const idsEscaped = selectedLabelVariants.map(id => `'${id.toString().replace(/'/g, "''")}'`).join(',');
-      const vResult = await executeAWSQuery(`
-        SELECT v.*, pm.nombre as producto_nombre, pm.tipo_gestion 
-        FROM Stock_Variantes v 
-        JOIN Stock_Productos_Maestros pm ON v.producto_maestro_id = pm.id 
-        WHERE v.id IN (${idsEscaped})
-      `);
-      if(!vResult || vResult.length === 0) return toast.error("Variantes seleccionadas no existen");
-
-      const allPrintEntries: PrintLabelEntry[] = [];
-
-      for (const vObj of vResult) {
-        const prefix = vObj.codigo_variante || 'SKU';
-        const values = Array.from({ length: newLabel.numero_etiquetas }).map((_, i) => 
-          `('${prefix}-${Date.now().toString().slice(-4)}-${i+1}-${vObj.id}', ${vObj.id}, ${newLabel.deposito_id}, ${newLabel.cantidad_por_etiqueta}, ${newLabel.cantidad_por_etiqueta}, 'activo')`
-        ).join(',');
-
-        const inserted = await executeAWSQuery(`
-          INSERT INTO Stock_Etiquetas (codigo_barras, variante_id, deposito_id, cantidad_inicial, cantidad_actual, estado) 
-          OUTPUT INSERTED.id, INSERTED.codigo_barras 
-          VALUES ${values}
-        `);
-        
-        if (inserted && inserted.length > 0) {
-          const movValues = inserted.map((row:any) => 
-            `(${row.id}, 'ingreso', ${newLabel.cantidad_por_etiqueta}, '${user?.id || 1}')`
-          ).join(',');
-          await executeAWSQuery(`INSERT INTO Stock_Movimientos (etiqueta_id, tipo_movimiento, cantidad, usuario_id) VALUES ${movValues}`);
-
-          const barcodes = inserted.map((row: any) => row.codigo_barras);
-          allPrintEntries.push({
-              variante_id: vObj.id,
-              producto_nombre: vObj.producto_nombre,
-              nombre_variante: vObj.nombre_variante,
-              sku: vObj.codigo_variante || vObj.sku,
-              cantidad: newLabel.cantidad_por_etiqueta,
-              tipo_gestion: vObj.tipo_gestion || 'granel',
-              etiqueta_ids: barcodes,
-              bultos_predefinidos: barcodes.length
-          });
-        }
-      }
+      const allPrintEntries: PrintLabelEntry[] = selectedLabelBarcodes.map(barcode => {
+         const item = activeStockLabels.find(l => l.codigo_barras === barcode);
+         if (!item) return null;
+         return {
+             variante_id: item.variante_id,
+             producto_nombre: item.producto_nombre,
+             nombre_variante: item.nombre_variante,
+             sku: item.sku,
+             cantidad: item.cantidad_actual,
+             tipo_gestion: item.tipo_gestion || 'granel',
+             etiqueta_id: item.codigo_barras,
+             bultos_predefinidos: 1
+         };
+      }).filter(Boolean) as PrintLabelEntry[];
 
       if (allPrintEntries.length > 0) {
         setPrintModalEntries(allPrintEntries);
         setIsPrintModalOpen(true);
       }
       setIsLabelModalOpen(false);
-      setSelectedLabelVariants([]);
+      setSelectedLabelBarcodes([]);
       setLabelModalView('form');
-      fetchData();
-      toast.success("Etiquetas generadas con éxito.");
+      toast.success("Etiquetas preparadas para impresión.");
     } catch(err: any) {
       console.error(err);
-      toast.error("Error al generar las etiquetas: " + err.message);
+      toast.error("Error al preparar las etiquetas: " + err.message);
     }
   };
 
@@ -1518,39 +1498,43 @@ export function InventarioGerencial() {
                             </tbody>
                         </table>
                     </div>
-            ))}
-        </div>
-      )}
+                 ))}
+             </div>
+       )}
 
-      {/* MODALES CLAVE */}
-      
-      {/* MODAL ETIQUETAS */}
-      <Modal isOpen={isLabelModalOpen} onClose={() => setIsLabelModalOpen(false)} title="Generador de Rótulos / Cajas Físicas" maxWidth="max-w-4xl">
+       {/* MODALES CLAVE */}
+
+       {/* MODAL ETIQUETAS */}
+      <Modal isOpen={isLabelModalOpen} onClose={() => setIsLabelModalOpen(false)} title="Reimpresión de Rótulos de Stock" maxWidth="max-w-4xl">
          {labelModalView === 'form' ? (
              <form onSubmit={handleGenerateLabels} className="space-y-6">
                 <div className="space-y-2">
-                   <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Artículos a Imprimir</label>
+                   <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Etiquetas / Lotes a Imprimir</label>
                    
-                   {/* List of selected variants */}
-                   <div className="space-y-2 max-h-[200px] overflow-y-auto custom-scrollbar pr-2">
-                      {selectedLabelVariants.length === 0 ? (
+                   {/* List of selected labels */}
+                   <div className="space-y-2 max-h-[300px] overflow-y-auto custom-scrollbar pr-2">
+                      {selectedLabelBarcodes.length === 0 ? (
                          <div className="text-center p-6 border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-2xl text-slate-400 dark:text-slate-500 font-medium text-xs">
-                            No hay ningún artículo seleccionado.
+                            No hay ningún lote de stock seleccionado.
                          </div>
                       ) : (
-                         selectedLabelVariants.map(variantId => {
-                            const p = drillDownProductos.find((x: any) => x.id.toString() === variantId.toString());
+                         selectedLabelBarcodes.map(barcode => {
+                            const p = activeStockLabels.find(x => x.codigo_barras === barcode);
                             return (
-                               <div key={variantId} className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl">
+                               <div key={barcode} className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl">
                                   <div className="flex flex-col">
-                                     <span className="font-bold text-sm text-slate-800 dark:text-slate-200">{p ? p.nombre : "Artículo"}</span>
-                                     <span className="text-[10px] font-mono text-slate-400 uppercase mt-0.5">{p?.sku || "Sin SKU"}</span>
+                                     <span className="font-bold text-sm text-slate-800 dark:text-slate-200">{p ? p.producto_nombre : "Artículo"} - {p?.nombre_variante}</span>
+                                     <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium mt-1">
+                                        Código: <span className="font-mono font-bold text-slate-700 dark:text-slate-300">{barcode}</span> | 
+                                        Stock: <span className="font-bold text-blue-950 dark:text-white">{p?.cantidad_actual} {p?.unidad_base}</span> | 
+                                        Ubicación: <span className="font-bold text-indigo-500">{p?.deposito_nombre}</span>
+                                     </span>
                                   </div>
                                   <button
                                      type="button"
-                                     onClick={() => setSelectedLabelVariants(prev => prev.filter(id => id !== variantId))}
+                                     onClick={() => setSelectedLabelBarcodes(prev => prev.filter(b => b !== barcode))}
                                      className="p-2 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/20 rounded-lg transition-colors"
-                                     title="Eliminar artículo de la lista"
+                                     title="Eliminar de la lista"
                                   >
                                      <Trash2 className="w-4 h-4" />
                                   </button>
@@ -1567,30 +1551,14 @@ export function InventarioGerencial() {
                           setLabelSearchQuery('');
                           setLabelSelectedCategoryId(null);
                           setLabelSelectedMaestroId(null);
+                          setLabelSelectedVariantId(null);
                       }}
                       className="w-full text-center p-3 border-2 border-dashed border-indigo-200 dark:border-indigo-900/50 hover:border-indigo-500 rounded-xl font-bold text-xs text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50/10 transition-colors flex items-center justify-center gap-1.5"
                    >
-                      <Plus className="w-4 h-4" /> Agregar Artículos
+                      <Plus className="w-4 h-4" /> Buscar / Agregar Artículos de Stock
                    </button>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                     <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Volumen por Unidad/Caja</label>
-                     <input type="number" min="0.01" step="0.01" required value={newLabel.cantidad_por_etiqueta} onChange={e => setNewLabel({...newLabel, cantidad_por_etiqueta: Number(e.target.value)})} className="input-nexus w-full bg-transparent" />
-                  </div>
-                  <div className="space-y-2">
-                     <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Número de Códigos a Generar</label>
-                     <input type="number" min="1" required value={newLabel.numero_etiquetas} onChange={e => setNewLabel({...newLabel, numero_etiquetas: Number(e.target.value)})} className="input-nexus w-full font-black text-indigo-600 bg-transparent" />
-                  </div>
-                </div>
-                <div className="space-y-2">
-                     <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Asignar a Almacén Local</label>
-                     <select required value={newLabel.deposito_id} onChange={e => setNewLabel({...newLabel, deposito_id: e.target.value})} className="input-nexus w-full bg-slate-50 dark:bg-slate-900 border-none ring-1 ring-slate-200">
-                        <option value="" disabled>Seleccione almacén de destino...</option>
-                        {depositos.map(d => <option key={d.id} value={d.id}>{d.nombre}</option>)}
-                     </select>
-                </div>
-                <button type="submit" disabled={etiqAcc === 'read' || selectedLabelVariants.length === 0} title={etiqAcc === 'read' ? 'No tienes permiso de escritura' : ''} className="w-full btn-primary py-4 uppercase tracking-widest font-black shadow-lg shadow-indigo-500/20 disabled:opacity-50">Imprimir Lotes y Agregar a Base de Datos</button>
+                <button type="submit" disabled={etiqAcc === 'read' || selectedLabelBarcodes.length === 0} title={etiqAcc === 'read' ? 'No tienes permiso de escritura' : ''} className="w-full btn-primary py-4 uppercase tracking-widest font-black shadow-lg shadow-indigo-500/20 disabled:opacity-50">Imprimir Rótulos Seleccionados</button>
              </form>
          ) : (
              <div className="space-y-6 animate-in fade-in-20 duration-150">
@@ -1603,7 +1571,7 @@ export function InventarioGerencial() {
                       <ArrowLeft className="w-4 h-4" /> Volver al Formulario
                    </button>
                    <span className="text-xs font-black uppercase text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/40 px-3 py-1 rounded-full">
-                      {selectedLabelVariants.length} seleccionados
+                      {selectedLabelBarcodes.length} seleccionados
                    </span>
                 </div>
 
@@ -1615,7 +1583,7 @@ export function InventarioGerencial() {
                          type="text"
                          value={labelSearchQuery}
                          onChange={e => setLabelSearchQuery(e.target.value)}
-                         placeholder="Buscar por nombre, variante, marca o SKU..."
+                         placeholder="Buscar por código de barras, variante, producto o SKU..."
                          className="w-full bg-slate-50 dark:bg-slate-900 border-none ring-1 ring-slate-200 dark:ring-slate-800 rounded-xl pl-11 pr-4 py-3 text-sm font-semibold focus:ring-indigo-500 focus:outline-none"
                       />
                    </div>
@@ -1626,30 +1594,36 @@ export function InventarioGerencial() {
                       {labelSearchQuery.trim().length > 0 ? (
                          (() => {
                             const q = labelSearchQuery.toLowerCase();
-                            const matches = drillDownProductos.filter(p => 
-                               p.nombre.toLowerCase().includes(q) || 
-                               p.sku?.toLowerCase().includes(q)
+                            const matches = activeStockLabels.filter(p => 
+                               p.producto_nombre.toLowerCase().includes(q) || 
+                               p.nombre_variante.toLowerCase().includes(q) || 
+                               p.sku?.toLowerCase().includes(q) ||
+                               p.codigo_barras.toLowerCase().includes(q)
                             );
                             if (matches.length === 0) {
-                               return <div className="p-8 text-center text-xs font-medium text-slate-400 dark:text-slate-500">No se encontraron artículos.</div>;
+                               return <div className="p-8 text-center text-xs font-medium text-slate-400 dark:text-slate-500">No se encontraron lotes activos en stock.</div>;
                             }
                             return (
                                <div className="divide-y divide-slate-100 dark:divide-slate-800">
                                   {matches.map(p => {
-                                     const isSelected = selectedLabelVariants.includes(p.id.toString());
+                                     const isSelected = selectedLabelBarcodes.includes(p.codigo_barras);
                                      return (
                                         <div
-                                           key={p.id}
+                                           key={p.codigo_barras}
                                            onClick={() => {
-                                              setSelectedLabelVariants(prev => 
-                                                 isSelected ? prev.filter(id => id !== p.id.toString()) : [...prev, p.id.toString()]
+                                              setSelectedLabelBarcodes(prev => 
+                                                 isSelected ? prev.filter(b => b !== p.codigo_barras) : [...prev, p.codigo_barras]
                                               );
                                            }}
                                            className="p-3.5 flex items-center justify-between cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
                                         >
                                            <div className="flex flex-col">
-                                              <span className="font-bold text-sm text-slate-800 dark:text-slate-200">{p.nombre}</span>
-                                              <span className="text-[10px] font-mono text-slate-400 uppercase mt-0.5">{p.sku || "Sin SKU"}</span>
+                                              <span className="font-bold text-sm text-slate-800 dark:text-slate-200">{p.producto_nombre} - {p.nombre_variante}</span>
+                                              <span className="text-[10px] text-slate-550 dark:text-slate-400 font-medium mt-1">
+                                                 Código: <span className="font-mono font-bold">{p.codigo_barras}</span> | 
+                                                 Stock: <span className="font-bold text-slate-800 dark:text-slate-200">{p.cantidad_actual} {p.unidad_base}</span> | 
+                                                 Almacén: <span className="text-indigo-500 font-bold">{p.deposito_nombre}</span>
+                                              </span>
                                            </div>
                                            <div className={cn("w-5 h-5 rounded-md border flex items-center justify-center transition-all", isSelected ? "bg-indigo-600 border-indigo-600 text-white" : "border-slate-300 dark:border-slate-700")}>
                                               {isSelected && <CheckCircle className="w-3.5 h-3.5" />}
@@ -1665,10 +1639,16 @@ export function InventarioGerencial() {
                          (() => {
                             if (!labelSelectedCategoryId) {
                                // Vista Raíz: Categorías
+                               const activeCategories = tiposProducto.filter(c => 
+                                  activeStockLabels.some((l: any) => l.categoria_id?.toString() === c.id.toString())
+                               );
+                               if (activeCategories.length === 0) {
+                                  return <div className="p-8 text-center text-xs font-medium text-slate-400">No hay lotes activos con stock disponible en este momento.</div>;
+                               }
                                return (
                                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-4">
-                                     {tiposProducto.map(c => {
-                                        const prodCount = new Set(drillDownProductos.filter((p: any) => p.categoria_id?.toString() === c.id.toString()).map((p: any) => p.producto_maestro_id || p.id)).size;
+                                     {activeCategories.map(c => {
+                                        const prodCount = new Set(activeStockLabels.filter((p: any) => p.categoria_id?.toString() === c.id.toString()).map((p: any) => p.producto_maestro_id || p.variante_id)).size;
                                         return (
                                            <div
                                               key={c.id}
@@ -1679,7 +1659,7 @@ export function InventarioGerencial() {
                                                  <Folder className="w-5 h-5 text-indigo-500" />
                                                  <div>
                                                     <p className="font-bold text-sm text-slate-850 dark:text-slate-100">{c.nombre}</p>
-                                                    <p className="text-[10px] text-slate-400 font-medium">{prodCount} artículos maestros</p>
+                                                    <p className="text-[10px] text-slate-400 font-medium">{prodCount} artículos con existencias</p>
                                                  </div>
                                               </div>
                                               <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-slate-500 transition-colors" />
@@ -1692,8 +1672,8 @@ export function InventarioGerencial() {
 
                             if (!labelSelectedMaestroId) {
                                // Vista Nivel 1: Productos Maestros
-                               const prodsInCat = drillDownProductos.filter((p: any) => p.categoria_id?.toString() === labelSelectedCategoryId);
-                               const uniqueMaestros = Array.from(new Set(prodsInCat.map((p: any) => p.producto_maestro_id)));
+                               const labelsInCat = activeStockLabels.filter((p: any) => p.categoria_id?.toString() === labelSelectedCategoryId);
+                               const uniqueMaestros = Array.from(new Set(labelsInCat.map((p: any) => p.producto_maestro_id)));
                                const catName = tiposProducto.find(c => c.id.toString() === labelSelectedCategoryId)?.nombre || "Familia";
 
                                return (
@@ -1701,13 +1681,13 @@ export function InventarioGerencial() {
                                      <div className="bg-slate-100 dark:bg-slate-800 px-4 py-2 flex items-center gap-1 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
                                         <button onClick={() => setLabelSelectedCategoryId(null)} className="hover:text-indigo-600">Categorías</button>
                                         <ChevronRight className="w-3 h-3" />
-                                        <span className="text-slate-850 dark:text-slate-200">{catName}</span>
+                                        <span className="text-slate-850 dark:text-slate-250">{catName}</span>
                                      </div>
                                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-4">
                                         {uniqueMaestros.map(maestroId => {
-                                           const firstMatch = prodsInCat.find((p: any) => p.producto_maestro_id === maestroId);
+                                           const firstMatch = labelsInCat.find((p: any) => p.producto_maestro_id === maestroId);
                                            if (!firstMatch) return null;
-                                           const variantsCount = prodsInCat.filter((p: any) => p.producto_maestro_id === maestroId).length;
+                                           const variantsCount = new Set(labelsInCat.filter((p: any) => p.producto_maestro_id === maestroId).map(p => p.variante_id)).size;
                                            return (
                                               <div
                                                  key={maestroId}
@@ -1718,7 +1698,7 @@ export function InventarioGerencial() {
                                                     <Box className="w-5 h-5 text-emerald-500" />
                                                     <div>
                                                        <p className="font-bold text-sm text-slate-850 dark:text-slate-100">{firstMatch.producto_nombre}</p>
-                                                       <p className="text-[10px] text-slate-400 font-medium">{variantsCount} variantes</p>
+                                                       <p className="text-[10px] text-slate-400 font-medium">{variantsCount} variantes activas</p>
                                                     </div>
                                                  </div>
                                                  <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-slate-500 transition-colors" />
@@ -1730,36 +1710,85 @@ export function InventarioGerencial() {
                                );
                             }
 
-                            // Vista Nivel 2: Variantes
-                            const variants = drillDownProductos.filter((p: any) => p.producto_maestro_id?.toString() === labelSelectedMaestroId);
+                            if (!labelSelectedVariantId) {
+                               // Vista Nivel 2: Variantes
+                               const labelsInMaestro = activeStockLabels.filter((p: any) => p.producto_maestro_id?.toString() === labelSelectedMaestroId);
+                               const uniqueVariants = Array.from(new Set(labelsInMaestro.map((p: any) => p.variante_id)));
+                               const catName = tiposProducto.find(c => c.id.toString() === labelSelectedCategoryId)?.nombre || "Familia";
+                               const maestroName = labelsInMaestro[0]?.producto_nombre || "Artículo Maestro";
+
+                               return (
+                                  <div className="space-y-3">
+                                     <div className="bg-slate-100 dark:bg-slate-800 px-4 py-2 flex items-center gap-1.5 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                                        <button onClick={() => { setLabelSelectedCategoryId(null); setLabelSelectedMaestroId(null); }} className="hover:text-indigo-600">Categorías</button>
+                                        <ChevronRight className="w-3 h-3" />
+                                        <button onClick={() => setLabelSelectedMaestroId(null)} className="hover:text-indigo-600 max-w-[120px] truncate">{catName}</button>
+                                        <ChevronRight className="w-3 h-3" />
+                                        <span className="text-slate-850 dark:text-slate-200 truncate">{maestroName}</span>
+                                     </div>
+                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-4">
+                                        {uniqueVariants.map(variantId => {
+                                           const firstMatch = labelsInMaestro.find((p: any) => p.variante_id === variantId);
+                                           if (!firstMatch) return null;
+                                           const labelsCount = labelsInMaestro.filter((p: any) => p.variante_id === variantId).length;
+                                           return (
+                                              <div
+                                                 key={variantId}
+                                                 onClick={() => setLabelSelectedVariantId(variantId.toString())}
+                                                 className="p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl hover:border-indigo-500 cursor-pointer transition flex items-center justify-between group shadow-sm"
+                                              >
+                                                 <div className="flex items-center gap-3">
+                                                    <Layers className="w-5 h-5 text-indigo-500" />
+                                                    <div>
+                                                       <p className="font-bold text-sm text-slate-850 dark:text-slate-100">{firstMatch.nombre_variante || "Única"}</p>
+                                                       <p className="text-[10px] text-slate-400 font-medium">{labelsCount} cajas/rollos físicos</p>
+                                                    </div>
+                                                 </div>
+                                                 <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-slate-500 transition-colors" />
+                                              </div>
+                                           );
+                                        })}
+                                     </div>
+                                  </div>
+                               );
+                            }
+
+                            // Vista Nivel 3: Etiquetas / Lotes específicos
+                            const finalLabels = activeStockLabels.filter((p: any) => p.variante_id?.toString() === labelSelectedVariantId);
                             const catName = tiposProducto.find(c => c.id.toString() === labelSelectedCategoryId)?.nombre || "Familia";
-                            const maestroName = variants[0]?.producto_nombre || "Artículo Maestro";
+                            const maestroName = finalLabels[0]?.producto_nombre || "Artículo Maestro";
+                            const variantName = finalLabels[0]?.nombre_variante || "Variante";
 
                             return (
                                <div className="space-y-0.5">
                                   <div className="bg-slate-100 dark:bg-slate-800 px-4 py-2 flex items-center gap-1.5 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                                     <button onClick={() => { setLabelSelectedCategoryId(null); setLabelSelectedMaestroId(null); }} className="hover:text-indigo-600">Categorías</button>
+                                     <button onClick={() => { setLabelSelectedCategoryId(null); setLabelSelectedMaestroId(null); setLabelSelectedVariantId(null); }} className="hover:text-indigo-600">Categorías</button>
                                      <ChevronRight className="w-3 h-3" />
-                                     <button onClick={() => setLabelSelectedMaestroId(null)} className="hover:text-indigo-600 max-w-[120px] truncate">{catName}</button>
+                                     <button onClick={() => { setLabelSelectedMaestroId(null); setLabelSelectedVariantId(null); }} className="hover:text-indigo-600 max-w-[120px] truncate">{catName}</button>
                                      <ChevronRight className="w-3 h-3" />
-                                     <span className="text-slate-850 dark:text-slate-200 truncate">{maestroName}</span>
+                                     <button onClick={() => setLabelSelectedVariantId(null)} className="hover:text-indigo-600 max-w-[120px] truncate">{maestroName}</button>
+                                     <ChevronRight className="w-3 h-3" />
+                                     <span className="text-slate-850 dark:text-slate-200 truncate">{variantName}</span>
                                   </div>
                                   <div className="divide-y divide-slate-100 dark:divide-slate-800">
-                                     {variants.map(v => {
-                                        const isSelected = selectedLabelVariants.includes(v.id.toString());
+                                     {finalLabels.map(p => {
+                                        const isSelected = selectedLabelBarcodes.includes(p.codigo_barras);
                                         return (
                                            <div
-                                              key={v.id}
+                                              key={p.codigo_barras}
                                               onClick={() => {
-                                                 setSelectedLabelVariants(prev => 
-                                                    isSelected ? prev.filter(id => id !== v.id.toString()) : [...prev, v.id.toString()]
+                                                 setSelectedLabelBarcodes(prev => 
+                                                    isSelected ? prev.filter(b => b !== p.codigo_barras) : [...prev, p.codigo_barras]
                                                  );
                                               }}
                                               className="p-3.5 flex items-center justify-between cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
                                            >
                                               <div className="flex flex-col">
-                                                 <span className="font-bold text-sm text-slate-850 dark:text-slate-200">{v.nombre_variante || "Variante Única"}</span>
-                                                 <span className="text-[10px] font-mono text-slate-400 uppercase mt-0.5">{v.sku || "Sin SKU"}</span>
+                                                 <span className="font-bold text-sm text-slate-850 dark:text-slate-200">Lote Físico: {p.codigo_barras}</span>
+                                                 <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium mt-1">
+                                                    Stock: <span className="font-bold text-slate-700 dark:text-slate-300">{p.cantidad_actual} {p.unidad_base}</span> | 
+                                                    Almacén: <span className="text-indigo-500 font-bold">{p.deposito_nombre}</span>
+                                                 </span>
                                               </div>
                                               <div className={cn("w-5 h-5 rounded-md border flex items-center justify-center transition-all", isSelected ? "bg-indigo-600 border-indigo-600 text-white" : "border-slate-300 dark:border-slate-700")}>
                                                  {isSelected && <CheckCircle className="w-3.5 h-3.5" />}
@@ -1775,8 +1804,8 @@ export function InventarioGerencial() {
                    </div>
                 </div>
              </div>
-         )}
-      </Modal>
+          )}
+       </Modal>
 
       {/* MODAL DE EXPLORACION DE CAJAS (Lotes) */}
       <Modal isOpen={isLabelDrillDownOpen} onClose={() => setIsLabelDrillDownOpen(false)} title={isAdminStock ? `Distribución de Costos y Lotes: ${variationChartProduct?.nombre_variante}` : `Distribución de Lotes: ${variationChartProduct?.nombre_variante}`}>
