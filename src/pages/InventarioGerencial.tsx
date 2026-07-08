@@ -17,6 +17,7 @@ import { RecepcionAuditoria } from '../components/RecepcionAuditoria';
 import { RegistroPesos } from '../components/RegistroPesos';
 import { AlertSummaryPanel } from '../components/ui/AlertSummaryPanel';
 import { PrintLabelsModal, PrintLabelEntry } from '../components/ui/PrintLabelsModal';
+import { CategoryDrillDownModal } from '../components/ui/CategoryDrillDownModal';
 
 import toast from 'react-hot-toast';
 
@@ -77,6 +78,8 @@ export function InventarioGerencial() {
   const [newLabel, setNewLabel] = useState({ variante_id: '', cantidad_por_etiqueta: 1, numero_etiquetas: 1, deposito_id: '' });
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
   const [printModalEntries, setPrintModalEntries] = useState<PrintLabelEntry[]>([]);
+  const [isSelectVariantModalOpen, setIsSelectVariantModalOpen] = useState(false);
+  const [drillDownProductos, setDrillDownProductos] = useState<any[]>([]);
 
   // Hub States
   const [manualCart, setManualCart] = useState<any[]>([]);
@@ -476,12 +479,19 @@ export function InventarioGerencial() {
                v.id, v.nombre_variante, v.codigo_variante, v.costo, v.moneda
            ORDER BY pm.nombre ASC
       `;
-      const [stockRes, capRes, depRes, catRes, compRes] = await Promise.all([
+      const [stockRes, capRes, depRes, catRes, compRes, prodsRes] = await Promise.all([
         executeAWSQuery(advancedQuery),
         executeAWSQuery("SELECT * FROM Vista_Capital_Activo"),
         executeAWSQuery("SELECT * FROM Stock_Depositos"),
         executeAWSQuery("SELECT * FROM Stock_Categorias ORDER BY nombre"),
-        executeAWSQuery("SELECT c.*, p.nombre as proveedor_nombre FROM Stock_Compras c LEFT JOIN Stock_Proveedores p ON c.proveedor_id = p.id WHERE c.estado = 'pendiente' ORDER BY c.fecha_creacion DESC")
+        executeAWSQuery("SELECT c.*, p.nombre as proveedor_nombre FROM Stock_Compras c LEFT JOIN Stock_Proveedores p ON c.proveedor_id = p.id WHERE c.estado = 'pendiente' ORDER BY c.fecha_creacion DESC"),
+        executeAWSQuery(`
+           SELECT v.id as variante_id, v.nombre_variante, p.nombre as producto_nombre, p.categoria_id, c.nombre as cat_nombre,
+                  p.unidad_base, p.tipo_gestion, p.id as producto_maestro_id, v.codigo_variante as sku
+           FROM Stock_Variantes v 
+           INNER JOIN Stock_Productos_Maestros p ON v.producto_maestro_id = p.id
+           LEFT JOIN Stock_Categorias c ON p.categoria_id = c.id
+        `)
       ]);
       
       setStockConsolidado(stockRes || []);
@@ -489,6 +499,21 @@ export function InventarioGerencial() {
       setDepositos(depRes || []);
       setTiposProducto(catRes || []);
       setComprasPendientes(compRes || []);
+
+      if (prodsRes) {
+          setDrillDownProductos(prodsRes.map((p: any) => ({
+              id: p.variante_id,
+              nombre: getVisualName(p.cat_nombre, p.producto_nombre, p.nombre_variante),
+              producto_maestro_id: p.producto_maestro_id,
+              producto_nombre: p.producto_nombre,
+              nombre_variante: p.nombre_variante,
+              categoria_id: p.categoria_id,
+              cat_nombre: p.cat_nombre,
+              unidad_base: p.unidad_base || 'ud',
+              tipo_gestion: p.tipo_gestion || 'granel',
+              sku: p.sku
+          })));
+      }
       fetchGlobalHistorial();
       fetchGlobalSolicitudes();
     } catch (error) {
@@ -1490,11 +1515,23 @@ export function InventarioGerencial() {
       <Modal isOpen={isLabelModalOpen} onClose={() => setIsLabelModalOpen(false)} title="Generador de Rótulos / Cajas Físicas">
          <form onSubmit={handleGenerateLabels} className="space-y-6">
             <div className="space-y-2">
-               <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Variante a Imprimir (Seleccione de Base Existente)</label>
-               <select required value={newLabel.variante_id} onChange={e => setNewLabel({...newLabel, variante_id: e.target.value})} className="input-nexus w-full bg-slate-50 dark:bg-slate-900 border-none ring-1 ring-slate-200">
-                  <option value="" disabled>Seleccione una variante mapeada...</option>
-                  {stockConsolidado.map(v => <option key={v.variante_id} value={v.variante_id}>{v.producto_nombre} - {v.nombre_variante} ({v.sku})</option>)}
-               </select>
+               <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Variante a Imprimir</label>
+               <button
+                  type="button"
+                  onClick={() => setIsSelectVariantModalOpen(true)}
+                  className="w-full text-left p-3.5 bg-slate-50 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 font-bold text-sm text-slate-700 dark:text-slate-300 hover:border-indigo-500 transition-colors flex justify-between items-center"
+               >
+                  <span>
+                     {newLabel.variante_id 
+                        ? (() => {
+                            const p = drillDownProductos.find((x: any) => x.id.toString() === newLabel.variante_id.toString());
+                            return p ? p.nombre : "Artículo Seleccionado";
+                          })()
+                        : "Hacé clic para buscar un artículo..."
+                     }
+                  </span>
+                  <span className="text-xs bg-indigo-50 text-indigo-600 px-2 py-1 rounded font-bold">Buscar</span>
+               </button>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
@@ -1765,6 +1802,19 @@ export function InventarioGerencial() {
         isOpen={isPrintModalOpen}
         onClose={() => setIsPrintModalOpen(false)}
         detalles={printModalEntries}
+      />
+
+      {/* SELECT VARIANT DRILLDOWN MODAL */}
+      <CategoryDrillDownModal
+        isOpen={isSelectVariantModalOpen}
+        onClose={() => setIsSelectVariantModalOpen(false)}
+        title="Buscar Variante para Etiqueta"
+        categorias={tiposProducto}
+        productos={drillDownProductos}
+        onSelect={(id) => {
+            setNewLabel(prev => ({ ...prev, variante_id: id }));
+            setIsSelectVariantModalOpen(false);
+        }}
       />
 
     </div>
