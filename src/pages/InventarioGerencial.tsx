@@ -16,6 +16,7 @@ import { DespachoEgresos } from '../components/DespachoEgresos';
 import { RecepcionAuditoria } from '../components/RecepcionAuditoria';
 import { RegistroPesos } from '../components/RegistroPesos';
 import { AlertSummaryPanel } from '../components/ui/AlertSummaryPanel';
+import { PrintLabelsModal, PrintLabelEntry } from '../components/ui/PrintLabelsModal';
 
 import toast from 'react-hot-toast';
 
@@ -71,9 +72,11 @@ export function InventarioGerencial() {
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedRows, setExpandedRows] = useState<{ [key: string]: boolean }>({});
 
-    // Generador de Etiquetas / Cajas
+  // Generador de Etiquetas / Cajas
   const [isLabelModalOpen, setIsLabelModalOpen] = useState(false);
   const [newLabel, setNewLabel] = useState({ variante_id: '', cantidad_por_etiqueta: 1, numero_etiquetas: 1, deposito_id: '' });
+  const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
+  const [printModalEntries, setPrintModalEntries] = useState<PrintLabelEntry[]>([]);
 
   // Hub States
   const [manualCart, setManualCart] = useState<any[]>([]);
@@ -531,33 +534,57 @@ export function InventarioGerencial() {
     setIsLabelDrillDownOpen(true);
   };
 
-    const handleGenerateLabels = async (e: React.FormEvent) => {
+  const handleGenerateLabels = async (e: React.FormEvent) => {
     e.preventDefault();
-    if(!newLabel.variante_id || !newLabel.deposito_id) return alert("Complete todos los campos.");
+    if(!newLabel.variante_id || !newLabel.deposito_id) return toast.error("Complete todos los campos.");
     try {
-      const vResult = await executeAWSQuery(`SELECT * FROM Stock_Variantes WHERE id = ${newLabel.variante_id}`);
+      const vResult = await executeAWSQuery(`
+        SELECT v.*, pm.nombre as producto_nombre, pm.tipo_gestion 
+        FROM Stock_Variantes v 
+        JOIN Stock_Productos_Maestros pm ON v.producto_maestro_id = pm.id 
+        WHERE v.id = ${newLabel.variante_id}
+      `);
       const vObj = vResult?.[0];
-      if(!vObj) return alert("Variante no existe");
+      if(!vObj) return toast.error("Variante no existe");
 
       const prefix = vObj.codigo_variante || 'SKU';
       const values = Array.from({ length: newLabel.numero_etiquetas }).map((_, i) => 
-        `('${prefix}-${Date.now().toString().slice(-4)}-${i+1}', ${vObj.id}, ${newLabel.deposito_id}, ${newLabel.cantidad_por_etiqueta}, 'activo')`
+        `('${prefix}-${Date.now().toString().slice(-4)}-${i+1}', ${vObj.id}, ${newLabel.deposito_id}, ${newLabel.cantidad_por_etiqueta}, ${newLabel.cantidad_por_etiqueta}, 'activo')`
       ).join(',');
 
-      const inserted = await executeAWSQuery(`INSERT INTO Stock_Etiquetas (codigo_barras, variante_id, deposito_id, cantidad_actual, estado) OUTPUT INSERTED.id VALUES ${values}`);
+      const inserted = await executeAWSQuery(`
+        INSERT INTO Stock_Etiquetas (codigo_barras, variante_id, deposito_id, cantidad_inicial, cantidad_actual, estado) 
+        OUTPUT INSERTED.id, INSERTED.codigo_barras 
+        VALUES ${values}
+      `);
       
       if (inserted && inserted.length > 0) {
         const movValues = inserted.map((row:any) => 
           `(${row.id}, 'ingreso', ${newLabel.cantidad_por_etiqueta}, '${user?.id || 1}')`
         ).join(',');
         await executeAWSQuery(`INSERT INTO Stock_Movimientos (etiqueta_id, tipo_movimiento, cantidad, usuario_id) VALUES ${movValues}`);
+
+        // Preparar entradas para el modal de impresión
+        const barcodes = inserted.map((row: any) => row.codigo_barras);
+        const printEntry: PrintLabelEntry = {
+            variante_id: vObj.id,
+            producto_nombre: vObj.producto_nombre,
+            nombre_variante: vObj.nombre_variante,
+            sku: vObj.codigo_variante || vObj.sku,
+            cantidad: newLabel.cantidad_por_etiqueta,
+            tipo_gestion: vObj.tipo_gestion || 'granel',
+            etiqueta_ids: barcodes,
+            bultos_predefinidos: barcodes.length
+        };
+        setPrintModalEntries([printEntry]);
+        setIsPrintModalOpen(true);
       }
       setIsLabelModalOpen(false);
       fetchData();
-      alert(`${newLabel.numero_etiquetas} etiqueta(s) generadas con éxito.`);
-    } catch(err) {
+      toast.success(`${newLabel.numero_etiquetas} etiqueta(s) generadas con éxito.`);
+    } catch(err: any) {
       console.error(err);
-      alert("Error al generar las etiquetas. Revise la consola.");
+      toast.error("Error al generar las etiquetas: " + err.message);
     }
   };
 
@@ -1466,7 +1493,7 @@ export function InventarioGerencial() {
                <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Variante a Imprimir (Seleccione de Base Existente)</label>
                <select required value={newLabel.variante_id} onChange={e => setNewLabel({...newLabel, variante_id: e.target.value})} className="input-nexus w-full bg-slate-50 dark:bg-slate-900 border-none ring-1 ring-slate-200">
                   <option value="" disabled>Seleccione una variante mapeada...</option>
-                  {stockConsolidado.flatMap(c => c.variantes || []).filter(Boolean).map(v => <option key={v.variante_id} value={v.variante_id}>{v.nombre_variante} ({v.sku})</option>)}
+                  {stockConsolidado.map(v => <option key={v.variante_id} value={v.variante_id}>{v.producto_nombre} - {v.nombre_variante} ({v.sku})</option>)}
                </select>
             </div>
             <div className="grid grid-cols-2 gap-4">
@@ -1732,6 +1759,13 @@ export function InventarioGerencial() {
             </div>
         </div>
       )}
+
+      {/* PRINT LABELS MODAL */}
+      <PrintLabelsModal
+        isOpen={isPrintModalOpen}
+        onClose={() => setIsPrintModalOpen(false)}
+        detalles={printModalEntries}
+      />
 
     </div>
   );
