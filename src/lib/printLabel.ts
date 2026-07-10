@@ -69,7 +69,7 @@ export const printLabels = async (items: LabelItem[], config: PrintConfig = { si
     const pageCss = isGrid 
       ? `@page { margin: 5mm; }` 
       : `@page { size: ${cw}mm ${ch}mm; margin: 0; }
-         html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; }`;
+         html, body { margin: 0; padding: 0; width: 100%; height: 100%; }`;
 
     const baseFontSize = isGrid 
       ? '10px' 

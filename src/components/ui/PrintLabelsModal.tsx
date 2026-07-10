@@ -79,25 +79,39 @@ export function PrintLabelsModal({ isOpen, onClose, detalles }: PrintLabelsModal
         const key = getKey(d, i);
         if (!selectedKeys.has(key)) continue;
 
+        const bultos = bultosPorItem[key] || 1;
         const ids = d.etiqueta_ids && d.etiqueta_ids.length > 0
             ? d.etiqueta_ids
             : d.etiqueta_id != null ? [d.etiqueta_id] : null;
 
         if (ids && ids.length > 0) {
-            // Caso óptimo: ya tenemos IDs pre-acuñados → 1 etiqueta por ID
-            for (const etqId of ids) {
-                updatedItemsToPrint.push({
-                    id: etqId,
-                    producto_padre: d.producto_nombre,
-                    nombre_variante: d.nombre_variante,
-                    sku: d.sku ?? undefined,
-                    tipo_gestion: d.tipo_gestion ?? 'granel',
-                    cantidad: d.cantidad
-                });
+            if (ids.length === 1) {
+                // Si es un solo ID, repetimos la cantidad de bultos/copias solicitada
+                for (let j = 0; j < bultos; j++) {
+                    updatedItemsToPrint.push({
+                        id: ids[0],
+                        producto_padre: d.producto_nombre,
+                        nombre_variante: d.nombre_variante,
+                        sku: d.sku ?? undefined,
+                        tipo_gestion: d.tipo_gestion ?? 'granel',
+                        cantidad: d.cantidad
+                    });
+                }
+            } else {
+                // Caso de múltiples etiquetas físicas distintas: 1 por ID
+                for (const etqId of ids) {
+                    updatedItemsToPrint.push({
+                        id: etqId,
+                        producto_padre: d.producto_nombre,
+                        nombre_variante: d.nombre_variante,
+                        sku: d.sku ?? undefined,
+                        tipo_gestion: d.tipo_gestion ?? 'granel',
+                        cantidad: d.cantidad
+                    });
+                }
             }
         } else {
             // Sin IDs (raro): fallback a variante_id con las copias que el usuario define
-            const bultos = bultosPorItem[key] || 1;
             for (let j = 0; j < bultos; j++) {
                 updatedItemsToPrint.push({
                     id: d.variante_id,
@@ -131,9 +145,8 @@ export function PrintLabelsModal({ isOpen, onClose, detalles }: PrintLabelsModal
       const key = getKey(d, i);
       if (!selectedKeys.has(key)) return acc;
       const idsLen = d.etiqueta_ids ? d.etiqueta_ids.length : -1;
-      const etqCount = (d.etiqueta_ids && d.etiqueta_ids.length > 0)
+      const etqCount = (d.etiqueta_ids && d.etiqueta_ids.length > 1)
           ? d.etiqueta_ids.length
-          : d.etiqueta_id != null ? 1
           : (bultosPorItem[key] || 1);
       console.log('[SUMBULTOS]', d.producto_nombre, d.nombre_variante, 'ids_len:', idsLen, 'etiqueta_id:', d.etiqueta_id, 'etqCount:', etqCount);
       return acc + etqCount;
