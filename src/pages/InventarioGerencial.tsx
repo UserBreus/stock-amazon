@@ -261,23 +261,22 @@ export function InventarioGerencial() {
   const fetchGlobalIngresos = async () => {
     try {
       const res = await executeAWSQuery(`
-        SELECT 
-            compra.id as compra_id,
-            compra.referencia_factura,
+        SELECT DISTINCT 
+            c.id as compra_id,
+            c.referencia_factura,
             prov.nombre as proveedor_nombre,
-            m.usuario_id,
-            CAST(u.nombre_completo AS VARCHAR(255)) as usuario_nombre,
-            m.fecha,
-            COUNT(*) as total_items,
-            SUM(m.cantidad_afectada) as total_cantidad
-        FROM Stock_Movimientos m
-        INNER JOIN Stock_Etiquetas e ON m.etiqueta_id = e.id
-        LEFT JOIN Stock_Compras compra ON m.referencia_compra_id = compra.id
-        LEFT JOIN Stock_Proveedores prov ON compra.proveedor_id = prov.id
-        LEFT JOIN usuarios u ON CAST(m.usuario_id AS VARCHAR(255)) = CAST(u.id AS VARCHAR(255))
-        WHERE m.tipo_movimiento = 'ingreso_auditoria_compra'
-        GROUP BY compra.id, compra.referencia_factura, prov.nombre, m.usuario_id, CAST(u.nombre_completo AS VARCHAR(255)), m.fecha
-        ORDER BY m.fecha DESC
+            c.fecha_creacion,
+            (SELECT TOP 1 usuario_id FROM Stock_Movimientos WHERE referencia_compra_id = c.id ORDER BY fecha DESC) as usuario_id,
+            (SELECT TOP 1 CAST(u.nombre_completo AS VARCHAR(255)) FROM Stock_Movimientos m LEFT JOIN usuarios u ON CAST(m.usuario_id AS VARCHAR(255)) = CAST(u.id AS VARCHAR(255)) WHERE m.referencia_compra_id = c.id ORDER BY m.fecha DESC) as usuario_nombre,
+            (SELECT MAX(fecha) FROM Stock_Movimientos WHERE referencia_compra_id = c.id) as fecha_recepcion,
+            (SELECT COUNT(DISTINCT e.variante_id) FROM Stock_Etiquetas e WHERE e.compra_id = c.id AND e.estado = 'activo') as total_items,
+            (SELECT SUM(e.cantidad_actual) FROM Stock_Etiquetas e WHERE e.compra_id = c.id AND e.estado = 'activo') as total_cantidad
+        FROM Stock_Compras c
+        INNER JOIN Stock_Proveedores prov ON c.proveedor_id = prov.id
+        INNER JOIN Stock_Etiquetas etiquetas ON c.id = etiquetas.compra_id
+        WHERE c.estado = 'completada' AND etiquetas.estado = 'activo'
+        GROUP BY c.id, c.referencia_factura, prov.nombre, c.fecha_creacion
+        ORDER BY fecha_recepcion DESC
       `);
       setGlobalIngresos(res || []);
       setIngresosLoaded(true);
@@ -484,8 +483,8 @@ export function InventarioGerencial() {
       try {
           const detailRes = await executeAWSQuery(`
               SELECT 
-                  m.cantidad_afectada as cantidad_enviada,
-                  e.codigo_barras,
+                  SUM(m.cantidad_afectada) as cantidad_enviada,
+                  CASE WHEN COUNT(e.id) = 1 THEN MIN(e.codigo_barras) ELSE MIN(e.codigo_barras) + '... (x' + CAST(COUNT(e.id) AS VARCHAR) + ')' END as codigo_barras,
                   v.nombre_variante,
                   pm.nombre as producto_nombre,
                   cat.nombre as categoria_nombre
@@ -495,8 +494,7 @@ export function InventarioGerencial() {
               INNER JOIN Stock_Productos_Maestros pm ON v.producto_maestro_id = pm.id
               LEFT JOIN Stock_Categorias cat ON pm.categoria_id = cat.id
               WHERE m.referencia_compra_id = '${ing.compra_id}'
-                AND m.fecha = '${ing.fecha}'
-                AND m.usuario_id = '${ing.usuario_id}'
+              GROUP BY cat.nombre, pm.nombre, v.nombre_variante
           `);
           setSelectedHistorialRemito({
              cart: detailRes || [],
@@ -504,7 +502,7 @@ export function InventarioGerencial() {
              destino: 'Centro de stock general',
              estado: 'INGRESO',
              codigo: `Ingreso Ref: ${ing.referencia_factura || 'Sin Ref'}`,
-             fecha: new Date(ing.fecha).toLocaleString()
+             fecha: new Date(ing.fecha_recepcion).toLocaleString()
           });
       } catch (err: any) { toast.error("Error cargando detalle: " + err.message); }
   };
@@ -1422,7 +1420,7 @@ export function InventarioGerencial() {
 
               {historialSubTab === 'ingresos' && (
                   <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 animate-in fade-in duration-300">
-                      {globalIngresos.filter(r => (!historialDate || r.fecha.startsWith(historialDate)) && (!historialSearch || r.proveedor_nombre?.toLowerCase().includes(historialSearch.toLowerCase()) || r.referencia_factura?.toLowerCase().includes(historialSearch.toLowerCase()) || r.usuario_id?.toLowerCase().includes(historialSearch.toLowerCase()) || r.usuario_nombre?.toLowerCase().includes(historialSearch.toLowerCase()))).map((ing: any, idx: number) => {
+                      {globalIngresos.filter(r => (!historialDate || r.fecha_recepcion.startsWith(historialDate)) && (!historialSearch || r.proveedor_nombre?.toLowerCase().includes(historialSearch.toLowerCase()) || r.referencia_factura?.toLowerCase().includes(historialSearch.toLowerCase()) || r.usuario_id?.toLowerCase().includes(historialSearch.toLowerCase()) || r.usuario_nombre?.toLowerCase().includes(historialSearch.toLowerCase()))).map((ing: any, idx: number) => {
                           const displayUser = ing.usuario_nombre || ing.usuario_id || "Sistema";
                           
                           return (
@@ -1439,7 +1437,7 @@ export function InventarioGerencial() {
                                           <div className="flex items-center gap-2 mb-2 flex-wrap">
                                               <span className="bg-slate-900 text-white text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded-md shadow-sm">Ref: {ing.referencia_factura || 'Sin Ref'}</span>
                                               <span className="text-[10px] font-bold text-slate-500 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded-md">
-                                                 {new Date(ing.fecha).toLocaleDateString()} {new Date(ing.fecha).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                                                 {new Date(ing.fecha_recepcion).toLocaleDateString()} {new Date(ing.fecha_recepcion).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
                                               </span>
                                           </div>
                                           <h4 className="font-black text-slate-800 dark:text-white text-base leading-tight truncate">
@@ -1465,7 +1463,7 @@ export function InventarioGerencial() {
                               </div>
                           );
                       })}
-                      {globalIngresos.filter(r => (!historialDate || r.fecha.startsWith(historialDate)) && (!historialSearch || r.proveedor_nombre?.toLowerCase().includes(historialSearch.toLowerCase()) || r.referencia_factura?.toLowerCase().includes(historialSearch.toLowerCase()) || r.usuario_id?.toLowerCase().includes(historialSearch.toLowerCase()) || r.usuario_nombre?.toLowerCase().includes(historialSearch.toLowerCase()))).length === 0 && (
+                      {globalIngresos.filter(r => (!historialDate || r.fecha_recepcion.startsWith(historialDate)) && (!historialSearch || r.proveedor_nombre?.toLowerCase().includes(historialSearch.toLowerCase()) || r.referencia_factura?.toLowerCase().includes(historialSearch.toLowerCase()) || r.usuario_id?.toLowerCase().includes(historialSearch.toLowerCase()) || r.usuario_nombre?.toLowerCase().includes(historialSearch.toLowerCase()))).length === 0 && (
                           <div className="col-span-full py-20 text-center">
                               <History className="w-16 h-16 text-slate-300 dark:text-slate-700 mx-auto mb-4" />
                               <p className="font-bold text-slate-500 text-lg">No se encontraron ingresos con los filtros seleccionados.</p>
