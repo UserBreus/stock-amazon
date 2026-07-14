@@ -261,30 +261,22 @@ export function InventarioGerencial() {
   const fetchGlobalIngresos = async () => {
     try {
       const res = await executeAWSQuery(`
-        SELECT TOP 200 
-            m.id, 
-            m.fecha, 
-            m.tipo_movimiento, 
-            m.cantidad_afectada, 
-            m.usuario_id,
-            e.codigo_barras, 
-            v.nombre_variante, 
-            pm.nombre as producto_nombre, 
-            cat.nombre as categoria_nombre, 
-            d_dest.nombre as destino_nombre, 
-            CAST(u.nombre_completo AS VARCHAR(255)) as usuario_nombre,
+        SELECT 
+            compra.id as compra_id,
             compra.referencia_factura,
-            prov.nombre as proveedor_nombre
+            prov.nombre as proveedor_nombre,
+            m.usuario_id,
+            CAST(u.nombre_completo AS VARCHAR(255)) as usuario_nombre,
+            m.fecha,
+            COUNT(*) as total_items,
+            SUM(m.cantidad_afectada) as total_cantidad
         FROM Stock_Movimientos m
         INNER JOIN Stock_Etiquetas e ON m.etiqueta_id = e.id
-        INNER JOIN Stock_Variantes v ON e.variante_id = v.id
-        INNER JOIN Stock_Productos_Maestros pm ON v.producto_maestro_id = pm.id
-        LEFT JOIN Stock_Categorias cat ON pm.categoria_id = cat.id
-        LEFT JOIN Stock_Depositos d_dest ON m.deposito_destino_id = d_dest.id
-        LEFT JOIN usuarios u ON CAST(m.usuario_id AS VARCHAR(255)) = CAST(u.id AS VARCHAR(255))
         LEFT JOIN Stock_Compras compra ON m.referencia_compra_id = compra.id
         LEFT JOIN Stock_Proveedores prov ON compra.proveedor_id = prov.id
-        WHERE m.tipo_movimiento IN ('ingreso_auditoria_compra', 'ingreso_auditoria_libre', 'fraccionamiento_ingreso', 'creacion_remito_ingreso')
+        LEFT JOIN usuarios u ON CAST(m.usuario_id AS VARCHAR(255)) = CAST(u.id AS VARCHAR(255))
+        WHERE m.tipo_movimiento = 'ingreso_auditoria_compra'
+        GROUP BY compra.id, compra.referencia_factura, prov.nombre, m.usuario_id, CAST(u.nombre_completo AS VARCHAR(255)), m.fecha
         ORDER BY m.fecha DESC
       `);
       setGlobalIngresos(res || []);
@@ -484,6 +476,35 @@ export function InventarioGerencial() {
              estado: rem.estado,
              codigo: rem.numeracion,
              fecha: new Date(rem.fecha_creacion).toLocaleString()
+          });
+      } catch (err: any) { toast.error("Error cargando detalle: " + err.message); }
+  };
+
+  const handleVerHistorialIngresoDetalles = async (ing: any) => {
+      try {
+          const detailRes = await executeAWSQuery(`
+              SELECT 
+                  m.cantidad_afectada as cantidad_enviada,
+                  e.codigo_barras,
+                  v.nombre_variante,
+                  pm.nombre as producto_nombre,
+                  cat.nombre as categoria_nombre
+              FROM Stock_Movimientos m
+              INNER JOIN Stock_Etiquetas e ON m.etiqueta_id = e.id
+              INNER JOIN Stock_Variantes v ON e.variante_id = v.id
+              INNER JOIN Stock_Productos_Maestros pm ON v.producto_maestro_id = pm.id
+              LEFT JOIN Stock_Categorias cat ON pm.categoria_id = cat.id
+              WHERE m.referencia_compra_id = '${ing.compra_id}'
+                AND m.fecha = '${ing.fecha}'
+                AND m.usuario_id = '${ing.usuario_id}'
+          `);
+          setSelectedHistorialRemito({
+             cart: detailRes || [],
+             origen: ing.proveedor_nombre || 'N/A',
+             destino: 'Centro de stock general',
+             estado: 'INGRESO',
+             codigo: `Ingreso Ref: ${ing.referencia_factura || 'Sin Ref'}`,
+             fecha: new Date(ing.fecha).toLocaleString()
           });
       } catch (err: any) { toast.error("Error cargando detalle: " + err.message); }
   };
@@ -1401,37 +1422,31 @@ export function InventarioGerencial() {
 
               {historialSubTab === 'ingresos' && (
                   <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 animate-in fade-in duration-300">
-                      {globalIngresos.filter(r => (!historialDate || r.fecha.startsWith(historialDate)) && (!historialSearch || r.producto_nombre?.toLowerCase().includes(historialSearch.toLowerCase()) || r.nombre_variante?.toLowerCase().includes(historialSearch.toLowerCase()) || r.usuario_id?.toLowerCase().includes(historialSearch.toLowerCase()) || r.usuario_nombre?.toLowerCase().includes(historialSearch.toLowerCase()) || r.codigo_barras?.toLowerCase().includes(historialSearch.toLowerCase()) || r.proveedor_nombre?.toLowerCase().includes(historialSearch.toLowerCase()) || r.referencia_factura?.toLowerCase().includes(historialSearch.toLowerCase()))).map((ing: any) => {
+                      {globalIngresos.filter(r => (!historialDate || r.fecha.startsWith(historialDate)) && (!historialSearch || r.proveedor_nombre?.toLowerCase().includes(historialSearch.toLowerCase()) || r.referencia_factura?.toLowerCase().includes(historialSearch.toLowerCase()) || r.usuario_id?.toLowerCase().includes(historialSearch.toLowerCase()) || r.usuario_nombre?.toLowerCase().includes(historialSearch.toLowerCase()))).map((ing: any, idx: number) => {
                           const displayUser = ing.usuario_nombre || ing.usuario_id || "Sistema";
-                          const movementLabel = ing.tipo_movimiento === 'ingreso_auditoria_compra' ? "Ingreso Compra" : "Ingreso Manual";
-                          const movementColor = ing.tipo_movimiento === 'ingreso_auditoria_compra'
-                            ? "bg-emerald-50 text-emerald-700 border-emerald-100 dark:bg-emerald-950/20 dark:text-emerald-400 dark:border-emerald-900/30"
-                            : "bg-teal-50 text-teal-700 border-teal-100 dark:bg-teal-950/20 dark:text-teal-400 dark:border-teal-900/30";
-
+                          
                           return (
-                              <div key={ing.id} className="p-6 bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-3xl flex flex-col justify-between gap-6 hover:shadow-xl hover:border-slate-200 dark:hover:border-slate-700 transition-all select-none">
+                              <div 
+                                  key={idx} 
+                                  onClick={() => { handleVerHistorialIngresoDetalles(ing); setIsViewingFullscreenPDF(true); }}
+                                  className="p-6 bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-3xl flex flex-col justify-between gap-6 hover:border-indigo-300 dark:hover:border-indigo-500/50 hover:shadow-xl hover:shadow-indigo-500/5 transition-all cursor-pointer group select-none"
+                              >
                                   <div className="flex items-start gap-5">
-                                      <div className="w-14 h-14 bg-emerald-50 dark:bg-emerald-950/20 text-emerald-500 rounded-2xl flex items-center justify-center shrink-0">
-                                          <ArrowDownToLine className="w-6 h-6" />
+                                      <div className="w-14 h-14 bg-emerald-50 dark:bg-emerald-950/20 text-emerald-500 rounded-2xl flex items-center justify-center shrink-0 group-hover:bg-emerald-100 transition-colors">
+                                          <PackageCheck className="w-6 h-6" />
                                       </div>
                                       <div className="flex-1 min-w-0">
                                           <div className="flex items-center gap-2 mb-2 flex-wrap">
-                                              <span className={cn("px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-widest border", movementColor)}>{movementLabel}</span>
+                                              <span className="bg-slate-900 text-white text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded-md shadow-sm">Ref: {ing.referencia_factura || 'Sin Ref'}</span>
                                               <span className="text-[10px] font-bold text-slate-500 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded-md">
                                                  {new Date(ing.fecha).toLocaleDateString()} {new Date(ing.fecha).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
                                               </span>
                                           </div>
-                                          <h4 className="font-black text-slate-800 dark:text-white text-base leading-tight truncate" title={getVisualName(ing.categoria_nombre, ing.producto_nombre, ing.nombre_variante)}>
-                                              {getVisualName(ing.categoria_nombre, ing.producto_nombre, ing.nombre_variante)}
+                                          <h4 className="font-black text-slate-800 dark:text-white text-base leading-tight truncate">
+                                              Proveedor: {ing.proveedor_nombre || 'N/A'}
                                           </h4>
-                                          <p className="text-[10px] font-mono text-slate-400 mt-1 uppercase tracking-wider">Lote: {ing.codigo_barras}</p>
-                                          {ing.referencia_factura && (
-                                              <p className="text-[10px] font-bold text-indigo-500 mt-1 uppercase tracking-wider">
-                                                  Compra: {ing.proveedor_nombre} (Ref: {ing.referencia_factura})
-                                              </p>
-                                          )}
                                           <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-2 flex items-center gap-1">
-                                              <Box className="w-3.5 h-3.5 text-slate-400"/> Destino: {ing.destino_nombre || 'N/A'}
+                                              <Box className="w-3.5 h-3.5 text-slate-400"/> Destino: Centro de stock general
                                           </p>
                                       </div>
                                   </div>
@@ -1441,16 +1456,16 @@ export function InventarioGerencial() {
                                           <p className="text-xs font-black text-slate-700 dark:text-slate-300 mt-0.5 truncate" title={displayUser}>{displayUser}</p>
                                       </div>
                                       <div className="text-right shrink-0">
-                                          <p className="text-[10px] uppercase font-bold text-slate-400 tracking-widest">Cantidad</p>
-                                          <span className="text-lg font-black text-emerald-500 tracking-tighter">
-                                              +{ing.cantidad_afectada}
+                                          <p className="text-[10px] uppercase font-bold text-slate-400 tracking-widest">Artículos / Cantidad</p>
+                                          <span className="text-sm font-black text-emerald-500">
+                                              {ing.total_items} arts ({ing.total_cantidad} uds)
                                           </span>
                                       </div>
                                   </div>
                               </div>
                           );
                       })}
-                      {globalIngresos.filter(r => (!historialDate || r.fecha.startsWith(historialDate)) && (!historialSearch || r.producto_nombre?.toLowerCase().includes(historialSearch.toLowerCase()) || r.nombre_variante?.toLowerCase().includes(historialSearch.toLowerCase()) || r.usuario_id?.toLowerCase().includes(historialSearch.toLowerCase()) || r.usuario_nombre?.toLowerCase().includes(historialSearch.toLowerCase()) || r.codigo_barras?.toLowerCase().includes(historialSearch.toLowerCase()) || r.proveedor_nombre?.toLowerCase().includes(historialSearch.toLowerCase()) || r.referencia_factura?.toLowerCase().includes(historialSearch.toLowerCase()))).length === 0 && (
+                      {globalIngresos.filter(r => (!historialDate || r.fecha.startsWith(historialDate)) && (!historialSearch || r.proveedor_nombre?.toLowerCase().includes(historialSearch.toLowerCase()) || r.referencia_factura?.toLowerCase().includes(historialSearch.toLowerCase()) || r.usuario_id?.toLowerCase().includes(historialSearch.toLowerCase()) || r.usuario_nombre?.toLowerCase().includes(historialSearch.toLowerCase()))).length === 0 && (
                           <div className="col-span-full py-20 text-center">
                               <History className="w-16 h-16 text-slate-300 dark:text-slate-700 mx-auto mb-4" />
                               <p className="font-bold text-slate-500 text-lg">No se encontraron ingresos con los filtros seleccionados.</p>
