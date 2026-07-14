@@ -384,6 +384,28 @@ export function CompraDetalleModal({ isOpen, compra, onClose, onUpdate, onEditDr
                        <h4 className="font-black text-indigo-900 dark:text-indigo-200 text-lg mb-1">Monto Total</h4>
                        <p className="text-xs font-bold text-indigo-400 uppercase tracking-widest">Gastos / Fletes Extra: {compra.moneda_simbolo || '$'}{compra.gastos_extras || 0}</p>
                    </div>
+                   
+                   {compra.estado !== 'recibido' && compra.estado !== 'completada' && canWrite && (
+                       <label className="flex items-center gap-3 bg-white dark:bg-slate-850 border border-slate-200 dark:border-slate-850 px-4 py-2 rounded-xl cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 transition shadow-sm">
+                           <input 
+                               type="checkbox" 
+                               checked={compra.autorizado_recepcion || false}
+                               onChange={async (e) => {
+                                   const nextVal = e.target.checked ? 1 : 0;
+                                   try {
+                                       await executeAWSQuery(`UPDATE Stock_Compras SET autorizado_recepcion = ${nextVal} WHERE id = '${compra.id}'`);
+                                       toast.success(nextVal ? "Recepción autorizada para depósito" : "Recepción desautorizada");
+                                       onUpdate();
+                                   } catch(err: any) {
+                                       toast.error("Error al actualizar autorización: " + err.message);
+                                   }
+                               }}
+                               className="w-4 h-4 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500"
+                           />
+                           <span className="text-xs font-black uppercase tracking-wider text-slate-700 dark:text-slate-200 select-none">Autorizar Recepción</span>
+                       </label>
+                   )}
+
                     <div className="flex gap-4 items-center">
                        {compra.estado !== 'recibido' && canWrite && (
                             <div className="relative flex items-center">

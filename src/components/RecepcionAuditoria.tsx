@@ -61,7 +61,7 @@ export function RecepcionAuditoria({ onRecargaRequerida, onCartChange }: Recepci
                 SELECT c.*, p.nombre as proveedor_nombre 
                 FROM Stock_Compras c 
                 LEFT JOIN Stock_Proveedores p ON c.proveedor_id = p.id
-                WHERE c.estado = 'pendiente'
+                WHERE c.estado = 'pendiente' AND c.autorizado_recepcion = 1
                 ORDER BY c.fecha_creacion DESC
              `),
              executeAWSQuery("SELECT * FROM Stock_Categorias ORDER BY nombre"),
