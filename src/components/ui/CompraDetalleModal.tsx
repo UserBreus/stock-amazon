@@ -259,7 +259,7 @@ export function CompraDetalleModal({ isOpen, compra, onClose, onUpdate, onEditDr
                    DELETE FROM Stock_Compras_Detalle WHERE compra_id = '${compra.id}';
                    DELETE FROM Stock_Etiquetas WHERE compra_id = '${compra.id}' AND estado = 'pendiente_recepcion';
                    
-                   DECLARE @CompraSeq INT = (SELECT COALESCE(MAX(CAST(REPLACE(codigo_barras, '${compra.proveedor_id}' + REPLACE(REPLACE('${compra.referencia_factura || ''}', ' ', ''), '-', ''), '') AS INT)), 0) + 1 FROM Stock_Etiquetas WHERE codigo_barras LIKE '${compra.proveedor_id}' + REPLACE(REPLACE('${compra.referencia_factura || ''}', ' ', ''), '-', '') + '%');
+                   DECLARE @CompraSeq INT = (SELECT COALESCE(MAX(TRY_CAST(REPLACE(codigo_barras, '${compra.proveedor_id}' + REPLACE(REPLACE('${compra.referencia_factura || ''}', ' ', ''), '-', ''), '') AS INT)), 0) + 1 FROM Stock_Etiquetas WHERE compra_id = '${compra.id}');
                    IF @CompraSeq IS NULL SET @CompraSeq = 1;
                    
                    DECLARE @AlmacenId INT = (SELECT TOP 1 id FROM Stock_Depositos WHERE tipo='central' ORDER BY id ASC);
