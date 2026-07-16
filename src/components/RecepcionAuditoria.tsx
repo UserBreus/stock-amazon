@@ -213,6 +213,12 @@ export function RecepcionAuditoria({ onRecargaRequerida, onCartChange }: Recepci
       setLineasAuditoria(nw);
   };
 
+  const updateAlmacenItem = (idx: number, almacenId: number) => {
+      const nw = [...lineasAuditoria];
+      nw[idx].almacenId = almacenId;
+      setLineasAuditoria(nw);
+  };
+
   const procesarEscaneoQR = (codigo: string) => {
       if (etiquetasEscaneadas.includes(codigo.toUpperCase())) {
           return toast.error("Este código ya fue escaneado en esta sesión.");
@@ -346,8 +352,15 @@ export function RecepcionAuditoria({ onRecargaRequerida, onCartChange }: Recepci
 
   const procederAsentarIngreso = async () => {
 
-      if(!selectedAlmacenId) return toast.error("Por favor, seleccione el almacén o sector de destino.");
-      const almacenId = selectedAlmacenId;
+      // Validate that all items being audited have a target warehouse
+      for (const item of lineasAuditoria) {
+          if (item.Auditada > 0) {
+              const targetAlmacenId = item.almacenId || selectedAlmacenId;
+              if (!targetAlmacenId) {
+                  return toast.error(`Por favor, indique el almacén de destino para el artículo: ${item.descripcion}`);
+              }
+          }
+      }
 
       // Separar líneas por tipo de gestión
       const lineasGranel = lineasAuditoria.filter(l => l.Auditada > 0 && l.tipo_gestion !== 'lote_individual');
@@ -361,6 +374,7 @@ export function RecepcionAuditoria({ onRecargaRequerida, onCartChange }: Recepci
 
       // GRANEL: procesar cada bulto escaneado y las mermas manuales
       for(const item of lineasGranel) {
+         const itemAlmacenId = item.almacenId || selectedAlmacenId;
          if (contexto === 'compra') {
              const pendingForThis = etiquetasPreMinted.filter(e => e.variante_id.toString() === item.variante_id.toString());
              let idsToActivate = scannedLoteIds.filter(id => pendingForThis.some(p => p.id.toString() === id.toString()));
@@ -387,9 +401,9 @@ export function RecepcionAuditoria({ onRecargaRequerida, onCartChange }: Recepci
 
              if (idsToActivate.length > 0) {
                  q += `
-                   UPDATE Stock_Etiquetas SET deposito_id = ${almacenId}, estado = 'activo', cantidad_actual = cantidad_inicial WHERE id IN (${idsToActivate.join(',')});
+                   UPDATE Stock_Etiquetas SET deposito_id = ${itemAlmacenId}, estado = 'activo', cantidad_actual = cantidad_inicial WHERE id IN (${idsToActivate.join(',')});
                    INSERT INTO Stock_Movimientos (etiqueta_id, tipo_movimiento, cantidad_afectada, deposito_destino_id, referencia_compra_id, usuario_id)
-                   SELECT id, 'ingreso_auditoria_compra', cantidad_inicial, ${almacenId}, '${compraSeleccionada.id}', '${user?.id}' FROM Stock_Etiquetas WHERE id IN (${idsToActivate.join(',')});
+                   SELECT id, 'ingreso_auditoria_compra', cantidad_inicial, ${itemAlmacenId}, '${compraSeleccionada.id}', '${user?.id}' FROM Stock_Etiquetas WHERE id IN (${idsToActivate.join(',')});
                  `;
              }
          } else {
@@ -398,16 +412,17 @@ export function RecepcionAuditoria({ onRecargaRequerida, onCartChange }: Recepci
              q += `
                DECLARE @Fisico_${randomVar} INT;
                INSERT INTO Stock_Etiquetas (codigo_barras, variante_id, deposito_id, cantidad_inicial, cantidad_actual, costo_unitario_real, estado) 
-               VALUES (CONVERT(varchar(255), NEWID()), '${item.variante_id}', ${almacenId}, ${item.Auditada}, ${item.Auditada}, ${item.precio_unitario || 0}, 'activo');
+               VALUES (CONVERT(varchar(255), NEWID()), '${item.variante_id}', ${itemAlmacenId}, ${item.Auditada}, ${item.Auditada}, ${item.precio_unitario || 0}, 'activo');
                SET @Fisico_${randomVar} = SCOPE_IDENTITY();
                INSERT INTO Stock_Movimientos (etiqueta_id, tipo_movimiento, cantidad_afectada, deposito_destino_id, usuario_id)
-               VALUES (@Fisico_${randomVar}, 'ingreso_auditoria_libre', ${item.Auditada}, ${almacenId}, '${user?.id}');
+               VALUES (@Fisico_${randomVar}, 'ingreso_auditoria_libre', ${item.Auditada}, ${itemAlmacenId}, '${user?.id}');
              `;
          }
       }
 
       // LOTE INDIVIDUAL: actualizar específicamente las etiquetas físicas pre-creadas asignándoles cantidad 0 (peso diferido) y activándolas
       for(const item of lineasLoteInd) {
+         const itemAlmacenId = item.almacenId || selectedAlmacenId;
          if (contexto === 'compra') {
              // Obtenemos los IDs pre-minted para esto y activamos n de ellos
              const pendingForThis = etiquetasPreMinted.filter(e => e.variante_id.toString() === item.variante_id.toString());
@@ -424,9 +439,9 @@ export function RecepcionAuditoria({ onRecargaRequerida, onCartChange }: Recepci
 
              if (idsToActivate.length > 0) {
                  q += `
-                    UPDATE Stock_Etiquetas SET deposito_id = ${almacenId}, estado = 'activo', cantidad_actual = cantidad_inicial WHERE id IN (${idsToActivate.join(',')});
+                    UPDATE Stock_Etiquetas SET deposito_id = ${itemAlmacenId}, estado = 'activo', cantidad_actual = cantidad_inicial WHERE id IN (${idsToActivate.join(',')});
                     INSERT INTO Stock_Movimientos (etiqueta_id, tipo_movimiento, cantidad_afectada, deposito_destino_id, referencia_compra_id, usuario_id)
-                    SELECT id, 'ingreso_auditoria_compra', cantidad_inicial, ${almacenId}, '${compraSeleccionada.id}', '${user?.id}' FROM Stock_Etiquetas WHERE id IN (${idsToActivate.join(',')});
+                    SELECT id, 'ingreso_auditoria_compra', cantidad_inicial, ${itemAlmacenId}, '${compraSeleccionada.id}', '${user?.id}' FROM Stock_Etiquetas WHERE id IN (${idsToActivate.join(',')});
                  `;
              }
          } else {
@@ -437,10 +452,10 @@ export function RecepcionAuditoria({ onRecargaRequerida, onCartChange }: Recepci
                WHILE @Iter_${randomVar} < ${item.Auditada}
                BEGIN
                  INSERT INTO Stock_Etiquetas (codigo_barras, variante_id, deposito_id, cantidad_inicial, cantidad_actual, costo_unitario_real, estado)
-                 VALUES (CONVERT(varchar(255), NEWID()), '${item.variante_id}', ${almacenId}, 1, 1, ${item.precio_unitario || 0}, 'activo');
+                 VALUES (CONVERT(varchar(255), NEWID()), '${item.variante_id}', ${itemAlmacenId}, 1, 1, ${item.precio_unitario || 0}, 'activo');
                  DECLARE @FisicoId_${randomVar} INT = SCOPE_IDENTITY();
                  INSERT INTO Stock_Movimientos (etiqueta_id, tipo_movimiento, cantidad_afectada, deposito_destino_id, usuario_id)
-                 VALUES (@FisicoId_${randomVar}, 'ingreso_auditoria_libre', 1, ${almacenId}, '${user?.id}');
+                 VALUES (@FisicoId_${randomVar}, 'ingreso_auditoria_libre', 1, ${itemAlmacenId}, '${user?.id}');
                  SET @Iter_${randomVar} = @Iter_${randomVar} + 1;
                END
              `;
@@ -651,6 +666,7 @@ export function RecepcionAuditoria({ onRecargaRequerida, onCartChange }: Recepci
                                             <th className="px-6 py-4 text-center cursor-help" title="Lo que trae CADA bulto por dentro (Unidades, Litros, Kilos)">
                                                 <div className="flex items-center justify-center gap-1">Contenido del Bulto <HelpCircle className="w-3 h-3 text-slate-300"/></div>
                                             </th>
+                                            <th className="px-6 py-4 text-center">Almacén Destino</th>
                                             <th className="px-6 py-4 text-center">Estado</th>
                                         </tr>
                                     </thead>
@@ -707,6 +723,16 @@ export function RecepcionAuditoria({ onRecargaRequerida, onCartChange }: Recepci
                                                             {l.tipo_gestion === 'lote_individual' ? 'El peso de cada rollo se asignará luego en la balanza.' : '¿Qué cantidad trae CADA paquete por dentro?'}
                                                         </span>
                                                     </div>
+                                                </td>
+                                                <td className="px-6 py-4 text-center">
+                                                    <select 
+                                                        value={l.almacenId || selectedAlmacenId || ''} 
+                                                        onChange={(e) => updateAlmacenItem(index, Number(e.target.value))}
+                                                        className="border border-slate-200 dark:border-slate-800 text-xs font-bold px-2 py-1.5 rounded-lg bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none max-w-[150px] truncate"
+                                                    >
+                                                        <option value="" disabled>Seleccionar...</option>
+                                                        {depositos.map(d => <option key={d.id} value={d.id}>{d.nombre}</option>)}
+                                                    </select>
                                                 </td>
                                                 <td className="px-6 py-4 text-center flex flex-col items-center gap-2">
                                                    {l.estado === 'listo' && <span className="bg-emerald-100 text-emerald-600 text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-full flex items-center justify-center gap-1 mx-auto w-fit"><CheckCircle2 className="w-3 h-3"/> Listo</span>}
@@ -775,13 +801,14 @@ export function RecepcionAuditoria({ onRecargaRequerida, onCartChange }: Recepci
                                     <th className="px-6 py-4 text-center cursor-help" title="Lo que trae CADA bulto por dentro (Unidades, Litros, Kilos)">
                                         <div className="flex items-center justify-center gap-1">Contenido del Bulto <HelpCircle className="w-3 h-3 text-slate-300"/></div>
                                     </th>
+                                    <th className="px-6 py-4 text-center">Almacén Destino</th>
                                     <th className="px-6 py-4 text-center">Estado</th>
                                     <th className="px-4 py-4 text-center w-10"></th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-50 dark:divide-slate-900/50">
                                 {lineasAuditoria.length === 0 && (
-                                    <tr><td colSpan={5} className="text-center py-10 font-bold text-slate-400 uppercase tracking-widest">No hay artículos cargados a mano aún.</td></tr>
+                                    <tr><td colSpan={6} className="text-center py-10 font-bold text-slate-400 uppercase tracking-widest">No hay artículos cargados a mano aún.</td></tr>
                                 )}
                                 {lineasAuditoria.map((l, index) => (
                                     <tr key={index} className={cn("transition-colors", l.estado === 'listo' ? "bg-emerald-50/50 dark:bg-emerald-900/10" : "")}>
@@ -828,6 +855,16 @@ export function RecepcionAuditoria({ onRecargaRequerida, onCartChange }: Recepci
                                                     {l.tipo_gestion === 'lote_individual' ? 'El peso de cada rollo se asignará luego en la balanza.' : '¿Qué cantidad trae CADA paquete por dentro?'}
                                                 </span>
                                             </div>
+                                        </td>
+                                        <td className="px-6 py-4 text-center">
+                                            <select 
+                                                value={l.almacenId || selectedAlmacenId || ''} 
+                                                onChange={(e) => updateAlmacenItem(index, Number(e.target.value))}
+                                                className="border border-slate-200 dark:border-slate-800 text-xs font-bold px-2 py-1.5 rounded-lg bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-250 focus:ring-2 focus:ring-indigo-500 outline-none max-w-[150px] truncate"
+                                            >
+                                                <option value="" disabled>Seleccionar...</option>
+                                                {depositos.map(d => <option key={d.id} value={d.id}>{d.nombre}</option>)}
+                                            </select>
                                         </td>
                                         <td className="px-6 py-4 text-center flex flex-col items-center gap-2">
                                            {l.estado === 'listo' && <span className="bg-emerald-100 text-emerald-600 text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-full flex items-center justify-center gap-1 mx-auto w-fit"><CheckCircle2 className="w-3 h-3"/> Listo</span>}
